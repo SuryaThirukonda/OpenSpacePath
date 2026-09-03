@@ -1,0 +1,32 @@
+mean motion rev/day (TLE line 2)      : 15.48958602
+no_kozai   rad/min = 0.0675860690 -> a = 6797.910 km
+no_unkozai rad/min = 0.0675785386 -> a = 6798.415 km   (Brouwer/un-kozai'd; SGP4 uses this internally)
+delta a = 0.505 km  (Kozai J2 correction to mean motion; ~0.01%)
+SGP4 'am' at t=0 (earth radii) -> km: 6798.415306530265
+
+J2 secular rates for ISS: RAAN dot = -4.947 deg/day, argp dot = 3.692 deg/day
+  -> cross-track displacement from ignoring RAAN regression after 1 day: ~ 460 km (a*sin(i)*dRAAN)
+
+Naive Keplerian (TLE elements verbatim, a from no_kozai vs no_unkozai) vs SGP4, |dr| km:
+  t[min]     a(kozai)   a(unkozai)
+     0.0        11.75        11.73
+    10.0         9.01         8.78
+    46.0        20.37        22.05
+    92.9        30.54        29.80
+   180.0        54.14        54.53
+   720.0        37.08        73.76
+  1440.0       468.06       486.98
+  4320.0      1392.31      1444.69
+ 10080.0      3143.88      3241.53
+
+TLE ndot/2 = 3.91e-05 rev/day^2 -> n_dot = 7.820e-05 rev/day^2
+  ignore drag for  1 d: phase error 0.0000 rev = 1.7 km along-track (x 2*pi*a)
+  ignore drag for  3 d: phase error 0.0004 rev = 15.0 km along-track (x 2*pi*a)
+  ignore drag for  7 d: phase error 0.0019 rev = 81.8 km along-track (x 2*pi*a)
+  ignore drag for 14 d: phase error 0.0077 rev = 327.4 km along-track (x 2*pi*a)
+  decay of a per day from ndot: da/day = -(2/3)*a*(ndot/n) = -0.023 km/day
+  period (un-kozai) = 92.976 min; nodal-day westward shift per orbit = 23.63 deg
+
+Globe scale: Earth diameter 12742 km on a 900-px-tall globe -> 14.2 km/pixel
+  1 km/day drift needs 14 days to move 1 px at globe scale; 3 km/day -> 5 days
+  Zoomed view 2000 km across on 1600 px -> 1.25 km/px: 3 km/day is visible in ~1 day

@@ -1,0 +1,64 @@
+==============================================================================
+TEST 0: master-doc matrix == Curtis eq.4.49 Q_pX == Rz(RAAN)Rx(i)Rz(argp)?
+  max |difference| over 1000 random (i,RAAN,argp): 2.22e-16  -> IDENTICAL
+  (for reference: Rz(-RAAN)Rx(-i)Rz(-argp) differs from Q_pX by up to 1.883; it equals Q_pX^T: False)
+==============================================================================
+TEST 1: Curtis Example 4.7 (Algorithm 4.5), mu = 398600 km^3/s^2
+  r (km)   = [-4039.8959,  4814.5605,  3628.6247]   expected [-4040, 4815, 3629]
+  v (km/s) = [-10.3860, -4.7719,  1.7439]   expected [-10.39, -4.772, 1.744]
+  perifocal r = [ 6284.9623,  3628.6247,  0.0000] km (Curtis: [6285.0, 3628.6, 0]), v = [-2.4912,  11.2905,  0.0000] km/s (Curtis: [-2.4913, 11.290, 0])
+  Q_pX =
+[[-0.09907 -0.94175  0.32139]
+ [ 0.89593 -0.22496 -0.38302]
+ [ 0.43301  0.25     0.86603]]
+  |r| = 7257.25 km, check (h^2/mu)/(1+e cos th) = 7257.25 km
+  round trip -> h=80000.0 e=1.4000 i=30.000 RAAN=40.000 argp=60.000 theta=30.000 deg
+  PASS
+==============================================================================
+TEST 1b: orbital-mechanics.space worked example (retrograde, i=124.05 deg), mu = 398600
+  r (km)   = [ 1003.3056,  5019.1343,  7026.3482]   expected [1000, 5000, 7000]  (page quotes e to 3 decimals;
+  v (km/s) = [ 2.9917,  4.0019,  5.0046]   expected [3, 4, 5]            1+e cos(nu) = 0.1114 amplifies rounding)
+  inverse of the page's r,v -> h=19646.883 e=0.947541 i=124.048 RAAN=190.620 argp=303.091 theta=159.612 deg
+  forward map of those unrounded elements: r = [ 1000.0000,  5000.0000,  7000.0000], v = [ 3.0000,  4.0000,  5.0000]
+  PASS (round trip exact; 0.3% residual vs the page is its 3-decimal rounding of e)
+==============================================================================
+TEST 2: ISS-like a=6795 km, e=0.0005, i=51.6 deg via elements_to_eci (JS translation)
+  mean motion n = 1.127158e-03 rad/s, period T = 92.91 min
+  |r| over one rev: 6791.60 .. 6798.40 km  (a(1-e)=6791.60, a(1+e)=6798.40)
+  speed (central-difference derivative): 7.6552 .. 7.6629 km/s
+  vis-viva circular speed sqrt(mu/a) = 7.6590 km/s
+  at t=1234.5s: r_JS = [ 4312.0565, -270.3082,  5240.3135], r_Alg4.5 = [ 4312.0565, -270.3082,  5240.3135]  max diff 9.09e-13 km
+             v_numeric = [-0.8062,  7.5473,  1.0513], v_analytic = [-0.8062,  7.5473,  1.0513]  max diff 4.01e-09 km/s
+  round trip: a=6795.00 e=0.000500 i=51.6000 RAAN=282.4000 argp=96.500 deg
+  PASS
+==============================================================================
+TEST 3: hand cases (a=7000 km circular)
+  i=  0 RAAN=  0 argp=  0 th=  0: r=[ 7000.0000,  0.0000,  0.0000] |v|=7.5461 km/s  OK  equatorial, at periapsis/x-axis
+  i=  0 RAAN=  0 argp=  0 th= 90: r=[ 0.0000,  7000.0000,  0.0000] |v|=7.5461 km/s  OK  equatorial, 90 deg along track -> +y
+  i= 30 RAAN=  0 argp=  0 th= 90: r=[ 0.0000,  6062.1778,  3500.0000] |v|=7.5461 km/s  OK  i=30, node on +x, 90 deg past node -> y=r cos i, z=r sin i
+  i= 90 RAAN= 90 argp=  0 th= 90: r=[-0.0000,  0.0000,  7000.0000] |v|=7.5461 km/s  OK  polar, node on +y, 90 deg past node -> +z (north pole)
+  i= 30 RAAN=  0 argp= 90 th=  0: r=[ 0.0000,  6062.1778,  3500.0000] |v|=7.5461 km/s  OK  same point via argp=90, theta=0
+  i=  0 RAAN=  0 argp=  0 th=180: r=[-7000.0000,  0.0000,  0.0000] |v|=7.5461 km/s  OK  equatorial, apoapsis direction -> -x
+  i= 30 RAAN= 90 argp=  0 th= 90: r=[-6062.1778,  0.0000,  3500.0000] |v|=7.5461 km/s  OK  i=30, node on +y, 90 deg past node -> -x cos i, +z sin i
+  circular speed sqrt(mu/a) = 7.5461 km/s, period = 97.14 min
+  PASS
+==============================================================================
+TEST 4: Kepler solver / anomaly relations, e=0.74 (Molniya-like)
+  M= 30 deg -> E=  69.788 deg -> theta= 122.006 deg   (E - e sinE - M = 0.0e+00)
+  M= 90 deg -> E= 124.811 deg -> theta= 157.156 deg   (E - e sinE - M = 0.0e+00)
+  M=180 deg -> E= 180.000 deg -> theta= 180.000 deg   (E - e sinE - M = 0.0e+00)
+  M=270 deg -> E= 235.189 deg -> theta= 202.844 deg   (E - e sinE - M = 0.0e+00)
+  (theta runs far ahead of M near periapsis and lags near apoapsis: Kepler's 2nd law)
+  theta_dot(peri)/theta_dot(apo) = ((1+e)/(1-e))^2 = 44.79 for e=0.74; = 1.0020 for ISS e=0.0005
+==============================================================================
+TEST 5: typical orbits (Question 3 numbers)
+  ISS TLE: n=15.48958602 rev/day -> a=6797.9 km (alt ~420 km), T=92.97 min, i=51.63 deg, e=0.0005055
+  GEO: T=86164.09 s -> a=42164.2 km (alt 35786 km), v=3.0747 km/s, i=0, e=0
+  Molniya: a=26600 km, e=0.74 -> T=719.6 min (11.99 h), perigee alt=538 km, apogee alt=39906 km, i=63.4 deg, argp=270 deg
+     critical inclination: 4 - 5 sin^2 i = 0 -> i = 63.43 deg
+  SSO 600 km circular: T=96.7 min, required i = 97.79 deg (RAAN_dot = -1.5 J2 n (Re/a)^2 cos i = +0.9856 deg/day)
+  SSO 700 km circular: T=98.8 min, required i = 98.19 deg (RAAN_dot = -1.5 J2 n (Re/a)^2 cos i = +0.9856 deg/day)
+  SSO 800 km circular: T=100.9 min, required i = 98.60 deg (RAAN_dot = -1.5 J2 n (Re/a)^2 cos i = +0.9856 deg/day)
+  ISS ground-track shift per orbit = 360 deg * T/86164 s = 23.31 deg westward
+==============================================================================
+ALL TESTS PASSED

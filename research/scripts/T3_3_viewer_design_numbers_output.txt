@@ -1,0 +1,23 @@
+[1] km per pixel = 2*d*tan(fov/2)/H, fov=45 deg, H=1080 px
+    camera dist   8400 km ->    6.44 km/px
+    camera dist  10000 km ->    7.67 km/px
+    camera dist  20000 km ->   15.34 km/px
+    camera dist  42664 km ->   32.73 km/px
+    camera dist 100000 km ->   76.71 km/px
+[2] ISS v=7.657 km/s: per 16.7 ms frame moves 128 m = 0.020 px at d=8400 km; 0.5 s extrapolation error 1.08 m = 1.68e-04 px (invisible)
+[2] ISS v=7.657 km/s: per 16.7 ms frame moves 128 m = 0.008 px at d=20000 km; 0.5 s extrapolation error 1.08 m = 7.04e-05 px (invisible)
+[3] circle r=6798 km, N= 64 segs -> sagitta   8.189 km = 1.07 px at d=10000 km
+[3] circle r=6798 km, N=128 segs -> sagitta   2.047 km = 0.27 px at d=10000 km
+[3] circle r=6798 km, N=255 segs -> sagitta   0.516 km = 0.07 px at d=10000 km
+[3] circle r=6798 km, N=512 segs -> sagitta   0.128 km = 0.02 px at d=10000 km
+[3] GTO perigee r=6628 km, 13.14 deg step (equal-time, 255 segs) -> sagitta 43.5 km = 5.7 px -> visible kink; sample by true anomaly instead
+[4] label box 90x16 px + gutters -> hard cap 924 labels on 1920x1080; usable (<=15% coverage) ~139; practical rule: <=40 labels, min separation 24 px, priority by (selected, searched, brightness)
+[5] sprite alpha 0.85: normal blending reaches 99% after 2.4 overlaps; additive clips to white after 1.2 overlaps
+[5] sprite alpha 0.5: normal blending reaches 99% after 6.6 overlaps; additive clips to white after 2.0 overlaps
+[5] sprite alpha 0.2: normal blending reaches 99% after 20.6 overlaps; additive clips to white after 5.0 overlaps
+[6] 15151 points at 20 px -> 6.1 Mfragments/frame, 0.36 Gfrag/s (fine for any GPU; bottleneck is CPU SGP4 + upload)
+[6] 15151 points at 7.5 px -> 0.9 Mfragments/frame, 0.05 Gfrag/s (fine for any GPU; bottleneck is CPU SGP4 + upload)
+[6] 45000 points at 7.5 px -> 2.5 Mfragments/frame, 0.15 Gfrag/s (fine for any GPU; bottleneck is CPU SGP4 + upload)
+[7] 15151 objects SGP4 = 25 ms/pass at 1.64 us/obj -> every 500 ms uses 5% of one worker core; per-frame (16.7 ms) would need 2 cores
+[7] 30000 objects SGP4 = 49 ms/pass at 1.64 us/obj -> every 500 ms uses 10% of one worker core; per-frame (16.7 ms) would need 3 cores
+[7] 45000 objects SGP4 = 74 ms/pass at 1.64 us/obj -> every 500 ms uses 15% of one worker core; per-frame (16.7 ms) would need 5 cores

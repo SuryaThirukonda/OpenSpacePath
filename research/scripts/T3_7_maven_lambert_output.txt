@@ -1,0 +1,6 @@
+[                                 ]   0% de421.bsp[##                               ]   8% de421.bsp[#######                          ]  21% de421.bsp[#############                    ]  41% de421.bsp[######################           ]  68% de421.bsp[#################################] 100% de421.bsp
+TOF = 307.2 days; |r1|=0.9883 AU |r2|=1.4256 AU
+Lambert (0-rev, prograde): v_inf depart = 3.470 km/s (C3 = 12.04 km^2/s^2); v_inf arrive = 3.183 km/s
+Tutorial's Earth hyperbola implies v_inf = 3.497 km/s (C3 12.23) - compare to Lambert C3 above
+|B|=7000 km -> r_p = 3951 km (alt 554 km); MOI dv to 12000-km apoapsis = -1.602 km/s (GMAT tutorial initial guess -1.603 km/s)
+|B|=7503 km -> r_p = 4385 km (alt 989 km); MOI dv to 12000-km apoapsis = -1.664 km/s (GMAT tutorial initial guess -1.603 km/s)

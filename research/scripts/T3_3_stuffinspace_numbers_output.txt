@@ -1,0 +1,33 @@
+[1] constant sqrt(mu)*86400/(2pi) with wgs84: 8681659.769  (code uses 8681663.653)
+[1] constant sqrt(mu)*86400/(2pi) with wgs72: 8681663.670  (code uses 8681663.653)
+    ISS-like n=15.5 rev/day -> a = 6794.9 km, alt(circular) = 423.9 km, period = 92.90 min
+[2] alt=  420 km v=7.661 km/s a_c=8.643 m/s^2 dt=0.5s -> linear-extrapolation error = 1.08 m
+[2] alt=  420 km v=7.661 km/s a_c=8.643 m/s^2 dt=1.0s -> linear-extrapolation error = 4.32 m
+[2] alt=20200 km v=3.873 km/s a_c=0.565 m/s^2 dt=0.5s -> linear-extrapolation error = 0.07 m
+[2] alt=20200 km v=3.873 km/s a_c=0.565 m/s^2 dt=1.0s -> linear-extrapolation error = 0.28 m
+[2] alt=35786 km v=3.075 km/s a_c=0.224 m/s^2 dt=0.5s -> linear-extrapolation error = 0.03 m
+[2] alt=35786 km v=3.075 km/s a_c=0.224 m/s^2 dt=1.0s -> linear-extrapolation error = 0.11 m
+[3] 15151 objects: pos buffer = 177.6 KB/frame; at 60 fps = 10.9 MB/s; color buf (RGBA f32) = 236.7 KB
+[4] eye depth   8400 km -> point size 20.0 px (clamped 7.5..20)
+[4] eye depth  10000 km -> point size 20.0 px (clamped 7.5..20)
+[4] eye depth  20000 km -> point size 16.0 px (clamped 7.5..20)
+[4] eye depth  42664 km -> point size 7.5 px (clamped 7.5..20)
+[4] eye depth 100000 km -> point size 7.5 px (clamped 7.5..20)
+[4] eye depth 200000 km -> point size 7.5 px (clamped 7.5..20)
+[5] sprite radius fraction 0.00 -> alpha 1.000
+[5] sprite radius fraction 0.25 -> alpha 0.614
+[5] sprite radius fraction 0.50 -> alpha 0.216
+[5] sprite radius fraction 0.75 -> alpha 0.043
+[5] sprite radius fraction 0.90 -> alpha 0.008
+[5] sprite radius fraction 1.00 -> alpha 0.001
+[6] zoomLevel 0.00 -> camera distance 6400 km
+[6] zoomLevel 0.25 -> camera distance 9425 km
+[6] zoomLevel 0.50 -> camera distance 30600 km
+[6] zoomLevel 0.75 -> camera distance 88075 km
+[6] zoomLevel 1.00 -> camera distance 200000 km
+[7] ISS      e=0.0005: 255 equal-time segments -> max true-anomaly step 1.41 deg (at perigee), min 1.410 deg (apogee); ratio 1.0x  (uniform would be 1.41 deg)
+[7] GPS      e=0.01: 255 equal-time segments -> max true-anomaly step 1.44 deg (at perigee), min 1.384 deg (apogee); ratio 1.0x  (uniform would be 1.41 deg)
+[7] GTO      e=0.73: 255 equal-time segments -> max true-anomaly step 13.14 deg (at perigee), min 0.322 deg (apogee); ratio 41.1x  (uniform would be 1.41 deg)
+[7] Molniya  e=0.74: 255 equal-time segments -> max true-anomaly step 13.93 deg (at perigee), min 0.314 deg (apogee); ratio 44.8x  (uniform would be 1.41 deg)
+[8] 1/86400000 = 1.157407e-08 (code uses 1.15741e-8)
+[9] bundled TLE.json (epoch ~2015 day 133) has 15151 objects; CelesTrak full catalog 2026 is ~3x larger (see T3.3 notes)

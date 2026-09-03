@@ -1,0 +1,50 @@
+=== 1. Why 'true scale' reads as empty blackness ===
+viewport 1000px spanning Neptune's orbit diameter: 8,996,816 km/px
+  Earth diameter = 1.42e-03 px ; Sun diameter = 0.155 px
+  Earth-Moon distance (384400 km) = 0.043 px ; GEO radius 42164 km = 0.0047 px
+viewport spanning Mars orbit: 455,974 km/px ; Earth diameter 0.028 px
+-> every viewer (Eyes, spacekit, Celestia) draws bodies as min-pixel-size sprites/labels; Eyes config carries per-entity 'extentsRadius'/'occlusionRadius' and 'scale' fields for exactly this.
+
+=== 2. Log-scale distance mapping (Phase B1 toggle) ===
+  Mercury  true   0.39 AU -> logmap  0.108 AU  (compression   3.6x)
+  Venus    true   0.72 AU -> logmap  0.137 AU  (compression   5.3x)
+  Earth    true   1.00 AU -> logmap  0.152 AU  (compression   6.6x)
+  Mars     true   1.52 AU -> logmap  0.172 AU  (compression   8.8x)
+  Jupiter  true   5.20 AU -> logmap  0.233 AU  (compression  22.4x)
+  Saturn   true   9.54 AU -> logmap  0.263 AU  (compression  36.3x)
+  Uranus   true  19.19 AU -> logmap  0.298 AU  (compression  64.5x)
+  Neptune  true  30.07 AU -> logmap  0.320 AU  (compression  94.0x)
+  Neptune/Mercury radius ratio: true 77.7x, log-mapped 3.0x
+  pitfall: a log map is NOT a similarity transform -> Lambert arcs must be sampled in true km and each sample mapped; never map the endpoints and draw a straight/keplerian arc in mapped space.
+
+=== 3. float32 precision at solar-system distances (why heliocentric Three.js scenes jitter) ===
+  LEO (7000 km from Earth)   r=7.000e+03 km  float32 ulp =     0.00 km   float64 ulp = 9.09e-13 km
+  Earth                      r=1.496e+08 km  float32 ulp =    16.00 km   float64 ulp = 2.98e-08 km
+  Mars                       r=2.280e+08 km  float32 ulp =    16.00 km   float64 ulp = 2.98e-08 km
+  Jupiter                    r=7.784e+08 km  float32 ulp =    64.00 km   float64 ulp = 1.19e-07 km
+  Neptune                    r=4.498e+09 km  float32 ulp =   512.00 km   float64 ulp = 9.54e-07 km
+  rule: float32 has 24 significant bits -> relative step 2^-23 = 1.19e-07 ; at 1 AU that is ~17.8 km, bigger than the ISS (~0.1 km).
+  fix used by Cesium (RTC/'relative to center' + high/low double emulation) and by Eyes/Pioneer (camera-relative/floating origin, positions kept in JS doubles, only camera-relative offsets uploaded as float32).
+
+=== 4. Time-rate ladder: how long a Mars transfer takes to watch ===
+  Hohmann Earth->Mars ToF = 258.9 d = 8.51 months ; Earth-Mars synodic period = 779.6 d
+  at 1 s/s (real time) : Mars transfer plays in 22370269.0 s ; 1949-2049 (100 yr) plays in   3155760000 s ; ISS orbit (92.9 min) in  5574.000 s
+  at 1 min/s           : Mars transfer plays in   372837.8 s ; 1949-2049 (100 yr) plays in     52596000 s ; ISS orbit (92.9 min) in    92.900 s
+  at 1 hr/s            : Mars transfer plays in     6214.0 s ; 1949-2049 (100 yr) plays in       876600 s ; ISS orbit (92.9 min) in     1.548 s
+  at 1 day/s           : Mars transfer plays in      258.9 s ; 1949-2049 (100 yr) plays in        36525 s ; ISS orbit (92.9 min) in     0.065 s
+  at 1 week/s          : Mars transfer plays in       37.0 s ; 1949-2049 (100 yr) plays in         5218 s ; ISS orbit (92.9 min) in     0.009 s
+  at 1 month/s         : Mars transfer plays in        8.5 s ; 1949-2049 (100 yr) plays in         1200 s ; ISS orbit (92.9 min) in     0.002 s
+  at 1 yr/s            : Mars transfer plays in        0.7 s ; 1949-2049 (100 yr) plays in          100 s ; ISS orbit (92.9 min) in     0.000 s
+  design rule: a rate ladder must span ~1e0..1e7 (real time to years/sec) -> use a log/rung slider (Eyes 'rate' param; satvis ClockDeck rungs), not a linear one.
+
+=== 5. Sampling density for a trajectory arc / trail ===
+  Eyes trail:length 31536e4 s = 9.99 yr ; 8.64e4 s = 1 day
+    64 segments over 180 deg transfer: chord sag = 56,861 km = 0.12 px (Mars-orbit view)
+   128 segments over 180 deg transfer: chord sag = 14,216 km = 0.03 px (Mars-orbit view)
+   256 segments over 180 deg transfer: chord sag = 3,554 km = 0.01 px (Mars-orbit view)
+   512 segments over 180 deg transfer: chord sag = 888 km = 0.00 px (Mars-orbit view)
+  -> 256 samples of a Lambert arc is visually exact at solar-system zoom; resample adaptively when zoomed near a planet.
+
+=== 6. Interplanetary 'orb' points: what a Kepler-element sample buys ===
+  30000 asteroids x 6 Newton iterations x ~20 flops = 3.6 MFLOP/frame -> ~216 MFLOP/s at 60 fps (JS does ~1e3 MFLOP/s): fine on the main thread
+  -> 'elements + epoch' is a 7-number record per object: this is why Eyes on Asteroids can ship 30k+ orbits as a small download.

@@ -1,0 +1,7 @@
+http://stuffin.space/ -> code=301 redirect='https://stuffin.space/' bytes=167
+https://stuffin.space/ -> code=301 redirect='' bytes=0
+https://www.stuffin.space/ -> code=301 redirect='' bytes=0
+https://stuffin.space/TLE.json -> code=404 redirect='' bytes=0
+https://stuffin.space/scripts/main.js -> code=404 redirect='' bytes=0
+https://ajmas.github.io/StuffInSpace/ -> code=200 redirect='' bytes=8155
+https://ajmas.github.io/StuffInSpace/data/TLE.json -> code=200 redirect='' bytes=27749168

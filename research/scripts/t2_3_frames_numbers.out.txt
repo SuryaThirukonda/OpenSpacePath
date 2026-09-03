@@ -1,0 +1,64 @@
+TLE: ISS (ZARYA)
+1 25544U 98067A   26244.49851260  .00003910  00000+0  79223-4 0  9992
+2 25544  51.6312 282.3953 0005055  96.4740 263.6824 15.48958602583585
+
+TLE epoch (UTC): 2026-09-01T11:57:51Z
+JD(UTC) = 2461284.99851260   JD(UT1) = 2461284.99851370   DUT1 = UT1-UTC = 0.0948 s   delta_T = TT-UT1 = 69.089 s
+
+== Precession since J2000 (back of envelope) ==
+Julian years since J2000.0 (TT): 26.667
+rate 50.288 arcsec/yr  ->  accumulated 1341.0 arcsec = 0.3725 deg = 0.006501 rad
+  chord displacement at LEO r=6790 km: 44.1 km
+  chord displacement at GEO r=42164 km: 274.1 km
+
+== Skyfield TEME.rotation_at(epoch): rotation angle between GCRS and TEME axes ==
+angle = 1342.6 arcsec = 0.3729 deg
+rotation axis (GCRS coords): [ 0.0062 -0.4007  0.9162]  (ecliptic pole is (0, -0.398, 0.917): precession about it)
+
+== ISS at TLE epoch ==
+sgp4 error code: 0
+r_TEME (km) [python-sgp4]: [ 1459.447 -6640.542    -0.   ]  |r| = 6799.028 km (428.0 km above R=6371)
+v_TEME (km/s): [4.63947 1.03035 6.00716]  |v| = 7.6598 km/s
+r_GCRS/ICRF (km) [skyfield sat.at(t).position]: [ 1.419815e+03 -6.649128e+03 -3.488000e+00]
+r_TEME  (km) [skyfield frame_xyz(TEME)]     : [ 1459.447 -6640.542    -0.   ]  |diff vs raw sgp4| = 0.0000 km (skyfield feeds UT1 to sgp4)
+r_ITRS  (km) [skyfield frame_xyz(itrs)]     : [-3629.65   5749.124    -0.   ]
+
+** BUG A: treat TEME as if it were GCRF/J2000 (raw SGP4 xyz into Cesium ReferenceFrame.INERTIAL) **
+   |r_GCRS - r_TEME| = 40.701 km  (angular error 0.3430 deg = 1235 arcsec)
+
+== GMST at epoch ==
+satellite.js gstime(UTC as UT1)  : 2.794779387 rad = 160.129064 deg
+Cesium TEME->pseudo-fixed angle  : 2.794779387 rad = 160.129064 deg
+difference satellite.js - Cesium : 3.361e-12 rad -> 0.00 cm at LEO(6790 km), 0.01 cm at GEO(42164 km)
+GMST with true UT1 instead of UTC: 2.794786300 rad; UT1-vs-UTC shift = 6.912e-06 rad = 46.9 m at LEO (DUT1=0.095 s)
+Skyfield t.gmst (hours->rad)     : 2.794786013 rad
+Skyfield t.gast (hours->rad)     : 2.794826198 rad   (GAST-GMST = equation of equinoxes = 4.019e-05 rad = 272.9 m at LEO)
+
+== TEME -> PEF via Rz(GMST) (satellite.js eciToEcf / Cesium computeTemeToPseudoFixedMatrix) ==
+r_PEF (km): [-3629.689  5749.099    -0.   ]
+|r_PEF - r_ITRS(skyfield, full IAU 2006/2000A + polar motion + UT1)| = 47.0 m
+
+** BUG B: raw TEME xyz straight into Cesium FIXED frame (GMST rotation skipped) **
+   |r_TEME - r_ITRS| = 13394.1 km at epoch (GMST = 160.1 deg); the error sweeps 360 deg per sidereal day
+
+** BUG C: rotate a true GCRS/J2000 vector by plain GMST (skipping precession/nutation) **
+   |Rz(GMST) r_GCRS - r_ITRS| = 40.7 km
+
+== Subpoint (skyfield: GCRS -> ITRS -> WGS84 geodetic) ==
+lat -0.0000 deg, lon 122.2658 deg, height 420.89 km
+Subpoint from PEF (Rz(GMST) TEME)      : (-0.0, 122.2662, 420.8912)
+Subpoint if TEME wrongly used as ECEF   : (-0.0, -77.6047, 420.8912)  <- longitude off by GMST
+
+== WGS72 vs WGS84 gravity constants in SGP4 (same TLE) ==
+|r_wgs72 - r_wgs84| = 30.9 m at epoch
+|r_wgs72 - r_wgs84| = 11.8 m one day after epoch
+
+== Known-answer anchors ==
+mean motion 15.48958602 rev/day -> period 92.97 min; Earth rotates 23.31 deg per orbit (360.9856 deg/day)
+
+== BUG A angular offset is a constant of the epoch, not of TLE age ==
+   0.00 yr after J2000 -> 0 arcsec = 0.000 deg -> 0.0 km at LEO, 0.0 km at GEO
+  10.00 yr after J2000 -> 503 arcsec = 0.140 deg -> 16.6 km at LEO, 102.8 km at GEO
+  20.00 yr after J2000 -> 1006 arcsec = 0.279 deg -> 33.1 km at LEO, 205.6 km at GEO
+  26.67 yr after J2000 -> 1341 arcsec = 0.373 deg -> 44.2 km at LEO, 274.2 km at GEO
+  30.00 yr after J2000 -> 1509 arcsec = 0.419 deg -> 49.7 km at LEO, 308.4 km at GEO

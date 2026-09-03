@@ -1,0 +1,15 @@
+
+Q: satellite tracker three.js  total=55
+  dsuarezv/satellite-tracker | stars=216 | pushed=2024-01-14 | lic=MIT | lang=JavaScript | Javascript 3D satellite tracker library with up-to-date data from CELESTRAK. Uses Three.js, React and satellit
+  juliensimon/starlink-viz | stars=28 | pushed=2026-06-11 | lic=MIT | lang=TypeScript | Real-time 3D Starlink satellite tracker with Space view, Sky view, live dish telemetry, SGP4 propagation, and 
+  Boex9/SatDeck | stars=26 | pushed=2026-03-21 | lic=None | lang=JavaScript | Satellite tracking & orbit visualization in the browser using Three.js and SGP4
+  satvisorcom/satvisor | stars=11 | pushed=2026-03-16 | lic=AGPL-3.0 | lang=TypeScript | 3D satellite tracker with orbit visualization, pass predictions, and antenna rotator control (GS-232, EasyComm
+  chrisbajorin/spacejunk | stars=6 | pushed=2015-03-16 | lic=None | lang=JavaScript | Three.js visualization tracking satellites with decaying orbits
+  Yatharth10-bit/Satellite-tracker | stars=2 | pushed=2026-06-15 | lic=None | lang=TypeScript | ORBITAL is a real-time satellite tracking app that visualizes 20,000+ active objects in Earth orbit on an inte
+Traceback (most recent call last):
+  File "C:\Users\thiru\AppData\Local\Temp\claude\C--Users-thiru-tamu2-ecs-research-rathinam\5b6188bd-1182-4842-a6a3-cb49230254ab\scratchpad\notes\T3_3_gh_search.py", line 13, in <module>
+    print(f"  {it['full_name']} | stars={it['stargazers_count']} | pushed={it['pushed_at'][:10]} | lic={(it.get('license') or {}).get('spdx_id')} | lang={it.get('language')} | {(it.get('description') or '')[:110]}")
+  File "C:\Users\thiru\AppData\Local\Programs\Python\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2011' in position 92: character maps to <undefined>

@@ -1,0 +1,9 @@
+satellite.js version fields present: error, satnum, epochyr, epochdays, ndot, nddot, bstar, inclo, nodeo, ecco, argpo, mo, no, jdsatepoch, method, nokozai, a, alta, altp
+constants: mu 398600.8 earthRadius 6378.135 xke 0.07436691613317342 tumin 13.446839696959309 j2 0.001082616
+no       (rad/min, un-Kozai'd, satvis Orbit.orbitalPeriod uses this): 0.06757853863463395 -> 15.487860197705208 rev/day
+no_kozai (rad/min, raw TLE): undefined -> NaN rev/day
+a (ER): 1.0658939182896356 = 6798.415306530265 km ; alta*RE = 423.7169054677169 km ; altp*RE = 416.8437075928136 km  <- satvis Apogee / Perigee row
+ecco 0.0005055 inclo deg 51.6312 nodeo deg 282.3953 argpo deg 96.474 mo deg 263.6824 bstar 0.000079223
+jdsatepoch 2461284.9985126 jdsatepochF undefined error 0
+orbitalPeriod = 2pi/no = 92.97604585902452 min
+live strip @ 2026-09-01T12:00:00.000Z: LAT 6.54 deg  LON 126.90 deg  ALT 419.78 km  VEL 7.66 km/s  |r| 6797.6 km

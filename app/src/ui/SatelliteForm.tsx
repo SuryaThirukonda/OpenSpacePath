@@ -1,0 +1,218 @@
+import { useEffect, useState } from 'react'
+import { DEG, RAD, wrapTwoPi } from '../core/constants'
+import { validateElements } from '../core/elements'
+import { trueToMean, meanToTrue } from '../core/kepler'
+import { getBody } from '../data/bodies'
+import { ISS_TLE, newId, PRESETS, satelliteFromPreset } from '../data/presets'
+import { parseTle } from '../propagation/sgp4Propagator'
+import { selectedSatellite, useStore } from '../store/store'
+import type { KeplerSatellite, OrbitalElements } from '../types'
+
+type Mode = 'preset' | 'elements' | 'tle'
+
+const COLORS = ['#7cf5ff', '#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd', '#ffffff']
+
+interface ElementFields {
+  name: string
+  a: string
+  e: string
+  i: string
+  raan: string
+  argp: string
+  nu: string
+  color: string
+}
+
+function fieldsFromSatellite(s: KeplerSatellite): ElementFields {
+  const el = s.elements
+  return {
+    name: s.name,
+    a: el.a.toFixed(1),
+    e: String(el.e),
+    i: (el.i * RAD).toFixed(2),
+    raan: (el.raan * RAD).toFixed(2),
+    argp: (el.argp * RAD).toFixed(2),
+    nu: (wrapTwoPi(meanToTrue(el.M0, el.e)) * RAD).toFixed(2),
+    color: s.color,
+  }
+}
+
+const EMPTY: ElementFields = { name: 'New satellite', a: '7000', e: '0', i: '45', raan: '0', argp: '0', nu: '0', color: COLORS[0] }
+
+export function SatelliteForm() {
+  const bodyId = useStore((s) => s.scenario.bodyId)
+  const selected = useStore(selectedSatellite)
+  const addSatellite = useStore((s) => s.addSatellite)
+  const updateSatellite = useStore((s) => s.updateSatellite)
+  const requestCamera = useStore((s) => s.requestCamera)
+  const [mode, setMode] = useState<Mode>('preset')
+  const [presetId, setPresetId] = useState(PRESETS[0].id)
+  const [f, setF] = useState<ElementFields>(EMPTY)
+  const [tleText, setTleText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (selected?.kind === 'kepler') {
+      setF(fieldsFromSatellite(selected))
+      setMode('elements')
+    }
+  }, [selected])
+
+  const body = getBody(bodyId)
+  const presets = PRESETS.filter((p) => p.bodyId === bodyId)
+  useEffect(() => {
+    if (!presets.some((p) => p.id === presetId) && presets[0]) setPresetId(presets[0].id)
+  }, [presets, presetId])
+
+  function parseElements(): OrbitalElements | null {
+    const num = (s: string) => Number(s.trim())
+    const e = num(f.e)
+    const el: OrbitalElements = {
+      a: num(f.a), e,
+      i: num(f.i) * DEG, raan: num(f.raan) * DEG, argp: num(f.argp) * DEG,
+      M0: Number.isFinite(e) && e < 1 ? trueToMean(num(f.nu) * DEG, e) : NaN,
+    }
+    const v = validateElements(el, body.radius)
+    if (!v.ok) {
+      setError(v.problems.join('; '))
+      return null
+    }
+    setError(null)
+    return el
+  }
+
+  function submitElements(asNew: boolean) {
+    const el = parseElements()
+    if (!el) return
+    if (!asNew && selected?.kind === 'kepler') {
+      updateSatellite({ ...selected, name: f.name || selected.name, color: f.color, elements: el })
+    } else {
+      addSatellite({ id: newId('sat'), kind: 'kepler', name: f.name || 'Satellite', color: f.color, elements: el })
+    }
+  }
+
+  function submitPreset() {
+    const p = PRESETS.find((x) => x.id === presetId)
+    if (!p) return
+    addSatellite(satelliteFromPreset(p))
+    setError(null)
+  }
+
+  function submitTle() {
+    const lines = tleText.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0)
+    let name = 'TLE satellite'
+    let l1: string | undefined
+    let l2: string | undefined
+    if (lines.length >= 3) [name, l1, l2] = [lines[0].trim(), lines[1], lines[2]]
+    else if (lines.length === 2) [l1, l2] = lines
+    if (!l1 || !l2) {
+      setError('paste a name line (optional) followed by the two element lines')
+      return
+    }
+    const res = parseTle(l1, l2)
+    if (!res.ok) {
+      setError(res.error ?? 'invalid TLE')
+      return
+    }
+    setError(null)
+    addSatellite({ id: newId('tle'), kind: 'tle', name, color: f.color, line1: l1, line2: l2 })
+    if (bodyId !== 'earth') setError('TLE added, but it only renders with Earth at the centre')
+  }
+
+  const field = (key: keyof ElementFields, label: string, step = 'any') => (
+    <label className="field">
+      <span>{label}</span>
+      <input type="number" step={step} value={f[key]} onChange={(e) => setF({ ...f, [key]: e.target.value })} />
+    </label>
+  )
+
+  return (
+    <div className="section">
+      <div className="label">Add satellite</div>
+      <div className="tabs">
+        {(['preset', 'elements', 'tle'] as Mode[]).map((m) => (
+          <button key={m} className={mode === m ? 'tab active' : 'tab'} onClick={() => setMode(m)}>
+            {m === 'preset' ? 'Preset' : m === 'elements' ? 'Elements' : 'TLE'}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'preset' && (
+        <div className="form">
+          <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <p className="hint">{PRESETS.find((p) => p.id === presetId)?.description}</p>
+          <div className="row">
+            <button className="primary" onClick={submitPreset}>Add preset</button>
+            <button onClick={() => { submitPreset(); requestCamera('orbit') }}>Add and frame</button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'elements' && (
+        <div className="form">
+          <label className="field">
+            <span>Name</span>
+            <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          </label>
+          <div className="grid2">
+            {field('a', 'a, km')}
+            {field('e', 'e (0 to 0.95)', '0.01')}
+            {field('i', 'i, deg')}
+            {field('raan', 'RAAN, deg')}
+            {field('argp', 'arg. periapsis, deg')}
+            {field('nu', 'true anomaly at epoch, deg')}
+          </div>
+          <div className="row">
+            <span className="hint">colour</span>
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                className={'swatch-btn' + (f.color === c ? ' on' : '')}
+                style={{ background: c }}
+                onClick={() => setF({ ...f, color: c })}
+                aria-label={c}
+              />
+            ))}
+          </div>
+          <div className="row">
+            {selected?.kind === 'kepler' && (
+              <button className="primary" onClick={() => submitElements(false)}>Update {selected.name}</button>
+            )}
+            <button className={selected?.kind === 'kepler' ? '' : 'primary'} onClick={() => submitElements(true)}>Add as new</button>
+            <button onClick={() => setF(EMPTY)}>Clear</button>
+          </div>
+          <p className="hint">Angles in degrees; body: {body.name}, radius {body.radius.toFixed(0)} km, mu {body.mu.toPrecision(7)} km^3/s^2.</p>
+        </div>
+      )}
+
+      {mode === 'tle' && (
+        <div className="form">
+          <textarea
+            rows={4}
+            spellCheck={false}
+            placeholder={'ISS (ZARYA)\n1 25544U 98067A   26244.49851260 ...\n2 25544  51.6312 282.3953 ...'}
+            value={tleText}
+            onChange={(e) => setTleText(e.target.value)}
+          />
+          <div className="row">
+            <button className="primary" onClick={submitTle}>Add TLE</button>
+            <button
+              onClick={() => {
+                setTleText(`${ISS_TLE.name}\n${ISS_TLE.line1}\n${ISS_TLE.line2}`)
+              }}
+            >
+              Paste bundled ISS
+            </button>
+          </div>
+          <p className="hint">Propagated with SGP4 (satellite.js). Fresh element sets: celestrak.org/NORAD/elements (fetch at most every 2 hours).</p>
+        </div>
+      )}
+
+      {error && <p className="error">{error}</p>}
+    </div>
+  )
+}

@@ -1,0 +1,18 @@
+1) Globe-scale pixel size
+   Earth (12756 km) across 600 px -> 21.3 km/px
+   Earth (12756 km) across 800 px -> 15.9 km/px
+   Earth (12756 km) across 1200 px -> 10.6 km/px
+
+2) ISS along-track drift if decay (ndot) were ignored: dM = (ndot/2)*t^2 rev
+   t= 0.5 d: dM = 9.78e-06 rev = 0.004 deg =     0.4 km along-track
+   t= 1.0 d: dM = 3.91e-05 rev = 0.014 deg =     1.7 km along-track
+   t= 2.0 d: dM = 1.56e-04 rev = 0.056 deg =     6.7 km along-track
+   t= 3.0 d: dM = 3.52e-04 rev = 0.127 deg =    15.0 km along-track
+   t= 7.0 d: dM = 1.92e-03 rev = 0.690 deg =    81.8 km along-track
+   t=14.0 d: dM = 7.66e-03 rev = 2.759 deg =   327.2 km along-track
+
+3) Ground-track westward shift per orbit (Earth rotation during one period)
+   period P = 92.966 min; shift = 0.004 deg/s * 5577.9 s = 23.31 deg (master doc anchor ~22.5 deg)
+   J2 nodal regression = -4.952 deg/day (westward); per orbit -0.320 deg -> net shift 23.62 deg/orbit
+
+4) 2-hour CelesTrak update cadence in ISS orbits: 1.29 orbits per update window

@@ -1,0 +1,44 @@
+=== A. Eyes time-rate ladder (seconds of sim time per real second), from TimeController._rates ===
+rungs: 23 (11 forward, 11 reverse, 1 pause) ; symmetric: True
+             1 s/s  =      1 s/s  x1e+00
+            10 s/s  =     10 s/s  x1e+01
+            60 s/s  =    1 min/s  x6e+01
+           600 s/s  =   10 min/s  x6e+02
+          3600 s/s  =     1 hr/s  x4e+03
+         36000 s/s  =    10 hr/s  x4e+04
+         86400 s/s  =    1 day/s  x9e+04
+        604800 s/s  =     1 wk/s  x6e+05
+       6048000 s/s  =    10 wk/s  x6e+06
+      31536000 s/s  =     1 yr/s  x3e+07
+      94608000 s/s  =     3 yr/s  x9e+07
+ratios between successive forward rungs: [10.0, 6.0, 10.0, 6.0, 10.0, 2.4, 7.0, 10.0, 5.21, 3.0]
+span: 9.46e+07 (about 8 decades) -> a log 'ladder' UI, arrow-key/step semantics; URL param rate=<int seconds/s>
+6048e3 s = 70 days (10 weeks); 94608e3 s = 3.00 yr (3 yr of 365 d)
+
+=== B. trail:length values (s) vs. a plausible orbital period ===
+      5933 s =       98.9 min =     0.069 d =   0.000 yr  -> ISS-class LEO (1 rev)
+      5573 s =       92.9 min =     0.065 d =   0.000 yr  -> LEO ~92.9 min (1 rev)
+     86151 s =     1435.8 min =     0.997 d =   0.003 yr  -> GEO (1 sidereal day = 86164 s)
+   2419200 s =    40320.0 min =    28.000 d =   0.077 yr  -> 28 d (Moon-ish; sidereal 27.32 d)
+   31536e3 s =   525600.0 min =   365.000 d =   0.999 yr  -> 1 yr (365 d) - inner planets/near-Earth sc
+   31536e4 s =  5256000.0 min =  3650.000 d =   9.993 yr  -> 10 yr - Pioneer 10/11
+   94608e3 s =  1576800.0 min =  1095.000 d =   2.998 yr  -> 3 yr - New Horizons
+   94608e4 s = 15768000.0 min = 10950.000 d =  29.979 yr  -> 30 yr - (Voyager-class)
+       1e7 s =   166666.7 min =   115.741 d =   0.317 yr  -> 115.7 d
+  ISS TLE mean motion n=15.48958602 rev/day -> period 5577.9 s = 92.97 min ; Eyes sc_iss trail 5573-5933 s = 0.94-1.06 rev (rule: trail = ~one period of the parent-relative orbit)
+
+=== C. Parent-switch epochs are ET seconds past J2000 (SPICE convention) ===
+New Horizons parents[] (from app.js):
+  ET    190972278.330 s -> 2006-01-19 19:51 UTC(approx)  parent -> earth           
+  ET    191055829.000 s -> 2006-01-20 19:03 UTC(approx)  parent -> sun               (prev segment     0.97 d)
+  ET    225619606.000 s -> 2007-02-24 20:06 UTC(approx)  parent -> jupiter           (prev segment   400.04 d)
+  ET    226100665.000 s -> 2007-03-02 09:44 UTC(approx)  parent -> sun               (prev segment     5.57 d)
+  ET    490130161.000 s -> 2015-07-14 07:16 UTC(approx)  parent -> 134340_pluto      (prev segment  3055.90 d)
+  ET    490167848.000 s -> 2015-07-14 17:44 UTC(approx)  parent -> sun               (prev segment     0.44 d)
+  ET    598753684.000 s -> 2018-12-22 12:28 UTC(approx)  parent -> 486958_arrokoth   (prev segment  1256.78 d)
+  ET    600203601.000 s -> 2019-01-08 07:13 UTC(approx)  parent -> sun               (prev segment    16.78 d)
+  check: New Horizons launched 2006-01-19 19:00 UTC; Jupiter closest approach 2007-02-28; Pluto flyby 2015-07-14 11:49 UTC; Arrokoth 2019-01-01 05:33 UTC
+  Eyes flips the reference body around each encounter (Earth->Sun->Jupiter->Sun->Pluto->Sun->Arrokoth->Sun): patched-conic 'segments' in the viewer, each with its own dynamo file, e.g. sc_new_horizons/jupiter/orb
+NEAR Shoemaker fixed-orientation coverage: 1996-02-17 23:01 .. 1996-02-20 00:01 (2.0 d) -> negative ET = before J2000 (NEAR launched 1996-02-17)
+Time limits 1949-12-31..2049-12-31 = ET -1.5780e+09 .. 1.5778e+09 s (|ET|<1.6e9 -> float64 exact to ~2e-7 s; float32 would be ~128 s!)
+  float32 ulp at ET=1.6e9 s: 128 s ; float64 ulp: 2.4e-07 s -> keep sim time in doubles, always

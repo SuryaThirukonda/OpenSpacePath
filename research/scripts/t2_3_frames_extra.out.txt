@@ -1,0 +1,38 @@
+== Frame bias ICRS -> J2000 (skyfield.framelib.ICRS_to_J2000) ==
+rotation angle = 23.00 mas
+matrix:
+ [[ 1.000000000000e+00 -7.078279744199e-08  8.056148938997e-08]
+ [ 7.078279744199e-08  1.000000000000e+00  3.306041454222e-08]
+ [-8.056148938997e-08 -3.306041454222e-08  1.000000000000e+00]]
+-> at GEO (42164 km) this bias moves a point by 4.70 m; at LEO 0.76 m
+
+== At 2026-09-01T11:57:51Z ==
+precession J2000->mean-of-date rotation angle: 1341.1 arcsec = 0.3725 deg
+nutation mean-of-date->true-of-date angle    : 12.29 arcsec
+full GCRS->true-of-date (t.M) angle          : 1350.2 arcsec = 0.3750 deg
+GCRS->TEME rotation angle (TEME.rotation_at) : 1342.6 arcsec = 0.3729 deg
+equation of the equinoxes GAST-GMST          : 8.289 arcsec (= 272.9 m at LEO, 1694.4 m at GEO)
+
+== Cesium INERTIAL-entity fallback jump (GEO-radius vector, km) ==
+ICRF -> fixed via full IAU (itrs.rotation_at): [-39566.859 -14568.956    109.985]
+ICRF -> fixed via TEME/GMST fallback         : [-39653.172 -14332.79       0.   ]
+|difference| = 274.4 km  (angle 0.3729 deg)
+
+== GCRS->TEME angle by calendar year (independent of any TLE) ==
+  2000-09-01: 31.7 arcsec = 0.0088 deg  -> 1.0 km at LEO, 6.5 km at GEO
+  2010-09-01: 539.2 arcsec = 0.1498 deg  -> 17.7 km at LEO, 110.2 km at GEO
+  2020-09-01: 1036.8 arcsec = 0.2880 deg  -> 34.1 km at LEO, 211.9 km at GEO
+  2026-09-01: 1342.6 arcsec = 0.3729 deg  -> 44.2 km at LEO, 274.4 km at GEO
+  2030-09-01: 1545.0 arcsec = 0.4292 deg  -> 50.9 km at LEO, 315.8 km at GEO
+  2050-09-01: 2550.4 arcsec = 0.7084 deg  -> 84.0 km at LEO, 521.3 km at GEO
+
+== Polar motion at date (IERS finals via skyfield) ==
+xp = 0.000 arcsec, yp = 0.000 arcsec -> ground displacement ~0.0 m
+
+== Pixel scale ==
+  TEME->PEF via GMST vs full ITRS (LEO)          0.047 km =    0.00 px globe view,     0.03 px tracking view
+  UT1 vs UTC in GMST (LEO)                       0.047 km =    0.00 px globe view,     0.03 px tracking view
+  equation of equinoxes (LEO)                    0.273 km =    0.02 px globe view,     0.16 px tracking view
+  TEME treated as GCRF, LEO                     40.700 km =    2.56 px globe view,    24.42 px tracking view
+  TEME treated as GCRF, GEO                    274.000 km =   17.20 px globe view,   164.40 px tracking view
+  GMST skipped (TEME as ECEF), LEO           13394.000 km =  840.94 px globe view,  8036.40 px tracking view

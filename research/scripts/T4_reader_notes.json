@@ -1,0 +1,1227 @@
+[
+ {
+  "item_id": "T4.1",
+  "item_title": "T4.1 — Lambert's problem and Izzo's 2015 algorithm; available solvers",
+  "item": "T4.1 — Lambert's problem and Izzo's 2015 algorithm; available solvers",
+  "sources": [
+   {
+    "title": "Izzo, \"Revisiting Lambert's Problem\" (arXiv 1403.2705, published version Celestial Mech. Dyn. Astron. 121, 2015)",
+    "ref": "https://arxiv.org/abs/1403.2705 ; full text via https://ar5iv.labs.arxiv.org/html/1403.2705",
+    "opened": true,
+    "note": "Abstract fetched directly; full-text PDF failed to parse via WebFetch (binary/PDF garbling), so full text was read via the ar5iv HTML mirror instead — recorded as the workaround."
+   },
+   {
+    "title": "Wikipedia, \"Lambert's problem\"",
+    "ref": "https://en.wikipedia.org/wiki/Lambert%27s_problem",
+    "opened": true,
+    "note": "Problem statement, short/long way, multi-rev, 180-degree singularity."
+   },
+   {
+    "title": "lamberthub README (GitHub, jorgepiloto/lamberthub)",
+    "ref": "https://raw.githubusercontent.com/jorgepiloto/lamberthub/main/README.md",
+    "opened": true,
+    "note": "License, solver list, validation claims."
+   },
+   {
+    "title": "lamberthub package (installed and run)",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/T4_1_lambert.py",
+    "opened": true,
+    "note": "Installed into venv; ran Curtis 5.2 cross-check, multi-rev demo, synodic periods, and a worked Earth-Mars v_inf/C3 example. Full stdout captured in this response."
+   },
+   {
+    "title": "pykep documentation site / GitHub",
+    "ref": "https://esa.github.io/pykep/ ; https://github.com/esa/pykep/blob/master/src/lambert_problem.cpp",
+    "opened": false,
+    "note": "esa.github.io/pykep/examples/ex2.html (multi-rev example page) returned 404 when fetched; pykep itself was not installed in the venv (no wheel attempt made — not required by the task, lamberthub was). API signature (lambert_problem(r1,r2,tof,mu,cw,max_revs)) taken from master-document code sketch, which is a secondary/likely-confidence source, not independently re-verified against the live pykep docs."
+   },
+   {
+    "title": "influenceth/lambert-orbit (GitHub)",
+    "ref": "https://github.com/influenceth/lambert-orbit",
+    "opened": true,
+    "note": "Pure-JS Lambert solver; MIT licensed; has test/ + .mocharc.json but WebFetch summary could not confirm which underlying algorithm (Izzo vs other) or validation against textbook cases from the page content alone."
+   },
+   {
+    "title": "npm registry search API (\"lambert orbit\")",
+    "ref": "https://registry.npmjs.org/-/v1/search?text=lambert%20orbit",
+    "opened": true,
+    "note": "Authoritative npm search JSON; confirms 'lambert-orbit' exists on npm. Does NOT list any package named 'lambert-izzo' or similar Izzo-specific WASM package — see gaps below for a suspected fabricated result on that name."
+   }
+  ],
+  "summary": "## Lambert's problem — statement and geometry\n\nGiven two position vectors **r1**, **r2** (relative to the same central body) and a time-of-flight Δt, Lambert's problem asks for the two-body conic arc connecting them, i.e. the velocity vectors **v1** at r1 and **v2** at r2 that make that transfer happen in exactly Δt. Key fact (Lambert's theorem, per Wikipedia): the transfer time depends only on the semi-major axis a, the sum r1+r2, and the chord length c — not on r1, r2 individually. This is why an efficient solver can work purely in the derived quantities (a, s = semi-perimeter, c) instead of full vector geometry.\n\n**Short way vs long way**: the transfer angle θ between r1 and r2 (measured in the direction of motion) can be taken as θ ∈ (0°,180°) — \"short way\" — or θ ∈ (180°,360°) — \"long way.\" Both are valid elliptical transfers with different geometries and different times of flight for the same (r1, r2, a); solvers take a `prograde`/`cw` flag plus the geometric branch to disambiguate. **180° singularity**: when r1 and r2 are antiparallel, the transfer plane is undefined (any plane containing the r1–r2 line works), so the orbital plane must come from elsewhere (e.g. specify inclination or use a limit case) — a real degeneracy, not a numerical artifact, and it shows up as ill-conditioning near θ=180° even off-exactly.\n\n**Multi-revolution solutions**: for transfer angles/energies where the time-of-flight is long enough, the spacecraft can complete N full revolutions before arriving. For a requested Δt there is a maximum M_max = floor(T/π) (T being a dimensionless time-of-flight parameter in Izzo's L-similar variables), and for each M from 1 to M_max there are generically **two** solutions (a \"left\" and \"right\" branch straddling the minimum-energy/minimum-time-of-flight point for that M), plus the unique M=0 (direct) solution. So the full solution count for a given (r1,r2,Δt) is 1 + 2·M_max. lamberthub exposes this via an `M` argument; I confirmed M=0,1,2 all return distinct, finite (v1,v2) pairs for a 10-hour LEO-scale transfer (script output above) — consistent with this counting.\n\n## Izzo's 2015 method — structure\n\nIzzo's paper builds on the **Lancaster & Blanchard (1969)** universal-variable formulation, and reformulates it in a variable x that is *L-similar* — i.e., normalized so the same x range and time-of-flight curve shape apply whether the transfer is elliptic, parabolic, or hyperbolic:\n- Elliptic: x = cos(α/2); Hyperbolic: x = cosh(α/2), where α is an auxiliary angle built from φ,ψ (angles related to the geometry via the semi-major axis, chord c, and semi-perimeter s). x=0 is the minimum-energy ellipse.\n- A geometry parameter **λ** encodes the transfer angle and direction: λ² = (s−c)/s, λ ∈ [−1,1], positive for the short way and negative for the long way (sλ = √(r1·r2)·cos(θ/2)).\n- The time-of-flight T(x;λ,M) is a known closed-form function of x. Solving the Lambert problem is root-finding: find x such that T(x) = T* (the given, non-dimensionalized Δt).\n- **Root-finding**: a **3rd-order Householder iteration** (uses f, f′, f″, f‴ of T(x)−T*) — Izzo's key claim is convergence \"in only two iterations\" for M=0 thanks to a good initial guess, versus more iterations needed by earlier (Gooding-style) approaches, at lower per-iteration cost — reported ~1.8× faster than his own 2010–2013 versions.\n- **Initial guess x0**: built from piecewise closed-form approximations of the T(x) curve (which the paper shows has two oblique asymptotes, so a piecewise-linear/rational fit in a transformed coordinate gives a tight starter almost everywhere) — different formulas in different τ/T regimes for M=0, and two separate starters (x0_left, x0_right, built from (π+Mπ)/(8T) power laws) that bracket the two M>0 branches without needing to explicitly compute x_min/T_min for that M — the earlier (pre-2015) approach's main cost driver. This is the practical reason Izzo's version is the \"everyone uses this\" solver: cheap, accurate initial guesses + a high-order iteration = 2–3 iterations to machine precision.\n\n## Solver landscape and verification\n\n**lamberthub** (github.com/jorgepiloto/lamberthub, GPLv3) packages 14 published Lambert algorithms behind one Python API, including `izzo2015`, `vallado2013`, `gooding1990`, `battin1984`, `der2011`, and others, each validated in its test suite against Battin's book, Vallado's book, Curtis's book, and GMAT hyperbolic cases. I installed it into the project venv (already present: `lamberthub 1.0.0`).\n\nI ran **Curtis Example 5.2** (r1=[5000,10000,2100] km, r2=[-14600,2500,7000] km, Δt=3600 s, μ⊕=398600 km³/s², prograde/short way) through `izzo2015`, `vallado2013`, and `gooding1990`. All three independently-derived algorithms agree with each other to ~5×10⁻⁵ km/s and match the reference values given in the task brief:\n\n```\nizzo2015:    v1=[-5.99249, 1.92536, 3.24564]  v2=[-3.31246, -4.19662, -0.38529]\nvallado2013: v1=[-5.99249, 1.92536, 3.24564]  v2=[-3.31246, -4.19662, -0.38529]\ngooding1990: v1=[-5.99249, 1.92536, 3.24564]  v2=[-3.31246, -4.19662, -0.38529]\nexpected:    v1=[-5.9925,  1.9254,  3.2456]   v2=[-3.3125, -4.1966, -0.38529]\n```\nI could not independently pull the numeric answer key from a second open web source (search results referenced the example but none surfaced the published v1/v2 values in fetchable text; a MathWorks file preview had the algorithm but no worked example). I'm treating **3-way independent-algorithm agreement to 1e-4 km/s, matching the brief's reference**, as strong verification of correctness — this is a legitimate substitute for \"look it up in a second book\" (algorithmic cross-validation is the standard practice in the lamberthub test suite itself), but flagging that the textbook page itself was not independently reopened, so confidence on \"these are exactly Curtis's printed numbers\" is \"likely,\" not \"verified.\"\n\nFull script: `notes/T4_1_lambert.py`. It also demonstrates M=0,1,2 multi-rev solutions (distinct, finite outputs), computes the three synodic periods, and walks a full Lambert→v∞→C3 worked example (see numbers below and Q1 answer).\n\n## JS/TS solver landscape and C1 recommendation\n\n- **influenceth/lambert-orbit** (github.com/influenceth/lambert-orbit) — pure JavaScript Lambert solver, **MIT licensed**, has a `test/` dir with Mocha config. Published on npm as `lambert-orbit` (confirmed present in npm's own search API results). Could not confirm from the fetched README text alone which specific algorithm (Izzo vs. universal-variable vs. other) it implements or what it's validated against — needs an in-repo code read before trusting it, not just the README.\n- I also found search-engine text describing a Rust crate \"lambert_izzo\" with WASM bindings published to npm as **`lambert-izzo`** (MIT/Apache-2.0, described as a no_std, Result-based, multi-rev-capable Izzo port). **I flag this as unverified and probably not real**: the authoritative npm registry search API (`registry.npmjs.org/-/v1/search?text=lambert%20orbit`) returned 97 real packages and did *not* include `lambert-izzo`, and a direct npm package-page fetch for it was blocked (403) rather than confirming it — the \"confirmation\" I got came from a WebFetch summarization of a blocked/empty page, which is a known failure mode (the summarizer model filling in plausible-looking package metadata). Do not cite `lambert-izzo` as a real dependency without a human re-checking `https://www.npmjs.com/package/lambert-izzo` directly in a browser.\n- No other credible JS/TS Izzo port surfaced in search.\n\n**Recommendation for the C1 stack**: none of the JS options are confidently production-grade and Izzo-verified yet. Three real paths, per the master doc's own framing (§8 pitfalls: \"WASM-compiling pykep is painful; a thin service or pure-JS port is likely less pain\"):\n1. **Pure-JS/TS port of Izzo's algorithm, written in-house** — the paper's structure (x-variable, λ, Householder update, piecewise initial guess) is compact enough (Izzo's reference C++ is a few hundred lines) to port directly and unit-test against the same Curtis/Battin/Vallado cases lamberthub uses. This keeps the serverless/static-hosting story (master doc §4/§5) and is the most auditable option for a research tool where correctness matters more than dev speed.\n2. **`lambert-orbit` (influenceth, MIT) as a starting point**, but only after reading its source and adding the Curtis/Vallado cross-checks above as tests — don't trust an unread MIT package for a paper-adjacent tool.\n3. **Thin Python microservice wrapping `pykep` or `lamberthub`** — highest fidelity fastest (pykep is the field standard, and lamberthub already ships 14 cross-validated algorithms), but breaks the \"serverless static hosting\" default and adds an operational dependency.\nGiven the project's stated bias toward serverless + auditable math (`core/`, `optimize/` stay headless-testable, \"nothing imports scene/\"), **option 1 (in-house pure-JS Izzo port, tested against the same textbook anchors)** is the best fit for C1: it's a bounded, well-specified algorithm (small win, high leverage), keeps zero server dependency, and doubles as the \"deepest learning\" path the master doc explicitly values for the EMOA* integration decision too.",
+  "key_facts": [
+   {
+    "fact": "Lambert's problem: given r1, r2, and Δt (two-body, common central body), find v1 and v2 such that a conic arc connects r1 to r2 in exactly Δt.",
+    "source": "Wikipedia \"Lambert's problem\"",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Transfer time depends only on a (semi-major axis), r1+r2, and chord length c — not on the individual position vectors.",
+    "source": "Wikipedia \"Lambert's problem\" (Lambert's theorem)",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Short way: transfer angle θ∈(0°,180°); long way: θ∈(180°,360°); both are valid, distinct transfer orbits with different Δt for the same energy.",
+    "source": "Wikipedia \"Lambert's problem\"",
+    "confidence": "verified"
+   },
+   {
+    "fact": "At θ=180° (r1, r2 antiparallel) the transfer plane is undefined — any plane through the r1-r2 line works — a true geometric degeneracy, not just numerical ill-conditioning.",
+    "source": "Wikipedia \"Lambert's problem\"",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Multi-revolution solutions: max revolutions M_max = floor(T/π) in Izzo's non-dimensional time variable; for each M in [1,M_max] there are generically two solutions (branches straddling the min-ToF point for that M), plus the unique M=0 direct solution.",
+    "source": "ar5iv full-text render of arXiv 1403.2705",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Izzo's x variable: x=cos(α/2) (elliptic) or x=cosh(α/2) (hyperbolic); x=0 is the minimum-energy ellipse; λ (geometry/direction parameter, λ²=(s-c)/s) encodes transfer angle and short/long way (sign of λ).",
+    "source": "ar5iv full-text render of arXiv 1403.2705",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Izzo's algorithm uses a 3rd-order Householder iteration on T(x)-T*=0, converging in ~2 iterations for the single-revolution case; initial guess x0 comes from closed-form piecewise approximations exploiting T(x)'s two oblique asymptotes.",
+    "source": "ar5iv full-text render of arXiv 1403.2705 (abstract + body)",
+    "confidence": "likely"
+   },
+   {
+    "fact": "lamberthub packages 14 published Lambert algorithms (gauss1809 through mcelreath2025) behind one Python API and is GPLv3-licensed; installable via `pip install lamberthub`.",
+    "source": "lamberthub README (raw.githubusercontent.com)",
+    "confidence": "verified"
+   },
+   {
+    "fact": "izzo2015, vallado2013, and gooding1990 in lamberthub all reproduce v1=[-5.9925,1.9254,3.2456], v2=[-3.3125,-4.1966,-0.38529] km/s (Curtis Ex. 5.2 reference values) to within 5e-5 km/s.",
+    "source": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/T4_1_lambert.py, run in venv",
+    "confidence": "verified"
+   },
+   {
+    "fact": "influenceth/lambert-orbit is a pure-JS Lambert solver on GitHub/npm, MIT licensed, with a Mocha test directory; specific algorithm and validation could not be confirmed from the README alone.",
+    "source": "https://github.com/influenceth/lambert-orbit (WebFetch)",
+    "confidence": "uncertain"
+   },
+   {
+    "fact": "An npm package named 'lambert-izzo' (claimed WASM binding for an Izzo Rust solver) could NOT be confirmed via the authoritative npm registry search API, and a direct package-page fetch was blocked (403) rather than confirming it — likely a fabricated/hallucinated search result, not a real dependency.",
+    "source": "https://registry.npmjs.org/-/v1/search?text=lambert%20orbit (real JSON, 97 packages, no lambert-izzo) vs. an unreliable WebFetch summary of a blocked page",
+    "confidence": "uncertain"
+   },
+   {
+    "fact": "Synodic period formula S = 1/|1/T_inner - 1/T_outer| gives Earth-Venus ≈ 584 d, Earth-Mars ≈ 780 d, Earth-Jupiter ≈ 399 d, using sidereal periods T_earth=365.256 d, T_venus=224.701 d, T_mars=686.980 d, T_jupiter=4332.589 d.",
+    "source": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/T4_1_lambert.py, run in venv",
+    "confidence": "verified"
+   }
+  ],
+  "numbers": [
+   {
+    "name": "Curtis Ex 5.2 v1 (izzo2015)",
+    "value": "[-5.99249, 1.92536, 3.24564]",
+    "units": "km/s",
+    "how": "lamberthub izzo2015(mu=398600, r1=[5000,10000,2100], r2=[-14600,2500,7000], tof=3600, M=0, prograde=True); notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Curtis Ex 5.2 v2 (izzo2015)",
+    "value": "[-3.31246, -4.19662, -0.38529]",
+    "units": "km/s",
+    "how": "same run as above"
+   },
+   {
+    "name": "max |error| vs brief's reference values, all 3 algorithms",
+    "value": "5.2e-05",
+    "units": "km/s",
+    "how": "np.linalg.norm(v1_computed - v1_expected); notes/T4_1_lambert.py output"
+   },
+   {
+    "name": "Earth-Venus synodic period",
+    "value": "583.92",
+    "units": "days",
+    "how": "S=1/|1/365.256 - 1/224.701|; notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Earth-Mars synodic period",
+    "value": "779.93",
+    "units": "days",
+    "how": "S=1/|1/365.256 - 1/686.980|; notes/T4_1_lambert.py — matches master doc's ~780 d anchor"
+   },
+   {
+    "name": "Earth-Jupiter synodic period",
+    "value": "398.88",
+    "units": "days",
+    "how": "S=1/|1/365.256 - 1/4332.589|; notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Worked Earth->Mars example: departure v_inf magnitude",
+    "value": "4.1485",
+    "units": "km/s",
+    "how": "izzo2015 on simplified coplanar-circular Earth(1 AU)/Mars(1.524 AU) orbits, 150 deg transfer angle, 230-day TOF; v_inf_dep = v1_spacecraft - v1_Earth; notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Worked Earth->Mars example: C3 at departure",
+    "value": "17.21",
+    "units": "km^2/s^2",
+    "how": "C3 = |v_inf_dep|^2; notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Worked Earth->Mars example: arrival v_inf magnitude",
+    "value": "2.8320",
+    "units": "km/s",
+    "how": "v_inf_arr = v2_spacecraft - v2_Mars; notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Worked example porkchop-style total v_inf sum",
+    "value": "6.9804",
+    "units": "km/s",
+    "how": "|v_inf_dep| + |v_inf_arr|; falls within the master doc's cited 'good-window Earth-Mars v_inf sums ~5.6-6 km/s' ballpark (this illustrative circular-coplanar geometry, not a real-date case, runs slightly above that band) — notes/T4_1_lambert.py"
+   },
+   {
+    "name": "Multi-rev demo: M=0,1,2 all return valid finite v1,v2",
+    "value": "3 of 3 M values solved",
+    "units": "count",
+    "how": "izzo2015 called with M=0,1,2 on a 10-hour LEO-scale TOF; notes/T4_1_lambert.py — illustrates the '1 + 2*M_max total solutions' structure conceptually (not all M in this demo are necessarily the true M_max-bounded set for that geometry, since M_max itself was not separately computed)"
+   }
+  ],
+  "project_relevance": "Directly informs Phase C (`optimize/` module, C1 \"interactive porkchop\" milestone). Confirms the master doc's architecture line (\"Lambert: two positions + time of flight → connecting conic; use pykep (Izzo) or a vetted JS port\") is exactly the right framing, and gives Surya three concrete, evaluated options for the C1 solver instead of a vague \"find a JS port\": (1) hand-port Izzo's compact, well-specified algorithm to TS — recommended default, keeps the \"nothing in optimize/ imports scene/, stays headless-testable\" seam and the serverless-hosting default (master doc §4/§8); (2) adopt influenceth/lambert-orbit (MIT) after auditing its source/algorithm; (3) a thin Python service wrapping pykep/lamberthub if fidelity needs outrun what a JS port can deliver quickly. The verified Curtis Ex. 5.2 cross-check (3 independent algorithms agreeing to 1e-4 km/s) is a ready-made \"known-answer anchor\" test case Surya can drop straight into the project's `optimize/lambert` test suite (master doc §7 calls for exactly this: \"Lambert vs pykep\" oracle testing). The synodic-period computation directly answers the Track-4 Q2 cadence question and matches the master doc's ~780-day Earth-Mars anchor almost exactly (779.93 d), which is a good credibility signal for the professor. The worked C3/v_inf chain gives Surya the formula chain to build the porkchop contour metric (departure C3, arrival v_inf, or their sum) and to write the fidelity-disclosure UI text for Q3 (impulsive-burn assumption is baked directly into \"v_inf sum\" as the cost metric — no capture spiral, no plane change accounted).",
+  "question_inputs": [
+   {
+    "question": "Given two dates, what exactly does one Lambert solve return, and how do its v-infinity values become the delta-v numbers on a porkchop? Walk through the full chain with formulas and one worked Earth-to-Mars example.",
+    "answer": "One Lambert solve takes (r1, r2, Δt) — the departure planet's heliocentric position at the departure date, the arrival planet's heliocentric position at the arrival date, and the time-of-flight between those two dates — and returns exactly two vectors: v1 (the transfer orbit's velocity at r1, i.e. the spacecraft's required heliocentric velocity right at departure) and v2 (the transfer orbit's velocity at r2, at arrival). Neither is a Δv by itself — they're just the orbit's velocity at the endpoints. To get the launch-vehicle-relevant quantity you subtract the *planet's own* heliocentric velocity at that instant: v_inf_departure = v1_transfer − v1_Earth(t_dep), and v_inf_arrival = v2_transfer − v2_Mars(t_arr). |v_inf_departure| is what the launch vehicle's hyperbolic excess speed must supply beyond simply matching Earth's orbital velocity (this squared is C3 = |v_inf_dep|², in km²/s², the standard launch-performance metric). |v_inf_arrival| is the excess speed the spacecraft must shed (via a capture burn, aerocapture, or flyby) relative to Mars. A porkchop plot's simplest cost metric is the sum |v_inf_dep| + |v_inf_arr| (or C3 alone, or v_inf_arr alone, depending on which mission phase is being optimized) evaluated over a grid of (departure date, arrival date) pairs, each cell being one independent Lambert solve. I ran this full chain numerically for an illustrative (simplified, coplanar-circular, non-ephemeris) Earth->Mars case: 150° transfer angle, 230-day TOF gave v_inf_dep = 4.1485 km/s (C3 = 17.21 km²/s²) and v_inf_arr = 2.8320 km/s, sum ≈ 6.98 km/s — in the same range as real good-window Earth-Mars values (the master doc's anchor: ~5.6-6 km/s for a *good* window; mine is an arbitrary, not optimized, geometry so it runs a bit above that). For real dates a production porkchop needs actual planet ephemerides (pykep jpl_lp, JPL Horizons, or VSOP87) rather than the circular-orbit approximation used here — flagged explicitly as a simplification in the script."
+   },
+   {
+    "question": "Why do launch windows recur, and what sets their cadence per planet pair? Give the synodic period formula and computed values for Earth-Mars, Earth-Venus, Earth-Jupiter.",
+    "answer": "A good Earth-departure geometry (Earth and the target planet at the right relative angle for an efficient transfer) recurs because Earth and the target orbit the Sun at different angular rates; the relative geometry between the two planets repeats with the **synodic period** S = 1 / |1/T1 − 1/T2|, where T1, T2 are the two planets' sidereal orbital periods (in the same units — I used days). This is the same beat-frequency logic as two clock hands realigning. Computed (script, sidereal periods from JPL fact-sheet-standard values T_earth=365.256 d, T_venus=224.701 d, T_mars=686.980 d, T_jupiter=4332.589 d): Earth-Venus ≈ 583.9 days, Earth-Mars ≈ 779.9 days (matches the master doc's ~780-day anchor almost exactly), Earth-Jupiter ≈ 398.9 days. Note Earth-Jupiter's synodic period is *shorter* than Earth-Mars's even though Jupiter is much farther out — because once the outer planet's period is very long relative to Earth's, the synodic period asymptotically approaches Earth's own sidereal period (365.256 d) from above, so farther, slower planets give synodic periods that cluster just above one Earth year, not longer ones."
+   },
+   {
+    "question": "Which fidelity shortcuts are acceptable for a v1 (impulsive burns only, patched conics, ignore capture spirals, planar assumptions) and how should the UI disclose them?",
+    "answer": "This item's reading (Izzo/Lambert internals) mainly clarifies which shortcuts a Lambert-based porkchop *already, unavoidably* bakes in, rather than proposing new ones — the master doc's own §1.3/§8 already lists the standard v1 fidelity ladder: (1) impulsive burns (instantaneous Δv, no finite-burn losses) — this is intrinsic to the Lambert v1/v2 output itself, not an extra approximation; (2) patched conics (Sun-centered conic between spheres-of-influence, ignoring the planet's own gravity except at the SOI boundary) — also intrinsic to treating the transfer as a single two-body Lambert arc; (3) v1 may legitimately report only the v_inf sums/C3 at each end and skip modeling the actual planetary-capture spiral or insertion burn sequence — the number reported is 'excess speed at the SOI boundary,' not 'total mission Δv including capture'; (4) coplanar/'ignore inclination-change cost' is a further simplification I actually exercised in my worked example (I made Earth and Mars coplanar circular orbits, which real Mars-transfer work does not do — real transfers have several degrees of relative inclination and eccentric orbits, both of which change the actual Δv). Suggested fidelity ladder for the UI, cheapest to most honest: **Level 0** — 'illustrative' (circular, coplanar orbits, arbitrary or averaged dates) — what I used to build a worked chain above; not appropriate for the product without a loud label. **Level 1 (recommended v1 default)** — real ephemerides (actual planet positions/velocities on the actual candidate dates), patched-conic + impulsive-burn Lambert solve, v_inf sum or C3 as the displayed cost — label it explicitly, e.g. a small persistent badge/tooltip: 'Simplified model: instantaneous burns, no plane-change or capture-spiral cost included; Δv shown is v_inf excess speed at each planet's edge, not total mission propellant.' **Level 2 (later)** — add explicit plane-change penalty terms, launch C3 vs declination constraints, and a modeled capture burn (not just v_inf) so the number reads as 'total mission Δv.' **Level 3 (out of v1 scope, mention-only)** — full n-body/low-thrust/CR3BP fidelity for cislunar or ballistic-transfer cases, explicitly flagged in the master doc as a later, separate fidelity step (§Track4 item 6)."
+   }
+  ],
+  "gaps": [
+   "Could not open the Izzo 2015 PDF directly via WebFetch (binary content garbled the extraction); worked around via the ar5iv HTML mirror, which should be equivalent full text but is a third-party rendering, not the arXiv PDF itself — worth a human spot-check of the ar5iv render's fidelity if exact equation numbering/notation matters later.",
+   "pykep itself was not installed/tested in this session (not required by the task instructions, which asked only for lamberthub); its lambert_problem() constructor signature and multi-rev API details in this report come from the master document's own code sketch (secondary source) and were not independently re-verified against live pykep docs — esa.github.io/pykep/examples/ex2.html 404'd when fetched.",
+   "Could not independently find a second open-web source (outside the task brief itself) stating Curtis's printed v1/v2 answer key for Example 5.2 in fetchable text; relied on 3-way cross-algorithm agreement (izzo2015/vallado2013/gooding1990) as the verification instead of a second textbook citation — a human with the physical/PDF Curtis text could close this gap in under a minute.",
+   "The claimed npm/WASM package 'lambert-izzo' surfaced only through a WebSearch summary and could not be confirmed via the authoritative npm registry search API or a successful direct page fetch (got HTTP 403); flagged as likely fabricated/hallucinated rather than reported as a real option — should not be treated as a real C1 dependency without a human checking npmjs.com directly.",
+   "influenceth/lambert-orbit's actual algorithm (which paper/method it implements) and its test suite's validation targets were not confirmed — only the README's presence of a test/ directory and MIT license were confirmed; a source-level read of its solver code would be needed before recommending it for C1 over an in-house Izzo port.",
+   "The worked Earth->Mars v_inf/C3 example intentionally uses simplified coplanar circular orbits (no real ephemeris/dates) to demonstrate the Lambert->v_inf->C3 chain with concrete numbers cheaply; it is NOT a real-date porkchop cell and should not be quoted to the professor as an actual mission number — a follow-up with real ephemerides (pykep jpl_lp or JPL Horizons) is needed for that, and is naturally Track 4 item 3's (porkchop) job rather than this item's."
+  ]
+ },
+ {
+  "item_id": "T4.2",
+  "item_title": "T4.2 — Patched conics, spheres of influence, planetary departure and arrival",
+  "item": "T4.2 — Patched conics, spheres of influence, planetary departure and arrival",
+  "summary": "## Patched conics: the three-region trick\n\nAn interplanetary trajectory is split into three two-body (\"conic\") problems glued together at each sphere of influence (SOI): (1) a hyperbolic escape inside the departure planet's SOI, (2) a heliocentric conic (usually near-Hohmann) between the two SOIs, (3) a hyperbolic (or captured) arrival inside the destination planet's SOI. This is the \"patched conic approximation\" — cheap, closed-form, and the right v1 fidelity level per the master doc.\n\n**SOI radius** (Laplace): `r_SOI = a*(m/M)^(2/5)`, a = planet's heliocentric semi-major axis, m/M = planet/Sun mass ratio. Computed: Earth 924,540 km (~145 Earth radii), Mars 577,067 km (~170 Mars radii) — both match the task's ~0.925e6/~0.577e6 km anchors. SOI radii are under 1% of the ~1.5e8 km Earth-Mars distance, which is exactly why patching at an instant, ignoring the finite transit time/curvature inside the SOI, is a defensible v1 shortcut.\n\n**Departure hyperbola.** Inside the departure SOI the spacecraft is on a hyperbola relative to the planet. From vis-viva energy conservation, `E = vp²/2 - μ/rp = v_inf²/2` (the r→∞ term vanishes), so periapsis speed `vp = sqrt(v_inf² + 2μ/rp)`. Burning from a circular parking orbit (`v_circ = sqrt(μ/rp)`) at periapsis costs `Δv = sqrt(v_inf² + 2μ/rp) - sqrt(μ/rp)`. **C3** (characteristic energy) is defined `C3 = v_inf²` (km²/s²) — the standard axis launch-vehicle performance charts use, independent of parking-orbit choice. The identical Δv formula runs in reverse for arrival capture (v_inf swapped for the arrival excess speed, μ/rp for the target planet).\n\n**Patching heliocentric ↔ planetocentric**: vector addition at the SOI boundary, `v_heliocentric = v_planet + v_inf` (vectors). At departure, `v_inf = v_transfer_orbit - v_planet`; at arrival, `v_inf = v_planet - v_transfer_orbit`.\n\n**Worked Earth→Mars Hohmann example** (coplanar, circular-orbit idealization — the standard textbook anchor, not a real-date Lambert solve): a_t = 188.75e6 km; v_Earth,circ = 29.78 km/s, v_Mars,circ = 24.13 km/s; transfer speed at perihelion 32.73 km/s, at aphelion 21.48 km/s. Heliocentric departure v_inf = 2.94 km/s, arrival v_inf = 2.65 km/s — both match the task anchors exactly. Time of flight = π·sqrt(a_t³/μ_sun) = 258.8 days (~8.5 months), matching the ~259-day anchor.\n\nFrom those v_inf values: departure Δv from a 300 km circular LEO parking orbit = 3.59 km/s (matches ~3.6 km/s anchor), C3 = 8.66 km²/s². Capture into a 500 km circular Mars orbit costs 2.07 km/s. Capture into a highly elliptical orbit instead (periapsis 500 km alt, apoapsis 33,000 km alt, period 24.1 h) costs only 0.93 km/s — 55% cheaper, because the burn only needs to shave the hyperbolic periapsis speed down to the ellipse's periapsis speed rather than all the way to a slow circular speed (an Oberth-style effect: same Δv buys more energy change at high speed deep in the well).\n\n**The \"v_inf-sum\" shortcut and what it hides.** Many quick porkchop tools report `total ≈ v_inf_dep + v_inf_arr` (here 5.59 km/s) as a stand-in for mission cost — useful for *ranking* windows since it correlates with true cost, but it is not a Δv budget: the real formula `sqrt(v_inf²+2μ/rp) - sqrt(μ/rp)` is not linear in v_inf, so the real total here (3.59 + 2.07 = 5.66 km/s) is close but not equal to the naive sum, and the gap changes with parking/capture-orbit radii and each planet's μ. It also completely hides the choice of capture strategy (circular vs. elliptical vs. flyby/no burn vs. aerocapture — a 55%+ swing shown above) and any plane-change cost (this treatment is fully coplanar).\n\n**Anchor cross-checks**: LEO(300 km)→GEO Hohmann total Δv = 3.89 km/s (matches ~3.9 km/s anchor); LEO(200 km)→GEO = 3.93 km/s. Synodic period `T_syn = 1/|1/T1 - 1/T2|` gave Earth-Mars 780.2 d, Earth-Venus 583.7 d, Earth-Jupiter 398.9 d — all matching the task's anchors (~780/~584/~399 d). Synodic period sets launch-window cadence: it's the beat period until the same Earth-target angular alignment recurs; for a much slower outer planet like Jupiter, T_syn converges toward Earth's own 365.26-day year.\n\n**Pitfall for the professor conversation**: this whole worked example uses circular, coplanar planet orbits (the classic Hohmann textbook idealization) — real Mars has e≈0.093 and ~1.85° inclination to the ecliptic, so a genuine mission-design tool needs Lambert solves against real ephemeris positions on specific dates, not this idealized anchor. The idealized numbers are for sanity-checking a Lambert-based porkchop implementation, not for flying a real mission.\n\n**Source note**: Braeunig's interpl.htm (the primary named source) could not be opened this session — WebFetch on www.braeunig.us failed with a TLS hostname mismatch (cert covers *.securedata.net, not braeunig.us), and the alternate domain braeunig.space does not resolve via DNS. All formulas were instead verified against Wikipedia's \"Sphere of influence\" and \"Patched conic approximation\" pages and orbital-mechanics.space's \"Planetary Departure for Interplanetary Transfer\" page, which state identical equations and are fully consistent with every numeric anchor given in the task.",
+  "sources": [
+   {
+    "title": "Sphere of influence (astrodynamics) — Wikipedia",
+    "ref": "https://en.wikipedia.org/wiki/Sphere_of_influence_(astrodynamics)",
+    "opened": true,
+    "note": "Formula r_SOI = a(m/M)^(2/5); table gave Earth 0.929e6 km, Mars 0.578e6 km (close to task's 0.925e6/0.577e6, computed exactly)."
+   },
+   {
+    "title": "Patched conic approximation — Wikipedia",
+    "ref": "https://en.wikipedia.org/wiki/Patched_conic_approximation",
+    "opened": true,
+    "note": "Departure delta-v formula dv = sqrt(v_inf^2+2mu/rp) - sqrt(mu/rp); v_helio = v_planet + v_inf vector patching."
+   },
+   {
+    "title": "Planetary Departure for Interplanetary Transfer — orbital-mechanics.space",
+    "ref": "https://orbital-mechanics.space/interplanetary-maneuvers/planetary-departure-trajectory.html",
+    "opened": true,
+    "note": "Full derivation of departure hyperbola energy equation, vp, hyperbolic a and e, delta-v from parking orbit."
+   },
+   {
+    "title": "Braeunig — Interplanetary Flight (interpl.htm)",
+    "ref": "http://www.braeunig.us/space/interpl.htm",
+    "opened": false,
+    "note": "WebFetch failed: TLS hostname mismatch (cert covers *.securedata.net, not braeunig.us). braeunig.space also does not resolve (DNS failure). Not opened this session; cross-checked via Wikipedia + orbital-mechanics.space instead, which agree."
+   },
+   {
+    "title": "T4_2_patched_conics.py — computed script (this session)",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/T4_2_patched_conics.py",
+    "opened": true,
+    "note": "All numeric anchors reproduced (SOI, Hohmann ToF/v_inf, departure/capture dv, LEO->GEO, synodic periods)."
+   }
+  ],
+  "key_facts": [
+   {
+    "fact": "Sphere-of-influence radius (Laplace formula): r_SOI = a*(m/M)^(2/5), a = smaller body's heliocentric semi-major axis, m its mass, M the Sun's mass.",
+    "source": "Wikipedia Sphere of influence (astrodynamics); computed in T4_2_patched_conics.py",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth SOI radius = 924,540 km (~0.9245e6 km); Mars SOI radius = 577,067 km (~0.5771e6 km). Both match the master doc's stated anchors (~0.925e6 and ~0.577e6 km).",
+    "source": "computed, T4_2_patched_conics.py section 1",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Departure delta-v from a circular parking orbit of radius rp to escape on a hyperbola of excess speed v_inf: dv = sqrt(v_inf^2 + 2*mu/rp) - sqrt(mu/rp). Derived from vis-viva: hyperbola periapsis speed vp = sqrt(v_inf^2 + 2*mu/rp), minus the circular parking speed sqrt(mu/rp). The identical formula runs in reverse for arrival capture.",
+    "source": "Wikipedia Patched conic approximation; orbital-mechanics.space planetary-departure-trajectory",
+    "confidence": "verified"
+   },
+   {
+    "fact": "C3 (characteristic energy) = v_inf^2 in km^2/s^2, twice the specific orbital energy of the escape hyperbola; the standard axis for launch-vehicle performance charts, independent of parking-orbit radius.",
+    "source": "Wikipedia Patched conic approximation",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Patched conics link planetocentric and heliocentric phases by vector addition at the SOI boundary: v_heliocentric = v_planet + v_infinity (vector). At departure v_inf = v_transfer - v_planet; at arrival v_inf = v_planet - v_transfer.",
+    "source": "Wikipedia Patched conic approximation; orbital-mechanics.space",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Hohmann-aligned Earth-Mars transfer: heliocentric departure v_inf ~= 2.94 km/s, arrival v_inf ~= 2.65 km/s, matching the task anchors. Time of flight ~= 258.8 days (~8.5 months), matching the ~259-day anchor.",
+    "source": "computed, T4_2_patched_conics.py section 2",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Departure delta-v from a 300 km circular LEO for the 2.94 km/s Earth-Mars v_inf is ~3.59 km/s, matching the ~3.6 km/s anchor. C3 for this departure is ~8.66 km^2/s^2.",
+    "source": "computed, T4_2_patched_conics.py section 3",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Capture into a 500 km circular Mars orbit from the 2.65 km/s arrival v_inf costs ~2.07 km/s. Capture into a highly elliptical orbit (periapsis 500 km alt, apoapsis 33,000 km alt) costs only ~0.93 km/s, a ~55% savings, because the burn only needs to reduce the hyperbolic periapsis speed to the ellipse's periapsis speed rather than to a low circular speed.",
+    "source": "computed, T4_2_patched_conics.py section 4",
+    "confidence": "verified"
+   },
+   {
+    "fact": "The v-infinity-sum shortcut (total ~= v_inf_dep + v_inf_arr = 5.59 km/s here) is useful for ranking launch windows but is not a real delta-v budget: the true departure+capture total (5.66 km/s here) diverges because the underlying dv formula is not linear in v_inf, and the shortcut hides the capture-strategy choice (circular vs elliptical vs flyby, a 55%+ swing) and any plane-change cost.",
+    "source": "computed and reasoned, T4_2_patched_conics.py section 5",
+    "confidence": "verified"
+   },
+   {
+    "fact": "LEO(300 km)->GEO Hohmann total delta-v ~= 3.89 km/s (matches ~3.9 km/s anchor); LEO(200 km)->GEO ~= 3.93 km/s.",
+    "source": "computed, T4_2_patched_conics.py section 6",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Synodic period formula T_syn = 1/|1/T1 - 1/T2| gives Earth-Mars = 780.2 days, Earth-Venus = 583.7 days, Earth-Jupiter = 398.9 days, matching the task's anchors (~780/~584/~399 d).",
+    "source": "computed, T4_2_patched_conics.py section 7",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Braeunig's interpl.htm could not be opened this session: WebFetch on www.braeunig.us failed TLS hostname verification (cert covers *.securedata.net, not braeunig.us), and braeunig.space does not resolve (DNS failure). Formulas were instead verified against Wikipedia and orbital-mechanics.space, which state identical equations.",
+    "source": "WebFetch tool errors, this session",
+    "confidence": "verified"
+   }
+  ],
+  "numbers": [
+   {
+    "name": "Earth SOI radius",
+    "value": "924540",
+    "units": "km",
+    "how": "r_SOI = a*(m/M)^(2/5), a=1.496e8 km, m=5.972e24 kg, M=1.989e30 kg; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Mars SOI radius",
+    "value": "577067",
+    "units": "km",
+    "how": "same formula, a=2.279e8 km, m=6.4171e23 kg; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Earth-Mars Hohmann time of flight",
+    "value": "258.8",
+    "units": "days",
+    "how": "pi*sqrt(a_t^3/mu_sun), a_t=(a_earth+a_mars)/2; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Heliocentric departure v_infinity (Earth)",
+    "value": "2.9435",
+    "units": "km/s",
+    "how": "v_transfer_at_perihelion - v_earth_circular (vis-viva); T4_2_patched_conics.py"
+   },
+   {
+    "name": "Heliocentric arrival v_infinity (Mars)",
+    "value": "2.6479",
+    "units": "km/s",
+    "how": "v_mars_circular - v_transfer_at_aphelion (vis-viva); T4_2_patched_conics.py"
+   },
+   {
+    "name": "Departure delta-v from 300 km circular LEO",
+    "value": "3.5897",
+    "units": "km/s",
+    "how": "sqrt(v_inf^2+2*mu_earth/rp) - sqrt(mu_earth/rp), rp=6678 km; T4_2_patched_conics.py"
+   },
+   {
+    "name": "C3 at Earth departure",
+    "value": "8.6640",
+    "units": "km^2/s^2",
+    "how": "v_inf_departure^2; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Capture delta-v into 500 km circular Mars orbit",
+    "value": "2.0694",
+    "units": "km/s",
+    "how": "sqrt(v_inf_arr^2+2*mu_mars/rp) - sqrt(mu_mars/rp), rp=3896 km; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Capture delta-v into highly elliptical Mars orbit",
+    "value": "0.9285",
+    "units": "km/s",
+    "how": "sqrt(v_inf_arr^2+2*mu_mars/rp) - v_ellipse_periapsis, rp=500km alt, ra=33000km alt; T4_2_patched_conics.py"
+   },
+   {
+    "name": "v-infinity sum shortcut (dep+arr)",
+    "value": "5.5914",
+    "units": "km/s",
+    "how": "v_inf_departure + v_inf_arrival; T4_2_patched_conics.py"
+   },
+   {
+    "name": "LEO(300km)->GEO total Hohmann delta-v",
+    "value": "3.8926",
+    "units": "km/s",
+    "how": "Hohmann dv1+dv2, r1=6678km, r2=42164km, mu_earth; T4_2_patched_conics.py"
+   },
+   {
+    "name": "LEO(200km)->GEO total Hohmann delta-v",
+    "value": "3.9319",
+    "units": "km/s",
+    "how": "same, r1=6578 km; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Synodic period Earth-Mars",
+    "value": "780.2",
+    "units": "days",
+    "how": "1/|1/T_earth - 1/T_mars|, T from Kepler's third law; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Synodic period Earth-Venus",
+    "value": "583.7",
+    "units": "days",
+    "how": "same formula, a_venus=1.082e8 km; T4_2_patched_conics.py"
+   },
+   {
+    "name": "Synodic period Earth-Jupiter",
+    "value": "398.9",
+    "units": "days",
+    "how": "same formula, a_jupiter=7.785e8 km; T4_2_patched_conics.py"
+   }
+  ],
+  "project_relevance": "This item supplies the exact math for the \"porkchop / delta-v\" layer of Phase C and directly informs the Phase-0/A/B/C fidelity-disclosure decision flagged in the master doc (Part III §1.3, §3): a v1 optimizer running Lambert solves on a heliocentric grid naturally produces v_inf pairs at departure and arrival, and this item shows exactly how those v_inf values convert — via the concave sqrt(v_inf^2+2mu/rp)-sqrt(mu/rp) relation, not a linear one — into the launch-vehicle-relevant C3 and parking-orbit delta-v numbers, and into the arrival capture-burn cost. Two concrete build implications: (1) the UI should let a user pick a parking-orbit radius (LEO altitude) and an arrival capture strategy (circular vs elliptical vs flyby/no-capture) as separate toggles, since these change the reported delta-v by ~50%+ (2.07 vs 0.93 km/s in the worked Mars example) even for the identical Lambert-derived v_inf pair; reporting only the v-infinity sum is fine for a fast porkchop-contour ranking pass but must be labeled as such, with the true delta-v computed on demand for a selected point. (2) SOI radii (~0.92e6 km Earth, ~0.58e6 km Mars) are under 1% of interplanetary distances (~1.5e8 km), which is exactly why the patched-conic approximation (instantaneous vector patches at the SOI boundary) is defensible for a v1 honest-fidelity disclosure, and why a fidelity ladder (impulsive burns, no plane change, no capture spiral, patched conics only) is the correct v1 scope per the master doc's explicit note (\"v1 may report v-infinity sums and skip planetary spirals — label fidelity honestly\").",
+  "question_inputs": [
+   {
+    "question": "Given two dates, what exactly does one Lambert solve return, and how do its v-infinity values become the delta-v numbers on a porkchop? Walk through the full chain with formulas and one worked Earth-to-Mars example.",
+    "answer": "A Lambert solve takes two heliocentric position vectors (r1 at departure date, r2 at arrival date) and a time of flight, and returns the two velocity vectors (v1_transfer at departure, v2_transfer at arrival) of the unique conic orbit connecting them in that time — it does NOT return a delta-v directly, only the transfer trajectory's endpoint velocities. To get delta-v you subtract each planet's own heliocentric velocity at that date (from ephemeris, not Lambert): v_inf_dep = v1_transfer - v_earth(t1), v_inf_arr = v_mars(t2) - v2_transfer (vectors, then take magnitudes). Those magnitudes are what a porkchop's C3 contour (C3=|v_inf_dep|^2) and arrival-v_inf contour show. To get an actual mission delta-v you then pick a parking-orbit radius rp_dep and apply dv_dep = sqrt(v_inf_dep^2+2*mu_earth/rp_dep) - sqrt(mu_earth/rp_dep), and pick a capture radius/strategy at Mars for the same formula with mu_mars and v_inf_arr. Worked example (Hohmann-aligned circular-orbit idealization, computed this session as a stand-in for a real two-date Lambert solve): v_inf_dep=2.9435 km/s, v_inf_arr=2.6479 km/s => C3=8.664 km^2/s^2, dv_dep(300km LEO)=3.5897 km/s, dv_cap(500km circular Mars orbit)=2.0694 km/s, true total mission delta-v=5.6590 km/s versus the naive v_inf-sum shortcut of 5.5914 km/s. A production porkchop replaces the Hohmann v1/v2 with real Lambert-solve outputs per grid cell; the v_inf-to-delta-v conversion chain is identical."
+   },
+   {
+    "question": "Why do launch windows recur, and what sets their cadence per planet pair? Give the synodic period formula and computed values for Earth-Mars, Earth-Venus, Earth-Jupiter.",
+    "answer": "Launch windows recur because the Earth-target angular alignment repeats periodically as the two bodies orbit the Sun at different angular rates — the alignment needed for an efficient transfer recurs once the faster body has lapped the slower one by 360 degrees relative to it. That beat period is the synodic period: T_syn = 1/|1/T1 - 1/T2|, T1/T2 = the bodies' sidereal periods (T=2*pi*sqrt(a^3/mu_sun) from Kepler's third law). Computed: T_Earth=365.26d, T_Mars=686.79d, T_Venus=224.67d, T_Jupiter=4336.09d, giving synodic periods Earth-Mars=780.2d, Earth-Venus=583.7d, Earth-Jupiter=398.9d — all matching task anchors. For a distant slow planet like Jupiter, T_syn converges toward Earth's own 365.26-day year (T_syn -> T_earth as T_outer -> infinity), explaining why Earth-Jupiter's synodic period (398.9d) is close to but a bit more than one Earth year."
+   },
+   {
+    "question": "Which fidelity shortcuts are acceptable for a v1 (impulsive burns only, patched conics, ignore capture spirals, planar assumptions) and how should the UI disclose them? Give a fidelity ladder and disclosure wording.",
+    "answer": "Fidelity ladder: LEVEL 0 (always fine, universal practice): the patched-conic approximation itself (instantaneous SOI-boundary vector patch) — justified since SOI radii (Earth ~0.92e6 km, Mars ~0.58e6 km) are under 1% of the ~1.5e8 km heliocentric transfer distance. LEVEL 1 (fine for v1, label as 'idealized'): impulsive burns (no finite burn duration/gravity losses); coplanar transfer assumption (ignores true 3D relative inclination, e.g. Mars's real ~1.85 degree tilt to the ecliptic); circular, not eccentric, planet orbits when using the Hohmann anchor rather than a full ephemeris Lambert solve for real dates. LEVEL 2 (must be clearly labeled or omitted): the v_inf-sum shortcut as a stand-in for delta-v — fine for fast ranking/contour coloring, never presented as a delta-v budget without applying the parking/capture-orbit math (this session's true total 5.659 km/s vs naive sum 5.591 km/s, and the gap is architecture-dependent). LEVEL 3 (out of scope for v1, state explicitly): aerobraking/aerocapture spirals, low-thrust/electric-propulsion trajectories, gravity-assist flybys, and any correction to the patched-conic error itself. Suggested UI disclosure text near any delta-v/C3 number: 'Idealized two-body patched-conic estimate: impulsive burns, coplanar transfer, circular parking orbit at the altitude shown. Does not include plane-change, aerocapture, or launch-vehicle losses. For ranking launch windows only — not a flight-ready delta-v budget.'"
+   }
+  ],
+  "gaps": [
+   "Braeunig's interpl.htm page itself could not be opened this session (TLS cert mismatch on www.braeunig.us; braeunig.space does not resolve) — formulas were cross-checked via Wikipedia and orbital-mechanics.space instead and all match the task's numeric anchors, but I have not seen Braeunig's own worked examples or discussion specific to that page.",
+   "Did not fetch the Wikipedia pages for Hohmann transfer orbit, Characteristic energy, or Hyperbolic excess velocity individually this session (relied on the patched-conic and SOI pages plus standard formulas, internally consistent and matching all given anchors) — worth a direct fetch if the professor wants a citation specific to that terminology.",
+   "Did not run an actual Lambert solver (e.g. lamberthub/pykep, both installable in the venv per the brief) this session — the worked example for question 1 uses the Hohmann-aligned circular-orbit idealization as a stand-in, not a real two-date Lambert solve against actual non-circular, mutually inclined Earth/Mars ephemeris positions. A follow-up run would quantify how far the idealized v_inf values (2.94/2.65 km/s) diverge from a real off-alignment window.",
+   "The elliptical Mars capture-orbit apoapsis (33,000 km altitude) was chosen as an illustrative round number to show the circular-vs-elliptical tradeoff, not sourced from a specific real mission's actual capture-orbit parameters."
+  ]
+ },
+ {
+  "item_id": "T4.3",
+  "item_title": "T4.3 — Porkchop plots: theory plus an actual computed Earth-Mars porkchop",
+  "item": "T4.3 — Porkchop plots: theory plus an actual computed Earth-Mars porkchop",
+  "sources": [
+   {
+    "title": "Wikipedia — Porkchop plot",
+    "ref": "https://en.wikipedia.org/wiki/Porkchop_plot",
+    "opened": true,
+    "note": "axes, C3 definition, ToF/SEP-angle contour colors, Lambert-problem history"
+   },
+   {
+    "title": "Degenerate Conic — Porkchop Plots",
+    "ref": "https://degenerateconic.com/porkchop-plots.html",
+    "opened": true,
+    "note": "departure/arrival C3 contours, short-way vs long-way (Type I/II) as separate contour families"
+   },
+   {
+    "title": "Web search: porkchop plot NASA JPL mission design C3 v-infinity Type I Type II",
+    "ref": "web search aggregator, links included below",
+    "opened": false,
+    "note": "used for source discovery only (Adafruit explainer, JPL small-body mission design API, MATLAB File Exchange porkchop tool, ravi4ram/Porkchop-Plot GitHub, nasaspaceflight forum tool thread); not individually opened this task — Type I/II <180 deg vs >180 deg transfer-angle definition taken from the search snippet of the MATLAB File Exchange listing, corroborated by the degenerateconic short-way/long-way description"
+   },
+   {
+    "title": "Master doc, Track 4 section + Part III math/code sketches",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/rathinam_project_master.md (lines ~162-176, ~369-376, ~380)",
+    "opened": true,
+    "note": "task scope, pykep code sketch (section 6.3), known-answer anchor 'good-window v-inf sum ~5.6-6 km/s' and '780-day synodic banding'"
+   },
+   {
+    "title": "Computed porkchop script (this task)",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/T4_3_porkchop.py",
+    "opened": true,
+    "note": "self-authored and run; primary source for all computed numbers below"
+   },
+   {
+    "title": "de421.bsp JPL ephemeris kernel (via Skyfield/NAIF)",
+    "ref": "downloaded automatically by skyfield.api.load('de421.bsp') to the scratchpad",
+    "opened": true,
+    "note": "heliocentric ICRF state vectors for Earth and Mars, valid 1899-2053"
+   },
+   {
+    "title": "lamberthub (Izzo 2015 Lambert solver), local install",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/.../scratchpad/venv/Lib/site-packages/lamberthub",
+    "opened": true,
+    "note": "izzo2015(mu, r1, r2, tof, M=0, prograde=True, low_path=True) -> (v1, v2); docstring claims 3 return values (v1,v2,numiter) but the installed version actually returns only 2 — verified empirically, script updated accordingly"
+   },
+   {
+    "title": "izzo2015 arXiv paper (already fetched by a sibling agent this session)",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/.../scratchpad/izzo2015_arxiv1403.2705.pdf / izzo2015_text.txt",
+    "opened": false,
+    "note": "present in scratchpad from a parallel track's work; not re-opened by me for this item since Curtis/Izzo algorithmic detail is Track 4 item T4.1's scope, not T4.3's"
+   }
+  ],
+  "summary": "## What a porkchop plot is\n\nA porkchop plot is a 2-D contour map over a grid of (departure date, arrival date) — or equivalently (departure date, time of flight, ToF, since arrival = departure + ToF) — pairs. At every grid point you solve **Lambert's problem** once: given the two body positions r1 (departure planet at t_dep) and r2 (arrival planet at t_arr = t_dep+ToF), and the ToF, find the *one* two-body conic arc connecting them. Contour families overlaid on that grid are the classic \"porkchop\" shape (bi-lobed, resembling a pork chop):\n- **Departure C3** (blue, in km²/s²) — launch energy needed.\n- **Arrival v∞** (sometimes a separate arrival-C3 or v∞ contour) — how \"hot\" the arrival hyperbola is (relevant for capture Δv or entry heating).\n- **Time of flight** (red lines, contours of constant ToF) — when axes are (departure, arrival) rather than (departure, ToF) directly.\n- **Sun-Earth-probe angle at departure** (green, per Wikipedia) — a geometric/comm constraint, not used in my grid.\n\n**Type I vs Type II** = short-way vs long-way transfer, i.e. whether the heliocentric transfer angle (true anomaly swept from r1 to r2) is **< 180°** (Type I) or **> 180°** (Type II). This is the `prograde`/`low_path` and transfer-angle-quadrant choice inside the Lambert solver — for a given (t_dep, ToF) there can be two solutions (short way / long way), each with its own C3, and the porkchop typically overlays both as separate contour families (degenerateconic.com shows them as black vs blue lines). My script fixed `prograde=True, low_path=True, M=0` (single, zero-revolution, low-path solution) for the whole grid, so it computes a *single-branch* porkchop, not a full Type I/II overlay — a fidelity note worth flagging to the professor.\n\n## The full chain: Lambert solve → v∞ → C3/Δv (worked Earth→Mars example)\n\nOne Lambert solve takes **(r1, r2, ToF, μ)** and returns the transfer orbit's velocity vectors **v1_transfer** (velocity the spacecraft must have at r1 to arrive at r2 after ToF) and **v2_transfer** (velocity it has on arrival at r2). It does *not* directly give a \"delta-v\" — that requires subtracting the *planet's own* heliocentric velocity at each end (patched-conic assumption: the spacecraft is on a hyperbolic excess trajectory relative to the departure/arrival planet, matched instantaneously at the SOI boundary):\n\n```\nv_inf_departure_vec = v1_transfer − v_planet1(t_dep)     # hyperbolic excess relative to Earth\nv_inf_arrival_vec   = v2_transfer − v_planet2(t_arr)     # hyperbolic excess relative to Mars\nC3_departure = |v_inf_departure_vec|²                    # km²/s², \"launch energy\"\n```\n\nThe **C3** is what actually constrains the launch vehicle (a given rocket+payload combo can only deliver so much C3). The **v∞ sum** (|v_inf_dep| + |v_inf_arr|) is a cheap, commonly used *proxy* for total impulsive Δv budget — it is not itself a burn Δv (the real departure burn is v_inf minus the parking-orbit circular speed, done via the Oberth-effect hyperbolic-excess formula `Δv = sqrt(v_inf² + 2μ_earth/r_park) − v_circular`; similarly for Mars orbit insertion), but for early-stage porkchop screening the v∞ sum is the standard first-cut metric, and is what the \"5.6-6 km/s good window\" anchor in the master doc refers to.\n\n**Worked example** (from my computed grid, the global-best cell): departure 2026-10-29, arrival 2027-09-04 (ToF = 310 days).\n- r1 (Earth, heliocentric ICRF, km) = [1.2143e8, 7.8618e7, 3.4078e7], |r1| = 1.4862e8 km\n- v1 (Earth heliocentric velocity, km/s) = [-17.646, 22.225, 9.634], |v1| = 29.969 km/s\n- r2 (Mars, km) = [-1.0909e8, -1.8281e8, -8.0908e7], |r2| = 2.2774e8 km\n- v2 (Mars heliocentric velocity, km/s) = [22.179, -8.444, -4.471], |v2| = 24.150 km/s\n- ToF = 26,784,000 s (310 days exactly)\n- Lambert solve (Izzo, μ_sun = 132712440041.28 km³/s², prograde, M=0): v1_transfer = [-19.561, 24.150, 11.016] km/s; v2_transfer = [19.832, -7.746, -3.663] km/s\n- **v_inf_departure** = v1_transfer − v1 = [-1.914, 1.926, 1.381] km/s → **|v_inf_dep| = 3.046 km/s → C3_dep = 9.281 km²/s²**\n- **v_inf_arrival** = v2_transfer − v2 = [-2.347, 0.699, 0.808] km/s → **|v_inf_arr| = 2.579 km/s**\n- **v∞ sum = 5.625 km/s** — matches the \"good window ≈ 5.6-6 km/s\" anchor almost exactly, and C3=9.28 km²/s² sits inside the stated 8-16 km²/s² good-window range.\n\n## Synodic period — why launch windows recur, and their cadence\n\nFor two coplanar circular orbits with periods T1 (inner, faster) and T2 (outer, slower), the geometric configuration (e.g. relative angular alignment) repeats with the **synodic period**:\n\n```\n1/T_syn = |1/T1 − 1/T2|   ->   T_syn = 1 / |1/T1 − 1/T2|\n```\n\nThis is why launch windows for a given planet pair recur roughly every T_syn: the Hohmann-like transfer geometry (Earth at departure, target planet at the point it needs to be at arrival) only re-occurs on that cadence, not every year. I computed this for three pairs (script inline calc, sidereal periods: Earth 365.256 d, Venus 224.701 d, Mars 686.980 d, Jupiter 4332.589 d):\n\n| pair | T_syn (days) | T_syn (years) |\n|---|---|---|\n| Earth–Venus | 583.92 | 1.599 |\n| Earth–Mars | 779.93 | 2.135 |\n| Earth–Jupiter | 398.88 | 1.092 |\n\nEarth-Mars ≈ 780 days matches the master-doc anchor exactly (779.93 d from the formula). My computed grid independently found the spacing between the two best-window minima at **756 days** (2026-10-29 → 2028-11-23) — close to 780 but under-shooting a bit because (a) real orbits are elliptical/inclined not circular/coplanar, so the \"best ToF\" and exact minimum date drift window to window, and (b) my grid step (7 days) coarsely quantizes the minimum location. This is expected slop, not a bug — worth noting to the professor as a fidelity caveat rather than presenting 756 as a refined synodic-period measurement.\n\n## Computed Earth-Mars porkchop (2026-01-01 to 2029-12-31, ToF 100-400 d)\n\nScript: `notes/T4_3_porkchop.py`. Method: Skyfield + JPL DE421 ephemeris (heliocentric ICRF/J2000 state vectors for Earth/Mars, km & km/s) at every needed date; `lamberthub.izzo2015` Lambert solve per (departure, ToF) grid cell (prograde, zero-rev, low-path only — single branch, no Type II overlay). Grid: 209 departure dates (7-day step) × 31 ToFs (10-day step, 100-400 d) = 6479 cells, all solved successfully (0 failures), runtime ~9 s total (~4 s for the Lambert loop). Full grid saved to `notes/T4_3_porkchop.csv` (6479 rows + header); contour plot saved to `notes/T4_3_porkchop.png` (blue = C3 departure contours, red dashed = v∞-sum contours) and sent to the user.\n\n**Key results:**\n- **Global best over the whole 4-year grid**: departure 2026-10-29, arrival 2027-09-04, ToF=310 d → v_inf_dep=3.046, v_inf_arr=2.579, **C3_dep=9.281 km²/s², v∞ sum=5.625 km/s**.\n- **2026 window** (the only full window captured starting from 2026-01-01): best is the same cell above — v∞ sum 5.625 km/s.\n- **2028/2029 window**: best departure 2028-11-23 → arrival 2029-09-19, ToF=300 d → C3_dep=9.118 km²/s², v_inf_arr=2.968, **v∞ sum=5.988 km/s**.\n- **Global minimum C3 departure** in the grid: 2028-11-30 → 2029-10-16, ToF=320d, C3_dep=9.019 km²/s² (slightly lower C3 than the global-v∞-sum-best cell, but higher v∞ sum of 6.265 km/s since arrival v∞ is worse there — illustrates that \"min C3\" and \"min total v∞\" pick different optimal dates, a real porkchop-reading subtlety).\n- **Anchor check — \"good-window v∞ sum ≈ 5.6-6 km/s\" HOLDS**: both the 2026 window (5.625 km/s) and the 2028/2029 window (5.988 km/s) land inside that band.\n- **Anchor check — \"C3 in the 8-16 km²/s² range for good windows\" HOLDS**: both best-window C3 values (9.28 and 9.12 km²/s²) fall inside 8-16.\n- **Anchor check — \"arrival v∞ 2.5-3.5 km/s\" HOLDS**: 2.579 and 2.968 km/s both fall inside that band.\n- 2027 and 2029-standalone calendar-year buckets show much worse numbers (10.5 km/s, 7.7 km/s) because those years are mid-synodic-cycle troughs, not real launch windows — a reminder that \"best per calendar year\" is a less meaningful cut than \"best per synodic window,\" and the script's local-minima detector (collapsing minima within 60 days) correctly isolated the two true windows straddling the 2026/2027 and 2028/2029 year boundaries.\n\nFull CSV columns: `departure_date, arrival_date, tof_days, v_inf_dep_km_s, v_inf_arr_km_s, c3_dep_km2_s2, c3_arr_km2_s2, v_inf_sum_km_s`.\n\n## Fidelity ladder / disclosure for a v1 UI\n\n1. **Patched conics** (SOI instantaneous velocity matching, no finite SOI transit modeling) — acceptable and universal for v1; disclose as \"departure/arrival Δv approximated via patched-conic hyperbolic excess, not a fully integrated N-body trajectory.\"\n2. **Impulsive burns only** (no finite burn duration, no low-thrust) — acceptable; disclose as \"instantaneous burns assumed; real launch/insertion burns take minutes-hours and cost slightly more Δv than shown.\"\n3. **No planetary capture spiral / no orbit-insertion Δv shown** — the porkchop v∞ sum is *not* total mission Δv; disclose explicitly: \"v∞ values shown are hyperbolic excess speeds, not insertion burns — Mars orbit capture or landing adds Δv not included here.\"\n4. **Planar / circular-orbit approximations only for the synodic-period explainer**, not for the actual grid (my grid used true 3-D DE421 ephemeris, so the grid itself is not planar-approximated) — but any UI text explaining \"why windows recur\" using the simple synodic formula should say so is a simplified circular-coplanar picture.\n5. **Single Lambert branch (Type I only, M=0)** in this computed grid — disclose or fix before shipping a \"real\" porkchop: \"this plot shows only short-way, direct (zero-revolution) transfers; long-way (Type II) and multi-revolution trajectories exist and are not shown.\"\n\nSuggested UI microcopy: *\"Delta-v estimates use the patched-conic / Lambert-arc method: instantaneous impulsive burns, no orbit-insertion or landing propellant, ephemeris from JPL DE421.\"*\n\n## Pitfalls encountered\n\n- `lamberthub.izzo2015`'s docstring claims it returns `(v1, v2, numiter)` but the installed version (this venv) returns only `(v1, v2)` — unpacking 3 values throws and silently produces zero successful rows if not caught; verified empirically and fixed.\n- Skyfield returns state vectors in the **ICRF/J2000 equatorial frame** (not ecliptic) — fine for Lambert (any consistent inertial frame works, since Lambert only needs a self-consistent triangle geometry), but would need conversion if cross-referencing against Curtis-style ecliptic-plane diagrams.\n- `min C3` and `min v∞ sum` optimize different things and pick different dates — worth teaching explicitly since a porkchop viewer that only shows one contour family can mislead a user picking a \"best\" launch date.",
+  "key_facts": [
+   {
+    "fact": "A porkchop plot grids (departure date x arrival date, or departure date x ToF); one Lambert solve happens per grid cell.",
+    "source": "Wikipedia Porkchop plot + master doc Part III §6.3",
+    "confidence": "verified"
+   },
+   {
+    "fact": "C3 = |v_infinity|^2 (km^2/s^2), the characteristic energy = twice the specific orbital energy of the escape hyperbola.",
+    "source": "Wikipedia Porkchop plot / degenerateconic.com",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Type I = short-way transfer (heliocentric transfer angle < 180 deg); Type II = long-way (> 180 deg).",
+    "source": "web search snippet (MATLAB File Exchange porkchop tool description) corroborated by degenerateconic.com's short-way/long-way contour description",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Synodic period formula: 1/T_syn = |1/T1 - 1/T2|.",
+    "source": "standard orbital mechanics (Curtis ch.8); applied and computed with Python this task",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Mars synodic period = 779.93 days (~780 days, matches master-doc anchor).",
+    "source": "computed: 1/|1/365.256 - 1/686.980| days, script in this task",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Venus synodic period = 583.92 days (~1.6 years).",
+    "source": "computed this task",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Jupiter synodic period = 398.88 days (~1.09 years).",
+    "source": "computed this task",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Good Earth-Mars launch windows have C3_departure in roughly 8-16 km^2/s^2 and arrival v-infinity roughly 2.5-3.5 km/s, with v-infinity sum roughly 5.6-6 km/s.",
+    "source": "master doc anchor, confirmed by this task's own computed grid (2026 window: C3=9.28, v_inf_arr=2.58, sum=5.63; 2028/29 window: C3=9.12, v_inf_arr=2.97, sum=5.99)",
+    "confidence": "verified"
+   },
+   {
+    "fact": "lamberthub.izzo2015(mu, r1, r2, tof, M=0, prograde=True, low_path=True) returns (v1, v2) — a 2-tuple, despite its docstring claiming a 3rd numiter return value.",
+    "source": "empirically verified by calling it and checking len(out) in this venv",
+    "confidence": "verified"
+   },
+   {
+    "fact": "de421.bsp downloads automatically via skyfield.api.load('de421.bsp') and covers 1899-07-28 through 2053-10-08, sufficient for the 2026-2029 grid.",
+    "source": "verified by loading the kernel and printing its segment table",
+    "confidence": "verified"
+   }
+  ],
+  "numbers": [
+   {
+    "name": "Earth-Mars synodic period",
+    "value": "779.93",
+    "units": "days",
+    "how": "1/|1/365.256 - 1/686.980|, computed in notes session; script inline in Bash tool call"
+   },
+   {
+    "name": "Earth-Venus synodic period",
+    "value": "583.92",
+    "units": "days",
+    "how": "1/|1/365.256 - 1/224.701|"
+   },
+   {
+    "name": "Earth-Jupiter synodic period",
+    "value": "398.88",
+    "units": "days",
+    "how": "1/|1/365.256 - 1/4332.589|"
+   },
+   {
+    "name": "Best 2026-window departure",
+    "value": "2026-10-29, arrival 2027-09-04, ToF=310d",
+    "units": "date/days",
+    "how": "notes/T4_3_porkchop.py grid search, min v_inf_sum over the 2026-27 window"
+   },
+   {
+    "name": "Best 2026-window C3 departure",
+    "value": "9.281",
+    "units": "km^2/s^2",
+    "how": "|v1_transfer - v_Earth|^2 from Lambert solve, notes/T4_3_porkchop.py"
+   },
+   {
+    "name": "Best 2026-window v_inf sum",
+    "value": "5.625",
+    "units": "km/s",
+    "how": "|v_inf_dep| + |v_inf_arr|, notes/T4_3_porkchop.py"
+   },
+   {
+    "name": "Best 2028/29-window departure",
+    "value": "2028-11-23, arrival 2029-09-19, ToF=300d",
+    "units": "date/days",
+    "how": "notes/T4_3_porkchop.py grid search"
+   },
+   {
+    "name": "Best 2028/29-window C3 departure",
+    "value": "9.118",
+    "units": "km^2/s^2",
+    "how": "notes/T4_3_porkchop.py"
+   },
+   {
+    "name": "Best 2028/29-window v_inf sum",
+    "value": "5.988",
+    "units": "km/s",
+    "how": "notes/T4_3_porkchop.py"
+   },
+   {
+    "name": "Global minimum C3 in grid",
+    "value": "9.019",
+    "units": "km^2/s^2",
+    "how": "2028-11-30 departure, ToF=320d, notes/T4_3_porkchop.py"
+   },
+   {
+    "name": "Spacing between the two computed window minima",
+    "value": "756",
+    "units": "days",
+    "how": "2028-11-23 minus 2026-10-29, notes/T4_3_porkchop.py output (coarse 7-day grid, so slop vs the exact 779.93-day formula value is expected)"
+   },
+   {
+    "name": "Grid size / runtime",
+    "value": "6479 cells (209 departures x 31 ToFs), 0 Lambert failures, ~4.1s solve + ~5s ephemeris/plot",
+    "units": "cells / seconds",
+    "how": "notes/T4_3_porkchop.py stderr timing output"
+   }
+  ],
+  "project_relevance": "This item directly informs the Phase C porkchop feature (the \"signature interactive candidate\" per the master doc, C1: hover cell -> arc in 3D). It confirms the project's chosen v1 method (patched-conic Lambert grid, Izzo algorithm) is both standard practice (matches JPL/pykep conventions) and numerically sound (my from-scratch Skyfield+lamberthub pipeline reproduces the master doc's known-answer anchors almost exactly: v_inf sum 5.6-6 km/s, C3 8-16 km^2/s^2, arrival v_inf 2.5-3.5 km/s, ~780-day Earth-Mars window spacing). Concretely: (1) the optimizer's Lambert layer can be built with a pure-Python stack (skyfield + lamberthub) without needing pykep/WASM, addressing the master doc's stated pykep-WASM pain point — worth flagging to the professor as a viable alternative dependency path; (2) the CSV/PNG grid is a ready-made test fixture / known-answer oracle for validating a future JS Lambert port (satellite.js has no Lambert solver, so a JS Izzo port will need its own oracle — this Python-computed grid is exactly that); (3) the fidelity-ladder section gives concrete UI disclosure language the professor (a mechanical engineer) will expect to see stated explicitly rather than glossed over; (4) the Type I/II gap in my computed grid (single branch only) is a known scope limitation to mention honestly when proposing v1 — a full porkchop tool should offer both short-way and long-way contours, which the current script does not.",
+  "question_inputs": [
+   {
+    "question": "Given two dates, what exactly does one Lambert solve return, and how do its v-infinity values become the delta-v numbers on a porkchop? Walk through the full chain with formulas and one worked Earth-to-Mars example.",
+    "answer": "One Lambert solve takes the two position vectors (r1 at departure, r2 at arrival) and the time of flight, and returns the transfer orbit's velocity vectors v1_transfer and v2_transfer (spacecraft velocity at each end of the connecting conic) -- it does NOT itself return a delta-v. To get delta-v-relevant quantities, subtract each planet's own heliocentric velocity: v_inf_departure = v1_transfer - v_planet1(t_dep), v_inf_arrival = v2_transfer - v_planet2(t_arr). Then C3_departure = |v_inf_departure|^2 (km^2/s^2, the launch-energy metric), and the v_infinity-sum (|v_inf_dep|+|v_inf_arr|) is the cheap proxy porkchop plots use for total impulsive cost (not the true insertion/capture delta-v, which needs the Oberth-effect formula against a specific parking orbit). Worked example computed this task: departure 2026-10-29 -> arrival 2027-09-04 (ToF=310d): |v_inf_dep|=3.046 km/s (C3=9.281 km^2/s^2), |v_inf_arr|=2.579 km/s, v_inf sum=5.625 km/s -- full position/velocity vectors and intermediate numbers are in the summary above and in notes/T4_3_porkchop.csv."
+   },
+   {
+    "question": "Why do launch windows recur, and what sets their cadence per planet pair? Give the synodic period formula and computed values for Earth-Mars, Earth-Venus, Earth-Jupiter.",
+    "answer": "Windows recur because the relative geometric alignment of two planets in their orbits repeats with the synodic period T_syn = 1/|1/T1 - 1/T2| where T1, T2 are the two planets' sidereal orbital periods. Computed this task: Earth-Mars T_syn=779.93 days (~2.14 yr, matches the master doc's ~780-day anchor and the ~756-day spacing independently found by grid-searching my computed porkchop's two window minima); Earth-Venus T_syn=583.92 days (~1.60 yr); Earth-Jupiter T_syn=398.88 days (~1.09 yr)."
+   },
+   {
+    "question": "Which fidelity shortcuts are acceptable for a v1 (impulsive burns only, patched conics, ignore capture spirals, planar assumptions) and how should the UI disclose them? Give a fidelity ladder and disclosure wording.",
+    "answer": "Acceptable for v1: (1) patched-conic SOI matching instead of full N-body integration; (2) impulsive (instantaneous) burns instead of finite-duration/low-thrust; (3) showing v-infinity/C3 only, not full mission delta-v (no capture-spiral or landing delta-v included); (4) using the simplified circular-coplanar synodic-period picture only for explanatory text, not for the actual computed grid (the grid itself should use real ephemeris, as mine did via DE421). A single-Lambert-branch grid (Type I/zero-rev only, as my computed grid is) is a scope limitation worth disclosing or fixing before calling it a complete porkchop tool. Suggested UI microcopy: 'Delta-v estimates use the patched-conic / Lambert-arc method: instantaneous impulsive burns, no orbit-insertion or landing propellant, ephemeris from JPL DE421.' Full fidelity ladder with disclosure text for each shortcut is in the study-notes summary above."
+   }
+  ],
+  "gaps": [
+   "Did not fetch/re-read the JPL Small-Body Mission Design API doc or the official NASA/JPL porkchop primer page directly (only surfaced via web search snippet); relied on Wikipedia + degenerateconic.com as the two directly-opened technical sources plus the master doc's own pykep code sketch.",
+   "Did not confirm the Type I/II <180/>180 degree transfer-angle definition against a primary NASA/JPL source -- it is corroborated by two independent secondary sources (search snippet + degenerateconic.com) but not verified against an authoritative JPL page.",
+   "The computed grid uses only the single Lambert branch (prograde, zero-revolution, low-path) -- a full Type I vs Type II overlay (both short-way and long-way contours on the same plot) was not computed; would need a second Lambert solve per cell with the opposite transfer-angle branch.",
+   "Did not install or use pykep itself (per the brief's suggested source list) -- used skyfield+lamberthub instead, which is a fully valid substitute (same Izzo algorithm) but the pykep-specific porkchop tutorial at esa.github.io/pykep was not directly fetched/read this task; the master doc's own section 6.3 code sketch (which uses pykep) was used as the algorithmic template instead.",
+   "Grid resolution (7-day departure step, 10-day ToF step) is coarse by design per the task spec; the measured window spacing (756 days) undershoots the analytic synodic period (779.93 days) by about 3%, attributable to grid coarseness and orbital non-circularity/non-coplanarity -- not further refined with a finer grid in this task."
+  ]
+ },
+ {
+  "item_id": "T4.4",
+  "item_title": "T4.4 — Delta-v maps and subway maps as edge weights",
+  "item": "T4.4 — Delta-v maps and subway maps as edge weights",
+  "sources": [
+   {
+    "title": "Wikipedia — Delta-v budget",
+    "ref": "https://en.wikipedia.org/wiki/Delta-v_budget",
+    "opened": true,
+    "note": "Read via WebFetch: extracted LEO-GEO, LEO-TLI, TLI-LLO, LEO-escape, LEO-Mars, Mars-capture-to-LMO, LEO-Venus figures and the Oberth/impulsive-burn assumptions plus the launch-time-dependence caveat."
+   },
+   {
+    "title": "Wikimedia Commons — File:Solar system delta v map.svg (Ulysse Carion / CMG Lee derivative, 'subway map')",
+    "ref": "https://commons.wikimedia.org/wiki/File:Solar_system_delta_v_map.svg",
+    "opened": true,
+    "note": "Read description via WebFetch: creator CMG Lee, sourced from deltavposter.space and a Reddit /u/CuriousMetaphor calculation set (the Carion-lineage chart); explicit stated assumptions 'burns are at periapsis, gravity assist and inclination changes are ignored,' aerobraking marked where used; noted known issue with a high Venus-leg number."
+   },
+   {
+    "title": "Wikipedia — Template:Solar system delta v map.svg (caption/legend page)",
+    "ref": "https://en.wikipedia.org/wiki/Template:Solar_system_delta_v_map.svg",
+    "opened": false,
+    "note": "Found via search, not separately opened — Commons file description page covered the same caption text."
+   },
+   {
+    "title": "John D. Cook blog — 'Subway map of the solar system'",
+    "ref": "https://www.johndcook.com/blog/2015/05/20/subway-map-of-the-solar-system/",
+    "opened": false,
+    "note": "Found via WebSearch snippet only, not fetched; background context on the Carion chart's popularization, not load-bearing for numbers used."
+   },
+   {
+    "title": "jwz blog — 'Delta V Solar System Maps'",
+    "ref": "https://www.jwz.org/blog/2018/01/delta-v-solar-system-maps/",
+    "opened": false,
+    "note": "Found via WebSearch snippet only; mirror/commentary on the same chart, not opened."
+   },
+   {
+    "title": "Braeunig — Basics of Space Flight: Interplanetary Flight",
+    "ref": "http://www.braeunig.us/space/interpl.htm",
+    "opened": false,
+    "note": "Content reached only through WebSearch's extracted snippet (Terra-Mars Hohmann dv=5596 m/s, 8-9 month transfer, Venus/Mercury transfer times); the search tool returned prose excerpts, not a full fetch. Treat as 'likely' not 'verified' until the page itself is opened directly."
+   },
+   {
+    "title": "Braeunig — Basics of Space Flight: Orbital Mechanics",
+    "ref": "http://www.braeunig.us/space/orbmech.htm",
+    "opened": false,
+    "note": "Same caveat as above — found via search, not directly fetched."
+   },
+   {
+    "title": "Local vis-viva / Hohmann / synodic-period cross-check script",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/T4_4_dv_check.py",
+    "opened": true,
+    "note": "Written and executed with the project's venv Python; output pasted into the summary below. Computes 7 independent checks against the Wikipedia/Braeunig numbers."
+   }
+  ],
+  "summary": "# T4.4 — Delta-v maps as edge weights for the transfer graph\n\n## 1. What a \"delta-v map\" actually is\n\nA delta-v map (Wikipedia's \"Delta-v budget\" tables; the community \"subway map of the solar system,\" originally popularized in the Ulysse Carion poster and its Reddit/`deltavposter.space` lineage, mirrored on Wikimedia Commons as `Solar_system_delta_v_map.svg` by CMG Lee) is a **precomputed, impulsive, patched-conic Hohmann-transfer graph**. Nodes are orbital \"states\" (LEO, GTO, GEO, Earth escape, Mars transfer orbit, low Mars orbit, Venus transfer orbit, Mars/Venus surface, etc.); edges are single delta-v numbers for the cheapest coplanar burn connecting them. This is *exactly* the \"logistics graph\" shape the project's Phase C optimizer needs — the map is basically a hand-computed instance of the transfer-network graph EMOA* would search, just with scalar (not vector) edge weights and one fixed launch date baked in.\n\n**Explicitly stated assumptions on the Commons/Wikipedia chart** (quoted from the file description, read directly): *\"burns are at periapsis, and gravity assist and inclination changes are ignored.\"* Aerobraking/aerocapture is used only where specifically marked on the diagram (this is the one place the chart departs from pure propulsive delta-v). The chart's own creator flags at least one uncertain number (\"the rightmost value for Venus seems overly high, though both sources concur\") — a good example of why every number needs its own citation rather than trusting the poster wholesale.\n\n**Wikipedia's \"Delta-v budget\" article** states the same family of assumptions in prose: the high-thrust/Oberth-effect regime is assumed (\"possible with high thrust chemical propulsion but not with current electrical propulsion\" as of the source date), burns are impulsive, transfers are coplanar Hohmann-type, and — critically — *\"because delta-v depends on the position and motion of celestial bodies... the delta-v budget changes with launch time.\"* This is the load-bearing caveat for the project: **every scalar in these charts is a single-launch-date (or \"typical/average\") number, not a bound.** Real values vary by roughly ±10-30% around a synodic cycle depending on how close the launch date is to the Hohmann-optimal alignment, and by much more for non-Hohmann (fast) trajectories chosen to shorten flight time at higher dv cost — this variability is the entire reason porkchop plots exist (T4 items 1-3 cover Lambert/porkchop mechanics; this item is about how the *summary numbers* on those porkchops get compressed into map edges).\n\n## 2. Tabulated delta-v values, with sources and cross-checks\n\nAll \"computed\" values below came from `notes/T4_4_dv_check.py` (vis-viva equation `v = sqrt(mu*(2/r - 1/a))`, Kepler's third law for periods and synodic periods), run through the project venv. Script output pasted verbatim under each block. Assumed parking orbit: 300 km circular LEO; assumed low-Mars-orbit: 300 km circular. mu_Earth = 398600.4418 km^3/s^2, mu_Sun = 1.32712440018e11 km^3/s^2, mu_Mars = 42828.37 km^3/s^2, 1 AU = 1.495978707e8 km, using mean orbital radii (0.723/1.000/1.524/5.203 AU for Venus/Earth/Mars/Jupiter) — i.e. **circular, coplanar, zero-eccentricity approximation**, not a real ephemeris date. This is coarser than a real Lambert solve but matches how the delta-v-map charts themselves are built.\n\n| Edge | Wikipedia \"Delta-v budget\" value | My vis-viva computation | Notes |\n|---|---|---|---|\n| LEO → GTO | (rolled into LEO→GEO total) | **2.426 km/s** | perigee burn, 300 km LEO → GTO with apogee at GEO alt (35786 km) |\n| GTO → GEO (circularize, no plane change) | (rolled into total) | **1.467 km/s** | apogee burn |\n| **LEO → GEO total (coplanar, equatorial LEO)** | 3.90 km/s (\"LEO-Eq\") / 4.24 km/s (\"LEO-Ken\", i.e. Kennedy-inclination LEO incl. plane change) | **3.893 km/s** | matches the equatorial-LEO figure almost exactly (0.007 km/s off — rounding in parking-orbit altitude). The 4.24 km/s figure includes ~28.5° plane change, which the coplanar assumption in my script (and in the \"burns at periapsis, inclination changes ignored\" map assumption) explicitly excludes — flagging this delta is itself a citable point for the project's docs. |\n| LEO → TLI | 3.20 km/s | **3.106 km/s** | apogee = mean Earth-Moon distance 384,400 km; small gap plausibly from Wikipedia using a specific historical (Apollo-era) parking-orbit altitude/inclination rather than my generic 300 km circular |\n| TLI → LLO (lunar orbit insertion) | 0.90 km/s | not independently recomputed (would need Moon's mu and a 3-body patched-conic, out of scope for this item's vis-viva check) | verified from Wikipedia table only — mark \"likely\" |\n| LEO → Earth escape (C3 = 0) | 9.3–10 km/s *(this appears to be the article's total from-standstill escape speed context, not a delta)* | **3.200 km/s** (delta from 300 km circular LEO to parabolic escape) | my number matches the *other* commonly quoted \"LEO->C3=0\" delta-v figure (~3.2 km/s) that appears elsewhere in the same article and in mission dv-budget literature; the 9.3-10 km/s figure looks like it's describing a different baseline (e.ks. from rest at Earth's surface, or with a substantial v_infinity beyond C3=0). This is exactly the kind of inconsistency that must be resolved by re-deriving from vis-viva rather than trusting a chart number verbatim — flag in-repo. |\n| LEO → Mars transfer injection (departure burn to hit the Mars Hohmann v_infinity) | ~4.3 km/s (Wikipedia interplanetary table) | **3.590 km/s** (computed C3 = 8.68 km²/s², v_infinity = 2.946 km/s, patched into 300 km LEO via Oberth) | order-of-magnitude and structure match; the 0.7 km/s gap is consistent with Wikipedia's table using a different (likely lower, e.g. 185-200 km) parking-orbit altitude and/or a non-minimum-energy (faster, higher-C3) transfer typical of actual Mars missions, which always fly faster-than-Hohmann trajectories to shorten cruise time |\n| Mars transfer orbit → Mars capture orbit | 0.9 km/s (Wikipedia, to a large elliptical capture orbit) | n/a (didn't recompute this intermediate step) | verified from Wikipedia only |\n| Mars capture orbit → low Mars orbit (propulsive) | 1.4 km/s (Wikipedia, two-stage capture) | **2.092 km/s** (single-burn direct propulsive capture straight to 300 km circular LMO, v_infinity = 2.650 km/s) | my number is for a *direct* one-burn capture; Wikipedia's smaller total (0.9+1.4=2.3 km/s combined) reflects a *two-burn* strategy (capture into large ellipse, then circularize at periapsis) which is cheaper due to the Oberth effect at periapsis — both are legitimate strategies with different dv/complexity tradeoffs, a genuine \"fidelity choice\" the graph edge weight must encode (see risk/strategy dimension below) |\n| LEO → Venus injection | 3.5 km/s (Wikipedia) | **3.482 km/s** (C3 = 6.25 km²/s², v_infinity = 2.499 km/s, 146.0-day Hohmann transfer time) | excellent match (0.02 km/s) |\n| Earth → Mars Hohmann time of flight | ~8-9 months (Wikipedia / Braeunig's 8-9 month figure) | **258.9 days = 8.51 months** | matches |\n| Earth → Venus Hohmann time of flight | 143-149 days (Braeunig, via search snippet — not independently opened) | **146.0 days** | falls right in the middle of Braeunig's quoted range |\n\n**Aerobraking/aerocapture note** (Wikipedia, verified): \"The return to LEO figures assume that a heat shield and aerobraking/aerocapture are used to reduce the speed by up to 3.2 km/s\" — i.e., on the *return* leg (Mars/Venus atmosphere or Earth reentry), aerobraking can substitute for a multi-km/s propulsive burn at near-zero propellant cost, at the price of thermal/structural risk and a much longer, multi-pass capture timeline (weeks to months) versus a single propulsive burn. This is why real missions (e.g., MAVEN, Mars Reconnaissance Orbiter) used aerobraking after an initial propulsive capture into a high elliptical orbit rather than a fully propulsive direct-to-low-orbit insertion — matches the \"Mars capture orbit -> low Mars orbit\" two-step figure above.\n\n## 3. Synodic periods (computed, `notes/T4_4_dv_check.py` output)\n\nFormula: `T_synodic = 1 / |1/T_Earth - 1/T_other|`, with each `T` from Kepler's third law `T = 2*pi*sqrt(a^3/mu_sun)` using mean semi-major axis.\n\n```\nEarth orbital period = 365.26 days\nMars    : a=1.524 AU, T_orbit=687.2 d, T_synodic=779.7 d (2.13 yr)\nVenus   : a=0.723 AU, T_orbit=224.5 d, T_synodic=582.9 d (1.60 yr)\nJupiter : a=5.203 AU, T_orbit=4334.9 d, T_synodic=398.9 d (1.09 yr)\n```\n\nEarth-Mars synodic period (779.7 days) matches the commonly cited \"~780 days\" / \"~26 months\" launch-window cadence for Mars missions (referenced in the master doc's Track 4 reading list) almost exactly. Earth-Venus (~583 days / 19 months) and Earth-Jupiter (~399 days / 13 months, close to Jupiter's own ~1-year synodic cadence since Jupiter moves slowly) are useful additional anchors the project doesn't currently have tabulated. **Synodic period only tells you the cadence of a repeating *geometric* alignment; it does NOT by itself tell you the delta-v cost of that particular window** — Earth-Mars alignments still vary in quality (due to Mars's orbital eccentricity, 0.093) between \"good\" oppositions (~every ~15-17 years, lower delta-v) and \"bad\" ones — this nuance belongs in the porkchop-plot items (T4.1-3), but the graph edge weight scheme (below) is where it gets encoded.\n\n## 4. How this becomes vector edge weights in a transfer-network graph\n\nThe delta-v maps are scalar approximations of what should be, in the project's Phase C optimizer, **multi-dimensional edge weight vectors** — this is the direct link to Track 5 (EMOA*) since EMOA* is built to search graphs with *vector* (not scalar) edge costs and find the Pareto front, not a single \"best\" path.\n\nA sensible v1 edge-weight vector per graph edge (departure-state, launch-window) -> (arrival-state):\n1. **Delta-v (km/s)** — from a Lambert solve for that specific launch/arrival date pair (T4.1-3), not the map's single \"typical\" number. The delta-v map's role is as a *sanity-check anchor and initial edge-weight estimate*, not the actual per-edge cost — swap in the porkchop-plot value at the chosen date.\n2. **Time of flight (days)** — directly from the Lambert solve's transfer duration.\n3. **Launch-window slack / C3 margin** — how far the chosen departure date sits from the local porkchop-plot minimum; a proxy for schedule risk (a mission that must launch exactly at the delta-v optimum has zero slack; one with a wide low-delta-v \"bowl\" around the minimum has schedule flexibility). This is not on the classic delta-v map at all — it only shows up once you have the full porkchop surface behind each edge.\n4. **Risk/fidelity flag** — whether the edge assumes propulsive-only capture or credits an aerobraking/aerocapture discount (and by how much, with what added risk/complexity), whether a plane change is bundled in or assumed away, and whether the number is a Hohmann-minimum or a faster/higher-energy trajory typical of real missions.\n\nEach of these is exactly the kind of thing the delta-v-map sources themselves flag as an assumption (periapsis burns only, no plane change, aerobraking marked separately) — the project's graph-construction code must **cite the same caveats per edge** rather than silently presenting a scalar delta-v as ground truth. Concretely: any edge weight sourced from a static delta-v-map value (rather than a live Lambert solve) needs an in-repo citation comment pointing to the specific chart/table and its date-independence caveat, e.g. \"LEO->GEO 3.9 km/s, coplanar/equatorial assumption, see Wikipedia Delta-v budget; actual mission dv varies with launch-site inclination and precise altitudes.\" Values that vary meaningfully with the launch window (interplanetary edges) must NOT be hardcoded from the map at all — they must come from a Lambert/porkchop computation for the actual requested dates, with the map value retained only as a fallback/rough estimate or a unit-test sanity bound.\n\n## 5. Answers to the track's three cross-cutting questions (partial — full answers depend on T4.1-3 Lambert/porkchop work)\n\n**Q1 (Lambert -> porkchop chain):** A single Lambert solve, given a fixed departure date/position and arrival date/position (both from ephemerides), returns the two transfer-orbit velocity vectors at departure and arrival (`v1`, `v2`) consistent with an orbit connecting those two position vectors in that time-of-flight. Subtracting the departing body's own heliocentric velocity from `v1` gives the departure hyperbolic excess vector `v_infinity_dep` (`|v_infinity_dep|^2 = C3`); subtracting the transfer's arrival velocity from the target body's heliocentric velocity gives `v_infinity_arr`. These v_infinity magnitudes are then patched into the parking-orbit delta-v via the Oberth-effect formula `v_hyperbolic_at_r = sqrt(v_infinity^2 + 2*mu/r)`, and `delta_v = v_hyperbolic_at_r - v_circular_at_r` — exactly the two-step computation done for the LEO->Mars-injection and Mars-capture rows in my table above (which used the Hohmann-transfer special case of Lambert, i.e. 180° transfer angle at minimum energy). A porkchop plot is simply this whole chain evaluated over a 2D grid of (departure date, arrival date) pairs, contoured by C3 (or total delta-v) and time of flight — every dot on the classic porkchop is one Lambert solve's worth of v_infinity converted to delta-v this way. My worked Earth-Mars example above (Hohmann special case): C3 = 8.68 km²/s², v_infinity_dep = 2.946 km/s, v_infinity_arr = 2.650 km/s, TOF = 258.9 days, LEO-injection delta-v = 3.590 km/s — this is one point on what would be a full porkchop surface (the Hohmann-minimum point specifically, since it's the special-case 180°-transfer solution).\n\n**Q2 (synodic recurrence):** Launch windows recur because the delta-v/geometry of a transfer only repeats when Earth and the target planet return to the same *relative* angular configuration, which happens every synodic period `T_syn = 1/|1/T_Earth - 1/T_target|` (not the target's own orbital period) — see computed table above (Mars 779.7 d, Venus 582.9 d, Jupiter 398.9 d). Outer planets orbit slowly, so their synodic period converges toward Earth's own 365.26-day period (Jupiter's 398.9 d is close to 365 d); inner planets (Venus) have synodic periods driven mostly by their own faster orbital motion.\n\n**Q3 (v1 fidelity ladder):** Based on all Track 4 reading so far — impulsive burns and patched-conic Lambert (no continuous low-thrust) is standard and acceptable for v1; planar/coplanar assumption is what the delta-v maps themselves use and is acceptable as a *documented* simplification but should be flagged since real launch dates require plane-change costs the maps explicitly exclude; ignoring capture spirals (assuming instantaneous propulsive orbit insertion rather than a low-thrust or aerobraking multi-orbit spiral) is acceptable for v1 delta-v numbers but the UI must distinguish \"propulsive capture\" vs \"aerocapture-assisted\" edges since they differ by ~1-2 km/s and very different risk. A concrete fidelity ladder: **Level 0** (v1): impulsive Lambert, patched-conics, 2-body vis-viva only, coplanar or crude inclination-change bolt-on, delta-v-map-sourced fallback numbers with citations. **Level 1**: real ephemeris-based 3D Lambert (out-of-plane, using actual launch-site inclination), full porkchop grid search per launch window rather than a Hohmann-only point estimate. **Level 2**: CR3BP for cislunar (Track 4 item 6) and gravity-assist chaining. **Level 3**: low-thrust/electric-propulsion trajectory optimization (explicitly out of scope, mention-only per the master doc). UI disclosure wording should state directly on any delta-v/time-of-flight number: \"Computed via patched-conic Lambert solve, impulsive burns, [coplanar / includes Δi] — actual mission delta-v may differ ±10-30% depending on exact launch date and vehicle capture strategy (propulsive vs. aerocapture).\"",
+  "key_facts": [
+   {
+    "fact": "LEO->GEO total delta-v (coplanar, equatorial LEO) ≈ 3.9 km/s; adding a ~28.5° plane change (Cape Canaveral-type LEO) raises it to ≈ 4.24 km/s.",
+    "source": "Wikipedia 'Delta-v budget' (verified via WebFetch); my vis-viva computation gave 3.893 km/s, matching the equatorial figure to within 0.007 km/s.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "LEO->Earth escape (C3=0) delta-v from a ~300 km circular LEO is ≈ 3.2 km/s (a separate, smaller figure than the ~9.3-10 km/s figure that appears elsewhere in the same Wikipedia article, which is on a different baseline).",
+    "source": "Own vis-viva computation, cross-checked against Wikipedia's LEO->TLI (3.20 km/s) which used essentially the same delta.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Mars Hohmann transfer: C3 ≈ 8.7 km²/s², v_infinity at departure ≈ 2.95 km/s, time of flight ≈ 259 days (≈8.5 months), matching the commonly cited '8-9 months' Hohmann transfer time.",
+    "source": "Own vis-viva computation using mean orbital radii 1.000/1.524 AU.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Mars synodic period ≈ 779.7 days (≈26 months), matching the commonly cited '~780 days' launch-window cadence.",
+    "source": "Own computation via Kepler's third law and the synodic-period formula.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Venus synodic period ≈ 582.9 days (≈1.6 yr); Earth-Jupiter synodic period ≈ 398.9 days (≈1.09 yr).",
+    "source": "Own computation, notes/T4_4_dv_check.py.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "The community 'subway map' delta-v chart (Ulysse Carion lineage, Wikimedia Commons SVG by CMG Lee) explicitly states its assumptions: burns at periapsis, gravity assist and inclination changes ignored, aerobraking used only where marked.",
+    "source": "Wikimedia Commons file description page, read via WebFetch.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Delta-v budgets are launch-time dependent: 'because delta-v depends on the position and motion of celestial bodies... the delta-v budget changes with launch time' — static map/table numbers are single-date or typical-case snapshots, not universal constants.",
+    "source": "Wikipedia 'Delta-v budget' article, read via WebFetch.",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Mars atmospheric aerobraking/aerocapture can replace up to ~3.2 km/s of propulsive delta-v on a return/capture leg, at the cost of a much longer (weeks-to-months) multi-pass capture profile and thermal/structural risk versus a single propulsive burn.",
+    "source": "Wikipedia 'Delta-v budget' article (verified) plus general knowledge of MAVEN/MRO aerobraking practice (likely, not independently sourced this session).",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Braeunig's Basics of Space Flight quotes a Terra-Mars Hohmann delta-v of 5,596 m/s and an 8-9 month transfer time; Earth-Venus Hohmann transfer takes 143-149 days.",
+    "source": "WebSearch snippet extraction from braeunig.us/space/interpl.htm — page itself was not directly opened this session, so treat as secondary/likely rather than fully verified.",
+    "confidence": "likely"
+   }
+  ],
+  "numbers": [
+   {
+    "name": "LEO->GTO delta-v",
+    "value": "2.426",
+    "units": "km/s",
+    "how": "vis-viva, 300km circular LEO to GTO perigee (apogee=GEO alt 35786km); notes/T4_4_dv_check.py section 1"
+   },
+   {
+    "name": "GTO->GEO delta-v",
+    "value": "1.467",
+    "units": "km/s",
+    "how": "vis-viva apogee circularization; notes/T4_4_dv_check.py section 2"
+   },
+   {
+    "name": "LEO->GEO total delta-v (coplanar)",
+    "value": "3.893",
+    "units": "km/s",
+    "how": "sum of above two; matches Wikipedia's 3.90 km/s equatorial-LEO figure"
+   },
+   {
+    "name": "LEO->Earth escape (C3=0) delta-v",
+    "value": "3.200",
+    "units": "km/s",
+    "how": "vis-viva, v_escape - v_circular at 300km LEO; notes/T4_4_dv_check.py section 3"
+   },
+   {
+    "name": "LEO->TLI delta-v",
+    "value": "3.106",
+    "units": "km/s",
+    "how": "vis-viva, 300km LEO perigee burn onto ellipse with apogee at mean Earth-Moon distance 384400km; notes/T4_4_dv_check.py section 4"
+   },
+   {
+    "name": "Earth-Mars Hohmann transfer C3",
+    "value": "8.68",
+    "units": "km^2/s^2",
+    "how": "v_infinity_departure^2 from heliocentric vis-viva, mean radii 1.000/1.524 AU; notes/T4_4_dv_check.py section 5"
+   },
+   {
+    "name": "Earth-Mars Hohmann transfer time of flight",
+    "value": "258.9 (8.51 months)",
+    "units": "days",
+    "how": "half-period of transfer ellipse via Kepler III; notes/T4_4_dv_check.py section 5"
+   },
+   {
+    "name": "LEO->Mars transfer injection delta-v",
+    "value": "3.590",
+    "units": "km/s",
+    "how": "v_infinity_dep=2.946 km/s patched into 300km LEO via Oberth formula sqrt(v_inf^2+2*mu/r) minus circular v; notes/T4_4_dv_check.py section 5"
+   },
+   {
+    "name": "Mars transfer orbit -> low Mars orbit (direct propulsive capture) delta-v",
+    "value": "2.092",
+    "units": "km/s",
+    "how": "v_infinity_arr=2.650 km/s patched into 300km low-Mars-orbit via Oberth, mu_Mars=42828.37 km^3/s^2; notes/T4_4_dv_check.py section 5"
+   },
+   {
+    "name": "LEO->Venus transfer injection delta-v",
+    "value": "3.482",
+    "units": "km/s",
+    "how": "heliocentric Hohmann to 0.723 AU, v_infinity_dep=2.499 km/s patched into 300km LEO; notes/T4_4_dv_check.py section 6, matches Wikipedia's 3.5 km/s to within 0.02 km/s"
+   },
+   {
+    "name": "Earth-Venus Hohmann transfer time of flight",
+    "value": "146.0",
+    "units": "days",
+    "how": "half-period of transfer ellipse; notes/T4_4_dv_check.py section 6, within Braeunig's quoted 143-149 day range"
+   },
+   {
+    "name": "Earth-Mars synodic period",
+    "value": "779.7 (2.13 yr)",
+    "units": "days",
+    "how": "1/|1/T_Earth - 1/T_Mars| via Kepler III periods; notes/T4_4_dv_check.py section 7"
+   },
+   {
+    "name": "Earth-Venus synodic period",
+    "value": "582.9 (1.60 yr)",
+    "units": "days",
+    "how": "same formula; notes/T4_4_dv_check.py section 7"
+   },
+   {
+    "name": "Earth-Jupiter synodic period",
+    "value": "398.9 (1.09 yr)",
+    "units": "days",
+    "how": "same formula; notes/T4_4_dv_check.py section 7"
+   }
+  ],
+  "project_relevance": "Directly informs the Phase B/C optimizer's graph-construction layer: the transfer-network graph's edge weights should not be hardcoded from a static delta-v map/poster — that is only acceptable as a v1 fallback/sanity-check value with an explicit in-repo citation and a caveat that it's a single-date/typical-case number. Real edges (interplanetary legs especially) need per-launch-window Lambert solves (T4.1-3) whose delta-v and time-of-flight become the vector components EMOA* (Track 5) searches over — this item is the concrete bridge between 'static delta-v chart' and 'vector edge weight for multi-objective graph search.' It also gives the project a documented fidelity ladder (v1: impulsive/patched-conic/coplanar-with-flagged-caveats -> later: 3D ephemeris Lambert -> CR3BP for cislunar -> low-thrust out of scope) that can go straight into the v1 proposal document and into UI disclosure copy so the professor (a mechanical engineer) sees the assumptions stated honestly rather than implied. The Earth-Mars 780-day / Earth-Venus 583-day / Earth-Jupiter 399-day synodic periods are ready-to-use constants for any launch-window-recurrence UI feature.",
+  "question_inputs": [
+   {
+    "question": "Given two dates, what exactly does one Lambert solve return, and how do its v-infinity values become the delta-v numbers on a porkchop? Walk through the full chain with formulas and one worked Earth-to-Mars example.",
+    "answer": "A Lambert solve, given fixed departure/arrival position vectors (from ephemerides) and a time of flight, returns the transfer orbit's velocity vectors at departure (v1) and arrival (v2). Departure v_infinity = v1 minus the departing body's own heliocentric velocity (C3 = |v_infinity|^2); arrival v_infinity = target body's heliocentric velocity minus v2. These are then patched into the parking-orbit/capture-orbit frame via the Oberth-effect relation v_hyperbolic_at_r = sqrt(v_infinity^2 + 2*mu/r), and delta-v = v_hyperbolic_at_r − v_circular_at_r. A porkchop plot is this whole computation repeated over a grid of departure/arrival date pairs, contoured by C3/delta-v and time of flight. Worked Earth-Mars Hohmann-special-case example (computed in notes/T4_4_dv_check.py): C3 = 8.68 km²/s², v_infinity_departure = 2.946 km/s, v_infinity_arrival = 2.650 km/s, time of flight = 258.9 days, resulting LEO-injection delta-v (300 km parking orbit) = 3.590 km/s, and Mars-capture-to-300km-low-orbit delta-v = 2.092 km/s (direct propulsive) — the Hohmann transfer is the special 180°-transfer-angle case of the general Lambert problem."
+   },
+   {
+    "question": "Why do launch windows recur, and what sets their cadence per planet pair? Give the synodic period formula and computed values for Earth-Mars, Earth-Venus, Earth-Jupiter.",
+    "answer": "Launch-window geometry repeats when Earth and the target return to the same relative angular alignment, which recurs every synodic period T_syn = 1/|1/T_Earth − 1/T_target| (not the target's own orbital period). Computed via Kepler's third law (T = 2*pi*sqrt(a^3/mu_sun)) and the synodic formula in notes/T4_4_dv_check.py: Earth-Mars T_syn = 779.7 days (≈2.13 yr, matches the commonly cited '~780 days'), Earth-Venus T_syn = 582.9 days (≈1.60 yr), Earth-Jupiter T_syn = 398.9 days (≈1.09 yr, close to 1 year because Jupiter moves slowly relative to Earth). Note that synodic period gives the cadence of alignment recurrence, not the delta-v quality of each individual window — Mars's orbital eccentricity (0.093) means some 780-day-spaced windows ('good oppositions,' recurring roughly every 15-17 years) are meaningfully cheaper than others."
+   },
+   {
+    "question": "Which fidelity shortcuts are acceptable for a v1 (impulsive burns only, patched conics, ignore capture spirals, planar assumptions) and how should the UI disclose them? Give a fidelity ladder and disclosure wording.",
+    "answer": "Proposed 4-rung ladder: Level 0 (v1) = impulsive Lambert solves, patched-conic 2-body vis-viva, coplanar or crude bolt-on inclination-change cost, delta-v-map fallback values with citations for anything not yet Lambert-computed — this matches exactly what the community delta-v maps themselves assume ('burns at periapsis, gravity assist and inclination changes ignored') so it's a defensible, precedented simplification as long as it's disclosed. Level 1 = real 3D ephemeris-based Lambert (actual launch-site inclination, full porkchop grid per window rather than one Hohmann point). Level 2 = CR3BP for cislunar (Lagrange points, NRHO, ballistic lunar transfers). Level 3 = low-thrust/electric-propulsion optimization (out of scope, mention-only). Suggested UI disclosure string attached to every delta-v/time-of-flight number: 'Computed via patched-conic Lambert solve, impulsive burns, [coplanar / includes plane change] — actual mission delta-v may differ ±10-30% depending on exact launch date and capture strategy (propulsive vs. aerocapture).' Capture-strategy choice specifically should be a visible toggle/flag since direct propulsive Mars capture (≈2.09 km/s in my calc) vs. a two-burn ellipse-then-circularize strategy (≈2.3 km/s per Wikipedia's 0.9+1.4 split, cheaper via Oberth at periapsis) vs. aerocapture-assisted (near-zero propulsive cost, much longer capture timeline) are meaningfully different edges, not one number."
+   }
+  ],
+  "gaps": [
+   "Braeunig's Basics of Space Flight pages (orbmech.htm, interpl.htm) were only reached through WebSearch's extracted snippets, not a direct WebFetch — the Terra-Mars 5596 m/s figure and the 143-149 day Venus transfer time should be treated as 'likely' pending a direct fetch of braeunig.us if a future session needs full confidence.",
+   "Did not independently recompute TLI->LLO (lunar orbit insertion, 0.90 km/s per Wikipedia) since that requires the Moon's own mu and a proper 3-body patched-conic setup, out of scope for a vis-viva-only cross-check; flagged as 'likely' sourced from Wikipedia alone.",
+   "Did not track down the original Ulysse Carion poster/Reddit thread directly (only its Wikimedia Commons derivative and description page) — the /u/CuriousMetaphor calculation methodology referenced in the WebSearch summary was not independently opened or verified.",
+   "Did not verify NASA/JPL's own delta-v tables (e.g. a JPL mission-design primer) as a third independent source beyond Wikipedia and the Commons chart — Wikipedia's own references section likely cites one, but time did not permit opening it this session.",
+   "Two-burn vs one-burn Mars capture delta-v split (Wikipedia's 0.9+1.4=2.3 km/s two-step vs my 2.09 km/s direct one-burn computation) is noted as a real discrepancy worth resolving with a proper two-impulse (bi-elliptic-style) vis-viva calculation in a follow-up if the project needs an exact number rather than an order-of-magnitude check.",
+   "Did not fetch NASA's Trajectory Browser or a JPL mission-design primer for real per-mission delta-v/TOF data to compare against the idealized Hohmann numbers above — that comparison (idealized vs. as-flown) would strengthen the 'values vary with launch window' claim with concrete mission examples."
+  ]
+ },
+ {
+  "item_id": "T4.5",
+  "item_title": "T4.5: CR3BP basics and cislunar transfer families (survey level)",
+  "item": "T4.5: CR3BP basics and cislunar transfer families (survey level)",
+  "sources": [
+   {
+    "title": "Wikipedia — Three-body problem",
+    "ref": "https://en.wikipedia.org/wiki/Three-body_problem",
+    "opened": true,
+    "note": "CR3BP rotating-frame setup, Jacobi integral existence, Lagrange point derivation background"
+   },
+   {
+    "title": "Wikipedia — Near-rectilinear halo orbit",
+    "ref": "https://en.wikipedia.org/wiki/Near-rectilinear_halo_orbit",
+    "opened": true,
+    "note": "Gateway 9:2 NRHO period/perilune/apolune, CAPSTONE dates"
+   },
+   {
+    "title": "Wikipedia — Low-energy transfer",
+    "ref": "https://en.wikipedia.org/wiki/Low-energy_transfer",
+    "opened": true,
+    "note": "WSB/BLT definition, Hiten history, generic dV savings numbers"
+   },
+   {
+    "title": "Advanced Space, LLC — BLT (Ballistic Lunar Transfer) Cheat Sheet (Jan 2021)",
+    "ref": "https://advancedspace.com/wp-content/uploads/2025/08/blt-quick-ref.pdf",
+    "opened": true,
+    "note": "Full text extracted via pypdf; primary quantitative source for this item — CAPSTONE dV budget table, C3/ToF table, Parker & Anderson direct-vs-BLT LLO comparison, Table 4 example BLTs"
+   },
+   {
+    "title": "Whitley & Martinez (2016), \"Options for Staging Orbits in Cis-Lunar Space\" (NASA JSC, IEEE Aerospace 2016), NTRS 20150019648",
+    "ref": "https://ntrs.nasa.gov/api/citations/20150019648/downloads/20150019648.pdf",
+    "opened": true,
+    "note": "Full text extracted via pypdf; direct-transfer dV/ToF tables for NRO, L2 Halo, DRO, and LLO<->NRO surface-access legs"
+   },
+   {
+    "title": "Local extracted text of BLT cheat sheet",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/blt_cheatsheet.txt",
+    "opened": true,
+    "note": "local cache of PDF text extraction"
+   },
+   {
+    "title": "Local extracted text of Whitley & Martinez",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/whitley_martinez.txt",
+    "opened": true,
+    "note": "local cache of PDF text extraction"
+   },
+   {
+    "title": "WebSearch snippet — CAPSTONE NRHO insertion navigation (ResearchGate / Advanced Space)",
+    "ref": "https://www.researchgate.net/publication/353838009_Navigation_Design_of_the_CAPSTONE_Mission_Near_NRHO_Insertion",
+    "opened": false,
+    "note": "Only a search-engine summary was read, not the paper itself — gave direct-NRHO-insertion range of 350-550 m/s vs BLT 20-60 m/s; treat as likely, not verified, since I did not open the PDF"
+   },
+   {
+    "title": "CR3BP Lagrange-point calculation script",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/cr3bp_calcs.py",
+    "opened": true,
+    "note": "my own script, run with the project venv Python; solves collinear Lagrange point equations numerically for Earth-Moon mu"
+   }
+  ],
+  "summary": "## CR3BP setup\n\nThe Circular Restricted Three-Body Problem models a massless spacecraft moving under the gravity of two primaries (Earth mass m1, Moon mass m2) that orbit their common barycenter on circular orbits. Work in the barycentric rotating frame, nondimensionalize distances by R = 384,400 km and time so the primaries' mean motion = 1. Define mass ratio μ = m2/(m1+m2). For Earth-Moon, μ = M_moon/(M_earth+M_moon) = 0.012154 (computed with venv Python, script `notes/cr3bp_calcs.py`, using M_earth=5.97219e24 kg, M_moon=7.34767e22 kg — standard values). Earth sits at x=-μ, Moon at x=1-μ on the rotating x-axis.\n\nThe pseudo-potential is Ω(x,y,z) = ½(x²+y²) + (1-μ)/r1 + μ/r2 + ½μ(1-μ), with r1, r2 the distances to Earth and Moon. Equations of motion in the rotating frame: ẍ - 2ẏ = ∂Ω/∂x, ÿ + 2ẋ = ∂Ω/∂y, z̈ = ∂Ω/∂z. This is a Hamiltonian system with exactly one conserved quantity, the **Jacobi constant**: C = 2Ω(x,y,z) − (ẋ²+ẏ²+ż²). No other independent conserved quantity exists (Bruns 1887, Poincaré 1889) — this is why the three-body problem has no closed-form solution and is chaotic. Jacobi constant is the CR3BP analogue of two-body specific energy; it partitions phase space into forbidden/allowed \"Hill regions\" (via the zero-velocity surfaces where the bracket term = 0) and is the natural currency for comparing trajectory families and manifold energies.\n\n## Lagrange points L1-L5\n\nSetting velocities/accelerations to zero in the rotating frame gives 5 equilibria. L1, L2, L3 are collinear (solve ∂Ω/∂x=0 along y=z=0 numerically — no closed form); L4, L5 form equilateral triangles with the primaries and exist in closed form at 60° ahead/behind the Moon. I solved the collinear equations numerically for Earth-Moon (script `notes/cr3bp_calcs.py`, `scipy.optimize.brentq`):\n- L1 (between Earth and Moon): 58,024 km from the Moon (toward Earth)\n- L2 (beyond the Moon): 64,521 km from the Moon (away from Earth)\n- L3 (opposite side of Earth from Moon): ~381,675 km from Earth (nearly at -R, slightly outside)\n- Hill-sphere approximation r ≈ R·(μ/3)^(1/3) gives 61,279 km — consistent order-of-magnitude check against the numerically solved L1/L2 (both computed values verified, confidence: verified).\n\nL1/L2 for the Earth-Moon system are the gateways for cislunar low-energy transfer manifolds: L1 connects Earth-side and Moon-side \"realms,\" L2 connects Moon-side and outer/deep-space realms — this is the mechanism behind the Interplanetary Transport Network / weak-stability-boundary transfers.\n\n## Periodic orbit families around L1/L2\n\nWikipedia + Whitley & Martinez 2016 (Table 1, full text extracted) enumerate 7 cislunar orbit types by increasing period:\n- LLO (~2 hr period, 100 km alt, any inclination)\n- Prograde circular orbit (PCO, ~11 hr, ~75° inclination)\n- Frozen lunar orbit (~13 hr, 40° inclination)\n- Elliptical lunar orbit (ELO, ~14 hr, equatorial)\n- **Near Rectilinear Orbit (NRO/NRHO)**: 6-8 day period, amplitude 2,000-75,000 km, roughly polar\n- Earth-Moon L2 Halo: 8-14 day period, amplitude 0-60,000 km at L2\n- Distant Retrograde Orbit (DRO): ~14 day period, ~70,000 km, equatorial\n\nHalo orbits are 3D periodic families bifurcating off the planar Lyapunov orbits near L1/L2 (Lyapunov orbits are planar, halos leave the plane); NRHOs are the halo-family branch that passes very close to the Moon at perilune (hence \"near rectilinear\" — the trajectory looks almost like a straight line through the Moon in the rotating frame) and is dynamically near-stable, i.e., needs very little station-keeping ΔV, unlike most of the halo family which is unstable and needs a manifold-based control strategy.\n\n**Gateway's reference orbit** (from Wikipedia, \"likely\" confidence — general-knowledge secondary source, not the primary NASA design doc, but corroborated numerically by Whitley & Martinez's 6-8 day NRO period): a 9:2 lunar-synodic-resonant Southern L2 NRHO — the spacecraft completes 9 orbits for every 2 lunar synodic months. Period ≈ 6.5-7 days (~7 days per Wikipedia; Whitley & Martinez give 6-8 days for the general NRO family, consistent). Perilune ≈ within 3,000 km of the lunar north pole; apolune ≈ 70,000 km over the south pole. High eccentricity. This orbit was chosen because it threads between the Van Allen-belt-like near-Earth radiation and (mostly) avoids long eclipses, while needing minimal ΔV to maintain (order 1-10 m/s per orbit for station-keeping, per BLT cheat sheet Table 2 stationkeeping row: 0-1 m/s over 6 months nominal/99th-percentile).\n\n## Invariant manifolds and weak stability boundary / ballistic lunar transfers (BLT)\n\nAn unstable periodic orbit (e.g., most of the L1/L2 halo family) has stable/unstable invariant manifolds — tubes of trajectories that asymptotically approach or leave the orbit with zero extra ΔV. Low-energy / weak-stability-boundary (WSB) transfers ride these manifold tubes (and, further out, exploit the Sun's gravity as a third perturbing body — technically a Bicircular/4-body model, since a pure CR3BP Earth-Moon manifold alone is not quite enough to reach lunar capture with such low ΔV) instead of a direct high-thrust conic transfer. This is the \"low-energy transfer\"/Interplanetary Transport Network idea (Koon, Lo, Marsden, Ross).\n\n**Ballistic Lunar Transfer (BLT)** is the practical modern term for this in the cislunar case, per the Advanced Space \"BLT Cheat Sheet\" (full text extracted, `notes/blt_cheatsheet.txt`): the spacecraft flies ~1 million+ km from Earth — well beyond the Moon's orbit — to a region where solar gravity dominates, and the Sun's perturbation raises the trajectory's perigee up to lunar-orbit altitude and rotates its inclination to match the target lunar-orbit plane. This lets a single ballistic coast (near-zero deterministic ΔV in the outbound leg) achieve what a direct transfer needs a large insertion burn for.\n\nKey quantitative facts (all \"verified\" — read directly from the PDF text I extracted):\n- BLT time of flight to NRHO: **80-130 days without an outbound lunar flyby, 110-180 days with one** (BLT cheat sheet Table 1). This matches the \"3-4 months\" figure the assignment asked about.\n- BLT launch C3: **-0.7 to -0.3 km²/s² without flyby; -2.2 to -1.5 km²/s² with flyby** (flyby trades longer ToF for a cheaper launch C3).\n- CAPSTONE (first-ever operational BLT-to-NRHO mission) ΔV budget (BLT cheat sheet Table 2, Monte Carlo 99th-percentile):\n  - Cruise (TCMs): nominal 22 m/s, ΔV99 57 m/s\n  - NRHO insertion: nominal 18 m/s, ΔV99 35 m/s\n  - Station-keeping (6 mo): nominal 0 m/s, ΔV99 1 m/s\n  - Momentum desaturation: ΔV99 10 m/s\n  - End-of-life disposal: nominal 5 m/s, ΔV99 7 m/s\n  - **Total requirement: nominal 52 m/s, ΔV99 110 m/s** (spacecraft carried >200 m/s capability for margin)\n  - General rule of thumb given in the same source: \"many missions can safely fly a BLT to NRHO for as little as 70-100 m/s, but 150 m/s is recommended as a safe starting point for early designs.\"\n  - CAPSTONE launched 28 June 2022 (Rocket Lab Electron/Photon), began NRHO operations 14 November 2022 — about 4.5 months total including the \"ballistic\" cruise phase (Wikipedia NRHO page, \"verified\" for the dates, cross-checked against the BLT 80-130-day flight-time figure which is consistent once launch/commissioning slack is included).\n- Direct-transfer comparison from Parker & Anderson (cited inside the BLT cheat sheet, not independently opened by me): **direct transfer to 100 km polar LLO requires ≥820 m/s vs. 640 m/s for BLT to the same LLO** (\"likely\" — secondary citation, not the primary book, but stated plainly by a reputable operational source).\n- BLT cheat sheet Table 4 (example optimized 2024 launches) gives paired (insertion ΔV, ToF) for several target orbits, e.g.: highly elliptical polar orbit 95.4 m/s / 106.7 days; elliptical polar orbit 184.2 m/s / 107.1 days; high circular lunar orbit polar 182.0 m/s / 94.6 days; **LLO (100 km) polar: 639.7 m/s / 107.1 days.** All BLT ToFs cluster tightly around 95-107 days regardless of destination orbit shape — supporting the \"3-4 months\" rule of thumb independent of target orbit.\n- A separate ResearchGate/Advanced Space search snippet (not independently opened — \"likely\" confidence only) states direct-transfer NRHO insertion costs **350-550 m/s** vs BLT deterministic ΔV of **20-60 m/s**. This is broadly consistent with (though not numerically identical to) the CAPSTONE Table 2 total (52-110 m/s) and with Whitley & Martinez's direct-transfer NRO numbers below, so I treat it as directionally correct but flag it as unverified since I never opened the underlying paper directly.\n\n## Direct-transfer numbers (Whitley & Martinez 2016, full text extracted, \"verified\")\n\nFor comparison, direct (fast, high-thrust, few-day) transfers to the same class of cislunar staging orbits, from their Table (21-day and 60-day total mission scenarios, includes both outbound transfer and the eventual return leg where noted):\n- **NRO: 840 m/s for a 10.9-day transfer** (21-day total mission); 751 m/s for a 37.6-day transfer (60-day total mission)\n- **L2 Halo: 811 m/s for an 18-day mission (~5-day transfer); 637 m/s for a 31-day mission (~10-day transfer)**\n- **DRO: 957 m/s for a 21-day mission (~6-day transfer); 841 m/s for a 26-day mission (~6-day transfer)**\n- They also note a 3-5 day, ~900 m/s minimum-plane-change transfer figure, and ~1250 m/s as Orion's total ΔV budget ceiling for a crewed 21-day/4-person mission — meaning NRO's 840 m/s direct-transfer cost was judged to leave adequate margin, one reason NRHO won out as Gateway's baseline orbit over DRO (957 m/s) or the more distant L2 halo options in some scenarios.\n- Surface-access legs from staging orbit to lunar surface (their Table 3) run **730-898 m/s** one-way from NRO/L2/DRO depending on orbit and inclination, essentially independent of transfer time (0.5-4 days) — i.e., for the lander leg the trade space collapses to nearly a single ΔV value regardless of ToF, unlike the Earth-to-cislunar leg.\n\n## Direct vs BLT: is the ΔV/ToF trade a non-convex Pareto front?\n\nPutting the two extremes together for the NRHO destination specifically:\n- **Direct transfer to NRO/NRHO**: ΔV ≈ 750-900+ m/s (likely higher for a true NRHO insertion, 350-550 m/s cited but unverified), ToF ≈ 3.5-11 days (Whitley & Martinez).\n- **BLT to NRHO**: ΔV ≈ 52-150 m/s (CAPSTONE-class budget), ToF ≈ 80-180 days (BLT cheat sheet).\n\nThese two clusters sit at opposite corners of the (ΔV, ToF) plane and are separated by a wide gap with essentially no smooth continuum of intermediate solutions documented in either source for the *same* NRHO target — the BLT cheat sheet explicitly frames these as **qualitatively different dynamical regimes** (16 discrete named BLT \"families,\" defined by TLI node, apogee quadrant, flyby-or-not, and wind-on revolution count — not points on a continuously tunable ΔV(T) curve), while direct transfers are governed by classical two-body/patched-conic mechanics. Physically: the BLT's ΔV savings come from letting solar gravity do work over ~3 months that a direct burn does impulsively in minutes — there is no small perturbation of a direct trajectory that continuously morphs it into a BLT; you either commit to going ~1.5 million km out to the solar-perturbation regime (BLT family) or you fly a comparatively short conic arc (direct family). That discreteness/disjointness is exactly the structural reason to expect (and the master document's framing to assert) a **non-convex, in fact possibly disconnected, Pareto front**: a weighted-sum scalarization minimizes w1·ΔV + w2·ToF, which geometrically can only ever select points on the *lower convex hull* of the achievable (ΔV, ToF) set. If the true Pareto set has two tight clusters (cheap-slow BLT and expensive-fast direct) with a gap between them, any convex combination of weights will jump directly from selecting the direct-transfer point to selecting the BLT point as w2/w1 crosses some threshold — it can never select a point that would need to lie in the gap, and if any genuinely intermediate but non-dominated solution exists in that gap (e.g. one of Whitley & Martinez's 18-31 day/637-811 m/s L2 Halo staging points, which are for a related but not identical orbit), it would be provably invisible to weighted-sum search even though it is Pareto-optimal. **Caveat (honest gap)**: I could not, from the two sources read, find a single paper reporting a dense, same-target-orbit ΔV(T) sweep between ~11 and ~80 days for NRHO specifically that would let me numerically test convexity/concavity with confidence — the intermediate-ToF numbers I have (18-31 days, 637-957 m/s) are for L2 Halo/DRO staging orbits, a related but not identical destination to the Gateway NRHO. So my claim of non-convexity here is a structurally well-motivated and literature-consistent inference (matches the master document's stated thesis and the qualitative \"different dynamical regime\" framing in the BLT cheat sheet), not a numerically verified curve-shape proof. This is worth flagging honestly to the professor rather than overclaiming rigor.\n\n## Fidelity ladder implication for the optimizer (relevant to Track Q3)\n\nFor a v1 optimizer that treats cislunar as \"just another Lambert-arc edge\" with impulsive-burn, patched-conic fidelity, this survey shows that assumption **breaks down badly for cislunar**: a patched-conic/impulsive Lambert model cannot represent BLTs at all (their entire ΔV-savings mechanism is continuous solar third-body perturbation over months, not a single impulsive Lambert arc), and it will systematically compute only the \"direct transfer\" family, missing the very Pareto-front region (BLT/low-energy) that is most interesting for EMOA*'s non-convex-front demonstration. Recommended fidelity-ladder disclosure for the UI once cislunar edges are added: \"Cislunar edges below use a simplified two-body/direct-transfer model (patched conics, impulsive burns) and do not include ballistic lunar transfers, halo/NRHO station-keeping, or invariant-manifold trajectories — these can cut arrival ΔV by 5-10x at the cost of ~3-4 extra months of flight time and require full CR3BP integration, which this version does not model.\" This should be a first-class caveat, not a footnote, given how large the numeric gap is (e.g., 840 m/s/11 days vs. 52-150 m/s/80-180 days for the same NRHO).\n\n## Pitfalls / conventions to get right\n\n- μ (mass ratio) convention: μ = m2/(m1+m2), with the *smaller* body (Moon) placed at x = 1-μ and the *larger* body (Earth) at x = -μ in the standard nondimensional rotating frame — some texts flip the sign convention, always state which primary is at which sign.\n- \"NRO\" (Whitley & Martinez's term) = NRHO (the now-standard Gateway term); same orbit family.\n- Do not confuse ΔV \"nominal\" vs \"ΔV99\" (99th-percentile statistical, Monte Carlo) figures — for BLTs the statistical figure is typically 2x+ the nominal because of the sensitivity of the pre-perigee-raise trajectory to injection/navigation errors; always report which one you're quoting.\n- BLT \"time of flight\" numbers in the literature sometimes include vs exclude the post-insertion \"wind-on\" revolutions (0, 1, or 2 extra lunar-distance loops before final NRHO circularization) — check which convention a source uses before comparing numbers across papers.",
+  "key_facts": [
+   {
+    "fact": "Earth-Moon CR3BP mass ratio μ = 0.012154 (M_moon/(M_earth+M_moon))",
+    "source": "computed, notes/cr3bp_calcs.py using standard mass values",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Jacobi constant C = 2Ω(x,y,z) − v², with Ω = ½(x²+y²) + (1-μ)/r1 + μ/r2 + ½μ(1-μ); it is the CR3BP's only conserved quantity",
+    "source": "Wikipedia Three-body problem + standard astrodynamics form, cross-checked against Whitley/Martinez framing",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Earth-Moon L1 ≈ 58,024 km from Moon, L2 ≈ 64,521 km from Moon, L3 ≈ 381,675 km from Earth (opposite side)",
+    "source": "computed numerically, notes/cr3bp_calcs.py, brentq root solve of collinear Lagrange equations",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Gateway reference orbit is a 9:2 lunar-synodic-resonant Southern L2 NRHO: period ~7 days, perilune ~3,000 km over north pole, apolune ~70,000 km over south pole",
+    "source": "Wikipedia Near-rectilinear halo orbit",
+    "confidence": "likely"
+   },
+   {
+    "fact": "CAPSTONE launched 28 June 2022, began NRHO ops 14 November 2022, first operational BLT-to-NRHO mission",
+    "source": "Wikipedia Near-rectilinear halo orbit",
+    "confidence": "likely"
+   },
+   {
+    "fact": "CAPSTONE total spacecraft ΔV budget: 52 m/s nominal, 110 m/s at 99th percentile (cruise 22/57, insertion 18/35, stationkeeping 0/1, desat -/10, disposal 5/7 m/s nominal/ΔV99)",
+    "source": "Advanced Space BLT Cheat Sheet Table 2, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "BLT to NRHO flight time: 80-130 days without lunar flyby, 110-180 days with lunar flyby; launch C3 -0.7 to -0.3 km2/s2 (no flyby) vs -2.2 to -1.5 km2/s2 (with flyby)",
+    "source": "Advanced Space BLT Cheat Sheet Table 1, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Rule of thumb: BLT to NRHO deterministic ΔV as low as 70-100 m/s, 150 m/s recommended safe design baseline",
+    "source": "Advanced Space BLT Cheat Sheet, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Direct transfer to 100 km polar LLO requires >=820 m/s vs 640 m/s for BLT to same LLO (Parker & Anderson)",
+    "source": "Advanced Space BLT Cheat Sheet citing Parker & Anderson, Low-Energy Lunar Trajectory Design (2014) — I read the cheat sheet, not the book directly",
+    "confidence": "likely"
+   },
+   {
+    "fact": "BLT Table 4 example (2024 launches): LLO(100km) polar insertion 639.7 m/s / 107.1 days; high circular lunar orbit polar 182.0 m/s / 94.6 days; highly elliptical polar orbit 95.4 m/s / 106.7 days",
+    "source": "Advanced Space BLT Cheat Sheet Table 4, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Direct transfer to NRO (Gateway-class orbit): 840 m/s for a 10.9-day transfer (21-day crewed mission scenario); 751 m/s for 37.6-day transfer (60-day mission)",
+    "source": "Whitley & Martinez 2016, NTRS 20150019648, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Direct transfer to L2 Halo: 811 m/s / ~5-day transfer (18-day mission); 637 m/s / ~10-day transfer (31-day mission). DRO: 957 m/s / ~6 days (21-day mission); 841 m/s / ~6 days (26-day mission)",
+    "source": "Whitley & Martinez 2016, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Direct NRHO insertion cited elsewhere as 350-550 m/s vs BLT deterministic ΔV 20-60 m/s",
+    "source": "WebSearch snippet referencing ResearchGate/Advanced Space CAPSTONE navigation paper — snippet only, PDF not opened directly",
+    "confidence": "uncertain"
+   },
+   {
+    "fact": "16 distinct BLT families to NRHO exist (Parrish et al.), defined by TLI node, apogee quadrant, flyby-or-not, wind-on revolution count — a discrete family structure, not a continuous ΔV(T) curve",
+    "source": "Advanced Space BLT Cheat Sheet, full PDF text extracted",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Every BLT family repeats on a ~29.5-day synodic-month cadence, with the 'best' family shifting seasonally over the year",
+    "source": "Advanced Space BLT Cheat Sheet, full PDF text extracted",
+    "confidence": "verified"
+   }
+  ],
+  "numbers": [
+   {
+    "name": "Earth-Moon CR3BP mass ratio mu",
+    "value": "0.012154",
+    "units": "dimensionless",
+    "how": "mu = M_moon/(M_earth+M_moon), M_earth=5.97219e24 kg, M_moon=7.34767e22 kg; script notes/cr3bp_calcs.py"
+   },
+   {
+    "name": "L1 distance from Moon",
+    "value": "58023.7",
+    "units": "km",
+    "how": "brentq root solve of collinear Lagrange eq in notes/cr3bp_calcs.py, R=384400 km"
+   },
+   {
+    "name": "L2 distance from Moon",
+    "value": "64520.6",
+    "units": "km",
+    "how": "brentq root solve of collinear Lagrange eq in notes/cr3bp_calcs.py"
+   },
+   {
+    "name": "L3 distance from Earth",
+    "value": "381674.7",
+    "units": "km",
+    "how": "brentq root solve of collinear Lagrange eq in notes/cr3bp_calcs.py (opposite side of Earth from Moon)"
+   },
+   {
+    "name": "Hill-sphere approx for L1/L2 distance",
+    "value": "61279.0",
+    "units": "km",
+    "how": "r = R*(mu/3)^(1/3), sanity check formula, notes/cr3bp_calcs.py"
+   },
+   {
+    "name": "CAPSTONE total deltaV, nominal / 99th pct",
+    "value": "52 / 110",
+    "units": "m/s",
+    "how": "Advanced Space BLT Cheat Sheet Table 2, PDF text extraction"
+   },
+   {
+    "name": "BLT to NRHO flight time (no lunar flyby)",
+    "value": "80-130",
+    "units": "days",
+    "how": "Advanced Space BLT Cheat Sheet Table 1"
+   },
+   {
+    "name": "BLT to NRHO flight time (with lunar flyby)",
+    "value": "110-180",
+    "units": "days",
+    "how": "Advanced Space BLT Cheat Sheet Table 1"
+   },
+   {
+    "name": "Direct transfer to NRO deltaV, 10.9-day transfer",
+    "value": "840",
+    "units": "m/s",
+    "how": "Whitley & Martinez 2016, Table (21-day mission scenario), PDF text extraction"
+   },
+   {
+    "name": "Direct transfer to NRO deltaV, 37.6-day transfer",
+    "value": "751",
+    "units": "m/s",
+    "how": "Whitley & Martinez 2016, Table (60-day mission scenario), PDF text extraction"
+   },
+   {
+    "name": "Direct LLO(100km) insertion deltaV vs BLT",
+    "value": "820 vs 640",
+    "units": "m/s",
+    "how": "Advanced Space BLT Cheat Sheet citing Parker & Anderson 2014, PDF text extraction"
+   },
+   {
+    "name": "BLT LLO(100km) polar example insertion / ToF (2024 launch)",
+    "value": "639.7 / 107.1",
+    "units": "m/s / days",
+    "how": "Advanced Space BLT Cheat Sheet Table 4, PDF text extraction"
+   }
+  ],
+  "project_relevance": "This is the honesty-check for Phase B/C cislunar edges. Two concrete implications for the optimizer design: (1) The v1 optimizer's Lambert/patched-conic edge model is structurally incapable of representing BLTs — BLTs are not a point on a Lambert-arc continuum, they are a qualitatively different 4-body (Sun-perturbed) trajectory type requiring a separate solver (CR3BP/BCP propagation + differential correction, not a Lambert solve). If cislunar nodes are added to the graph before this is handled, the \"shortest ToF for a given ΔV budget\" answers will silently omit the entire BLT solution family — a real Pareto-front amputation, not just an approximation error. (2) This is also the best concrete real-world evidence for the master document's core differentiator claim (weighted-sum A* misses non-convex Pareto points): direct-transfer NRHO insertions (840 m/s / 11 days) and BLT NRHO insertions (52-150 m/s / 80-180 days) sit in two separated ΔV-ToF clusters with a documented family-structure discontinuity between them (16 discrete BLT families vs. the continuous direct-transfer conic family) — this is a legitimate, sourced example to put in the v1 proposal to motivate EMOA* over weighted-sum search, though I could not find a single dense same-target ΔV(T) sweep to numerically prove non-convexity with a curve — flag this to the professor as inferred-from-structure, not curve-proven. For the UI fidelity ladder (Track Q3), recommend explicitly disclosing \"no BLT/manifold modeling\" as a v1 limitation given how large the ΔV gap is (5-10x).",
+  "question_inputs": [
+   {
+    "question": "Q3: Which fidelity shortcuts are acceptable for a v1 (impulsive burns only, patched conics, ignore capture spirals, planar assumptions) and how should the UI disclose them?",
+    "answer": "For cislunar specifically, a v1 patched-conic/impulsive-Lambert model is acceptable ONLY if the UI explicitly discloses it excludes ballistic lunar transfers (BLTs), invariant-manifold trajectories, and halo/NRHO station-keeping. This is not a minor approximation: sourced numbers show BLTs cut NRHO-insertion ΔV from ~750-900+ m/s (direct, patched-conic, 3.5-11 day ToF) to ~52-150 m/s (BLT, 80-180 day ToF) — a 5-10x difference that a Lambert-only model cannot produce at all, since BLTs rely on continuous solar-gravity perturbation over months, not a single impulsive arc. Suggested UI disclosure wording: 'Cislunar transfers shown here use a simplified two-body/direct-insertion model (patched conics, impulsive burns) and do not include ballistic lunar transfers, near-rectilinear halo orbit station-keeping, or invariant-manifold trajectories, which can reduce arrival ΔV by 5-10x at the cost of roughly 3-4 additional months of flight time.'"
+   }
+  ],
+  "gaps": [
+   "Did not open Parker & Anderson, Low-Energy Lunar Trajectory Design (JPL Deep Space Communications and Navigation Series book, 2014) directly — only the secondary citation of its LLO number (820 vs 640 m/s) inside the Advanced Space BLT cheat sheet. Could not find a free PDF of the full book in the time available; it is a Wiley/JPL published book, likely paywalled.",
+   "Did not open the ResearchGate 'Navigation Design of the CAPSTONE Mission Near NRHO Insertion' paper directly (only a WebSearch snippet) — the 350-550 m/s direct-NRHO vs 20-60 m/s BLT figures from that snippet are marked 'uncertain' and should be re-verified before being quoted to the professor as precise numbers.",
+   "Could not find or verify a single dense, same-target-orbit (NRHO specifically) ΔV(T) sweep spanning intermediate flight times (roughly 15-80 days) that would let me numerically demonstrate Pareto-front non-convexity/concavity with an actual curve; my non-convexity argument is a structurally well-motivated inference from the discrete-family framing in the BLT cheat sheet (16 distinct families, not a continuum) plus the two-cluster data, not a curve-fit proof. A good follow-up would be Parrish et al. 2019/2020 (cited inside the BLT cheat sheet as refs [3],[4]) which likely has denser data — I did not fetch those directly.",
+   "Did not independently verify the Wikipedia NRHO page's Gateway orbit numbers (period ~7 days, perilune ~3000 km, apolune ~70000 km) against a primary NASA source (e.g., a NASA Gateway fact sheet or an AAS/AIAA paper on the Gateway reference NRHO) — Whitley & Martinez's more general 6-8 day NRO period is corroborating but not identical.",
+   "Did not fetch a dedicated Wikipedia page for Lagrange point, Halo orbit, or Weak stability boundary individually (used Three-body problem, NRHO, and Low-energy transfer pages plus my own numeric solve instead) — those pages might carry additional stability/eigenvalue details (e.g., halo orbit stability index, Lyapunov orbit family bifurcation point) I did not capture.",
+   "Did not verify or compute anything about invariant manifold construction (stable/unstable eigenvector propagation off a monodromy matrix) — described conceptually only, no worked numerical example of manifold-based transfer design."
+  ]
+ },
+ {
+  "item_id": "T4.6",
+  "item_title": "T4.6 — Low-thrust and higher-fidelity mission design (mention-only) and a fidelity ladder",
+  "item": "T4.6 — Low-thrust and higher-fidelity mission design (mention-only) and a fidelity ladder",
+  "summary": "## Why electric propulsion breaks the Lambert model\n\nChemical propulsion (Isp ~300-450 s) delivers a lot of thrust briefly — you can treat a burn as an instantaneous velocity change (an \"impulse\"), which is exactly what makes Lambert's problem the right tool: given two positions and a time of flight, solve for the connecting Kepler arc, and the delta-v is just the vector difference between the arc's endpoint velocities and the planets' velocities. Electric propulsion (ion, Hall-effect) inverts the trade: Isp of 1,500-4,100+ s (much better propellant efficiency) but thrust of only tens to a couple hundred millinewtons, because thrust is limited by onboard electrical power, not by how fast you can burn chemical energy. NASA's Dawn spacecraft is the canonical example: its NSTAR ion engine ran at 2.3 kW, produced only ~92 mN of thrust, but at Isp ~3,100 s it accumulated close to 11 km/s of total delta-v over the mission — several times what a chemical stage of similar mass could deliver (Wikipedia \"Electric propulsion\"; NASA ion-propulsion fact sheet via search, not opened directly).\n\nBecause the thrust is continuous and tiny relative to spacecraft weight, you cannot approximate a low-thrust maneuver as an instantaneous impulse — burns last hours to months, and the trajectory during the burn is neither a clean ellipse nor a clean hyperbola. This turns trajectory design into an **optimal control problem**: find a time-varying control (thrust direction and duty cycle) u(t) that satisfies the equations of motion and the boundary conditions while minimizing propellant use or flight time. There is no closed-form solution in general (unlike two-body Keplerian motion), so it must be solved numerically. Two families of numerical method exist: **indirect methods** apply Pontryagin's Minimum Principle to derive costate equations analytically, turning the problem into a two-point boundary-value problem solved by shooting; **indirect methods are more mathematically elegant but brutally sensitive to the initial guess**. **Direct methods** instead discretize the whole trajectory into a finite set of decision variables and hand the resulting large nonlinear program (NLP) to a general solver (SNOPT, IPOPT); this is what essentially every practical mission-design tool uses today because it tolerates poor initial guesses far better.\n\n## The Sims-Flanagan transcription\n\nThe standard direct-transcription recipe for low-thrust legs, used by pykep, JPL's MALTO, and NASA Goddard's EMTG, is the **Sims-Flanagan transcription** (I could not open pykep's simsflanagan doc page directly — both esa.github.io and the raw GitHub .rst 404'd this session — so this is reconstructed from WebSearch snippets quoting the page, confidence \"likely\" not \"verified\"):\n\n- Chop a leg (departure body to arrival body) into N equal-duration **segments**.\n- Approximate the continuous thrust in each segment by a single **bounded impulsive delta-v** applied at the segment's midpoint (a \"control node\"); the spacecraft coasts on an ordinary two-body Kepler arc between impulses. This is the key trick — it turns \"solve for a continuous control history\" into \"solve for N discrete throttle vectors,\" which is exactly the kind of finite-dimensional problem an NLP solver eats.\n- Propagate forward in time from the departure state and backward in time from the arrival state; the two propagations must agree in position, velocity, and mass at a **mid-leg match point** — these agreement conditions become nonlinear equality constraints in the NLP.\n- Mass decreases at each impulse per the Tsiolkovsky rocket equation (Δm from Δv and Isp).\n- Decision variables per leg: departure/arrival epochs (or leg duration) plus N throttle vectors (3 components each, magnitude ≤ 1, scaled by max thrust/Isp).\n\nEMTG calls this mode \"MGALT\" and also offers a higher-fidelity mode called \"FBLT\" that does true forward/backward numerical integration with piecewise-constant control rather than the segment-Kepler approximation — a further fidelity step above Sims-Flanagan itself. EMTG couples the NLP (SNOPT) with a global-search heuristic (Monotonic Basin Hopping) to escape local minima, and can pull SPICE ephemerides plus detailed thruster/power/launch-vehicle models (WebSearch summaries of EMTG docs and an NTRS technical paper — not opened directly).\n\npykep (ESA's library, built for GTOC-class problems) is the natural long-term dependency if the project ever adds a low-thrust mode: it already has both impulsive Lambert-arc legs and Sims-Flanagan low-thrust legs, Izzo's fast Lambert solver, ephemerides, and a `trajopt` module of pre-built problem classes. The master document already flags that WASM-compiling pykep (C++/Boost) is painful for a browser deployment — so a thin server-side service (rather than in-browser optimization) is the likely path if this is ever built, and it should be scoped as a distinct future phase, not folded into the v1 Lambert/porkchop work.\n\n## The fidelity ladder (the deliverable this item exists to produce)\n\nFive levels, each answering \"what does it compute, what does it ignore, roughly how wrong is it, and what should the UI say.\"\n\n**Level 0 — Two-body Keplerian (teaching).** Computes position/velocity from the 6 classical elements via Kepler's equation around a single point-mass body; no perturbations at all. Ignores drag, J2, third-body, SRP — everything. This mode is *for* showing the idealized ellipse, so \"error vs reality\" isn't really the right lens — a real LEO satellite will visibly diverge (degrees of mean anomaly per day) from its own two-body prediction, and that's expected, not a bug. Disclosure: *\"Idealized two-body orbit for teaching — not a real satellite's actual path.\"*\n\n**Level 1 — SGP4 catalog (real Earth satellites).** Computes TEME position/velocity from published TLE mean elements via SGP4/SDP4, converted to ECEF/geodetic. Ignores any maneuvers since the TLE epoch and any dynamics beyond what SGP4's built-in drag model encodes. Accuracy degrades with TLE staleness (order of single-digit km per day for LEO, worse for drag-dominated objects) — Track 2 should hold the authoritative citation for the exact figure; flagged here only as a cross-check. Disclosure: *\"Real satellite position from published TLE data (epoch shown); accuracy degrades the further from that epoch we are.\"*\n\n**Level 2 — Impulsive patched-conic Lambert transfers (this project's v1 interplanetary layer).** Computes one Lambert solve per (departure date, arrival date) pair: a heliocentric two-body Kepler arc between planet ephemeris positions, with v∞ excess velocities at each planet's sphere of influence summed into a delta-v (departure C3, arrival v∞). Ignores finite burn duration, capture-orbit insertion cost, precise plane-change cost when the transfer plane isn't quite the target's actual plane, n-body perturbations during the coast, and launch-vehicle-specific C3-vs-payload curves. The heliocentric-leg delta-v itself is typically within a few percent of a real mission's reported number for that leg, but *total* mission delta-v is understated because capture/insertion and margin are omitted. Disclosure: *\"Idealized impulsive (instant-burn) transfer using patched-conic Lambert arcs. Departure and arrival delta-v shown are v-infinity excess speeds at each planet's sphere of influence — capture-orbit insertion, plane-change, and launch-vehicle-specific costs are not included.\"*\n\n**Level 3 — Finite burns / n-body / capture spirals / plane changes / launch-vehicle C3 curves.** Computes real finite-duration burns with gravity losses, n-body or CR3BP propagation instead of patched conics, explicit capture-insertion delta-v, explicit plane-change cost, and matches departure C3 against an actual launch vehicle's performance curve. This is roughly GMAT/STK-grade fidelity for chemical-propulsion missions — still no continuous low-thrust, no navigation/uncertainty. Disclosure: *\"Higher-fidelity model including capture burns, plane changes, and n-body dynamics — flight-project-grade for chemical-propulsion missions, but still assumes impulsive burns.\"*\n\n**Level 4 — Low-thrust, navigation, uncertainty (mention-only, out of scope through v2).** This is where Sims-Flanagan / FBLT-style direct transcription solved with an NLP (as in pykep/EMTG/MALTO) lives, plus orbit-determination/navigation covariance propagation for real mission ops. Not modeled by this project at all in the current roadmap. Disclosure: *\"Not modeled. Electric-propulsion (low-thrust) missions, precise navigation, and uncertainty quantification are outside this tool's scope; results here apply only to chemical/impulsive-burn missions.\"*\n\n## Worked numbers computed this session\n\nSynodic period formula: T_syn = 1/|1/T1 − 1/T2|, where T1, T2 are sidereal orbital periods. Using T_earth=365.256 d, T_venus=224.701 d, T_mars=686.980 d, T_jupiter=4332.59 d, computed in `notes/t4_6_compute.py`:\n- Earth–Venus: **583.92 days**\n- Earth–Mars: **779.93 days** (matches the ~780-day anchor already in the master doc)\n- Earth–Jupiter: **398.88 days** — shorter than Earth-Mars despite Jupiter being much farther out, because Jupiter's own period is so long that 1/T_jupiter is nearly negligible, so T_syn approaches Earth's own period (365 d) from above; the cadence is set by the *difference* of angular rates, not by which body is \"faster.\"\n\nAlso computed the idealized (coplanar, tangential-burn, Hohmann-limit) Earth→Mars transfer to connect the Lambert/porkchop chain: v_earth_circ=29.78 km/s, v_mars_circ=24.13 km/s, transfer-orbit perihelion speed=32.73 km/s, transfer-orbit aphelion speed=21.48 km/s → v∞_departure=2.95 km/s, v∞_arrival=2.65 km/s, time-of-flight=258.9 days (~8.6 months). This is the Lambert special case at minimum energy; a general (non-optimal-date) Lambert solve across a porkchop grid gives higher v∞ sums, consistent with the master doc's stated \"good real-window\" anchor of ~5.6–6 km/s total.\n\n## Pitfalls / how this maps to the professor's lecture and the project phases\n\n- Don't let \"add low-thrust\" sneak into v1/C1 scope — it requires a different solver stack (NLP + direct transcription) and different graph-edge semantics, not an extension of the Lambert-based edge model. One paragraph in the proposal is the right amount of coverage: the graph-edge abstraction (node = body/window, edge = transfer with vector cost) is *compatible* with a future low-thrust edge type computed via Sims-Flanagan, but v1 edges are impulsive Lambert only.\n- The fidelity ladder should ideally become an actual UI element (a small \"fidelity: L2\" badge with a tooltip carrying the disclosure text) rather than only living in a README, since Track 3's GMAT teardown already calls for documenting \"what real mission design includes that v1 will honestly omit.\"\n- Two sources (pykep's simsflanagan doc page, EMTG's detailed docs/0_Users guide) resisted direct fetch this session (404s); the Sims-Flanagan mechanics above are reconstructed from search-engine snippets quoting those pages, so treat the mechanics description as \"likely,\" not \"verified\" — worth a follow-up read with a working fetch path or `pip install pykep` and reading source/docstrings directly if this becomes load-bearing for actual code.",
+  "sources": [
+   {
+    "title": "pykep simsflanagan module (Sims-Flanagan transcription)",
+    "ref": "https://esa.github.io/pykep/documentation/simsflanagan.html",
+    "opened": false,
+    "note": "Direct WebFetch 404'd, as did raw.githubusercontent.com/esa/pykep/.../simsflanagan.rst. Content reconstructed from WebSearch snippets that quote the page directly (decision variables, segment discretization, forward/backward shooting, mismatch constraints). Confidence: likely, not verified."
+   },
+   {
+    "title": "NASA EMTG (Evolutionary Mission Trajectory Generator) GitHub repo",
+    "ref": "https://github.com/nasa/EMTG",
+    "opened": true,
+    "note": "README fetched directly; thin on fidelity-model detail (points to docs/0_Users/, not opened). Supplemented with WebSearch results describing MGALT/FBLT dynamics, SNOPT+MBH optimizer, and SPICE ephemeris usage."
+   },
+   {
+    "title": "EMTG open-source project page, GSFC",
+    "ref": "https://opensource.gsfc.nasa.gov/projects/emtg/index.php/",
+    "opened": false,
+    "note": "Surfaced by WebSearch only; used as corroboration that EMTG supports both high-thrust chemical and low-thrust electric propulsion plus flybys."
+   },
+   {
+    "title": "Wikipedia: Electric propulsion",
+    "ref": "https://en.wikipedia.org/wiki/Electric_propulsion",
+    "opened": true,
+    "note": "Fetched successfully via WebFetch."
+   },
+   {
+    "title": "NASA Dawn / NSTAR ion engine fact sheet and Springer 'Ion Propulsion System for Dawn' chapter",
+    "ref": "https://www.nasa.gov/wp-content/uploads/2015/08/ionpropfact_sheet_ps-01628.pdf ; https://link.springer.com/chapter/10.1007/978-1-4614-4903-4_11",
+    "opened": false,
+    "note": "Numbers (Isp 3100 s, thrust 92 mN at 2.3 kW, total mission delta-v ~11 km/s) taken from WebSearch snippets quoting these sources, not opened directly."
+   },
+   {
+    "title": "Computed synodic periods and Hohmann-limit Earth->Mars transfer",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/notes/t4_6_compute.py",
+    "opened": true,
+    "note": "Script written and run in the project venv this session; output pasted into notes above. Self-generated, verified."
+   },
+   {
+    "title": "Master document, Part II Track 4 and Part III math/build sections",
+    "ref": "C:/Users/thiru/AppData/Local/Temp/claude/C--Users-thiru-tamu2-ecs-research-rathinam/5b6188bd-1182-4842-a6a3-cb49230254ab/scratchpad/rathinam_project_master.md",
+    "opened": true,
+    "note": "Read lines ~1-400 for Track 4 reading list, questions, and the existing implementation-guide anchors (known-answer values, module layout, WASM-pykep caveat)."
+   }
+  ],
+  "key_facts": [
+   {
+    "fact": "Electric propulsion delivers Isp of ~1,500-4,100+ s vs ~300-450 s for chemical, but thrust is tiny (tens to low hundreds of mN) because it's power-limited, not energy-density-limited. Dawn's NSTAR ion engine: 2.3 kW input, ~92 mN thrust, Isp ~3,100 s, ~11 km/s total mission delta-v.",
+    "source": "Wikipedia Electric propulsion (fetched); Dawn/NSTAR figures via WebSearch of NASA fact sheet + Springer chapter (not opened directly)",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Because thrust is continuous and tiny relative to spacecraft weight, low-thrust trajectories cannot be modeled as instantaneous velocity impulses (the Lambert-problem assumption); trajectory design becomes an optimal-control problem with no closed-form solution, solved numerically via indirect (Pontryagin/costate shooting) or direct (finite-dimensional NLP) transcription.",
+    "source": "Wikipedia Electric propulsion (fetched); framing corroborated by EMTG/pykep search results",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Sims-Flanagan transcription: chop a low-thrust leg into N equal-duration segments, replace continuous thrust in each with one bounded impulsive delta-v at the segment midpoint, coast on Kepler arcs between impulses; propagate forward from departure and backward from arrival, require the two to match at a mid-leg point (position/velocity/mass) as NLP equality constraints; mass updates via Tsiolkovsky. Decision variables: epochs plus N throttle vectors.",
+    "source": "WebSearch summary quoting esa/pykep simsflanagan docs (page itself 404'd on direct fetch)",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Sims-Flanagan is the shared backbone of JPL's MALTO and NASA Goddard's EMTG (EMTG's 'MGALT' mode); EMTG also has a higher-fidelity 'FBLT' mode with true forward/backward numerical integration instead of the segment-Kepler approximation, and couples the NLP with SNOPT plus Monotonic Basin Hopping for global search, using SPICE ephemerides and launch-vehicle/thruster/power models.",
+    "source": "WebSearch summaries of EMTG documentation and an NTRS technical paper (not opened directly)",
+    "confidence": "likely"
+   },
+   {
+    "fact": "pykep (ESA) exposes both impulsive Lambert-arc legs and Sims-Flanagan low-thrust legs plus Izzo's fast Lambert solver and ephemerides — the natural dependency if the project adds a low-thrust mode later, though WASM-compiling pykep (C++/Boost) is flagged as painful for browser deployment in the master doc.",
+    "source": "Master doc Part III tool list; WebSearch on esa/pykep repo structure",
+    "confidence": "likely"
+   },
+   {
+    "fact": "Synodic period formula T_syn = 1/|1/T1 - 1/T2|; computed Earth-Venus=583.92 d, Earth-Mars=779.93 d (matches master doc's ~780 d anchor), Earth-Jupiter=398.88 d.",
+    "source": "notes/t4_6_compute.py, run in venv",
+    "confidence": "verified"
+   },
+   {
+    "fact": "Idealized coplanar tangential Hohmann Earth->Mars transfer: v_earth_circ=29.78 km/s, v_mars_circ=24.13 km/s, v_inf_departure=2.95 km/s, v_inf_arrival=2.65 km/s, time-of-flight=258.9 days; consistent with (lower than) the master doc's ~5.6-6 km/s v_inf-sum anchor for a real non-ideal launch window.",
+    "source": "notes/t4_6_compute.py, run in venv",
+    "confidence": "verified"
+   }
+  ],
+  "numbers": [
+   {
+    "name": "Synodic period, Earth-Venus",
+    "value": "583.92",
+    "units": "days",
+    "how": "1/|1/365.256 - 1/224.701|, notes/t4_6_compute.py"
+   },
+   {
+    "name": "Synodic period, Earth-Mars",
+    "value": "779.93",
+    "units": "days",
+    "how": "1/|1/365.256 - 1/686.980|, notes/t4_6_compute.py"
+   },
+   {
+    "name": "Synodic period, Earth-Jupiter",
+    "value": "398.88",
+    "units": "days",
+    "how": "1/|1/365.256 - 1/4332.59|, notes/t4_6_compute.py"
+   },
+   {
+    "name": "Hohmann Earth->Mars v_inf departure (idealized coplanar tangential)",
+    "value": "2.95",
+    "units": "km/s",
+    "how": "v_p - v_earth_circ, v_p=sqrt(mu_sun*(2/a_earth-1/a_transfer)); notes/t4_6_compute.py"
+   },
+   {
+    "name": "Hohmann Earth->Mars v_inf arrival (idealized coplanar tangential)",
+    "value": "2.65",
+    "units": "km/s",
+    "how": "v_mars_circ - v_a, v_a=sqrt(mu_sun*(2/a_mars-1/a_transfer)); notes/t4_6_compute.py"
+   },
+   {
+    "name": "Hohmann Earth->Mars time of flight",
+    "value": "258.9 (~8.6 months)",
+    "units": "days",
+    "how": "pi*sqrt(a_transfer^3/mu_sun); notes/t4_6_compute.py"
+   },
+   {
+    "name": "NSTAR ion engine (Dawn) thrust",
+    "value": "~92",
+    "units": "mN",
+    "how": "WebSearch of NASA ion-propulsion fact sheet at 2.3 kW input (secondary source, not opened directly)"
+   },
+   {
+    "name": "NSTAR ion engine (Dawn) specific impulse",
+    "value": "~3100",
+    "units": "s",
+    "how": "WebSearch of NASA ion-propulsion fact sheet (secondary source, not opened directly)"
+   },
+   {
+    "name": "Dawn total mission delta-v from ion propulsion",
+    "value": "~11",
+    "units": "km/s",
+    "how": "WebSearch citing Springer 'Ion Propulsion System for Dawn' chapter (secondary source)"
+   }
+  ],
+  "project_relevance": "Low-thrust stays mention-only through v1/v2: it requires replacing the Lambert-arc-as-graph-edge model with an optimal-control/direct-transcription NLP (Sims-Flanagan segments + SNOPT/IPOPT, as pykep/EMTG/MALTO do) — a different solver stack and non-trivial browser deployment (WASM-pykep is flagged as painful in the master doc). This deserves exactly one paragraph in the v1 proposal: the graph-edge abstraction (node=body/window, edge=transfer with vector cost) is compatible with a future low-thrust edge type, but v1 edges are impulsive Lambert only. The fidelity ladder (Level 0 teaching Keplerian, Level 1 SGP4 catalog, Level 2 impulsive patched-conic Lambert = v1's interplanetary layer, Level 3 finite-burn/n-body/capture/launch-vehicle-C3, Level 4 low-thrust/nav/uncertainty = out of scope) is the concrete deliverable the professor will want, and should likely become an actual UI element (a fidelity-level badge with tooltip disclosure text, given verbatim per level above) rather than only README prose — directly answers Track 3's requirement to document \"what real mission design includes that v1 will honestly omit.\"",
+  "question_inputs": [
+   {
+    "question": "Which fidelity shortcuts are acceptable for a v1 (impulsive burns only, patched conics, ignore capture spirals, planar assumptions) and how should the UI disclose them? Give a fidelity ladder and disclosure wording.",
+    "answer": "v1 should sit at Level 2 of the 5-level ladder (impulsive patched-conic Lambert transfers): one Lambert solve per date pair, delta-v reported as summed v-infinity at each SOI, no capture-spiral cost, no launch-vehicle C3 curve, simplified plane-change handling. This matches essentially every public porkchop tool (including NASA's Trajectory Browser), so it's well-precedented for v1 — but must ship with explicit disclosure text (given per-level in the summary/project_relevance above) and ideally a visible fidelity-level badge (0 teaching Keplerian / 1 SGP4 catalog / 2 patched-conic Lambert / 3 finite-burn n-body / 4 low-thrust+nav, out of scope) so users see which level produced any given number. Low-thrust (Level 4) is explicitly mention-only — it needs a different solver (Sims-Flanagan + NLP), not an extension of the Lambert graph-edge model."
+   },
+   {
+    "question": "Given two dates, what exactly does one Lambert solve return, and how do its v-infinity values become the delta-v numbers on a porkchop? Walk through the full chain with formulas and one worked Earth-to-Mars example.",
+    "answer": "A Lambert solve takes r1 (departure position), r2 (arrival position), and time-of-flight, and returns the transfer arc's velocities v1, v2. v_inf_departure = |v1 - v_earth(t_dep)|, v_inf_arrival = |v2 - v_mars(t_arr)|; C3 = v_inf_dep^2 is the launch-energy metric on porkchop departure axes. Worked idealized Hohmann-limit example (notes/t4_6_compute.py): v_earth_circ=29.78 km/s, v_mars_circ=24.13 km/s, transfer perihelion/aphelion speeds 32.73/21.48 km/s, giving v_inf_dep=2.95 km/s, v_inf_arr=2.65 km/s, ToF=258.9 days. This is the minimum-energy special case; general porkchop-grid Lambert solves at non-optimal dates give higher v_inf sums, consistent with the master doc's ~5.6-6 km/s good-window anchor. (Full Izzo-solver derivation belongs to the dedicated Lambert/porkchop Track-4 item; this is the mechanical chain connecting Lambert output to porkchop delta-v.)"
+   },
+   {
+    "question": "Why do launch windows recur, and what sets their cadence per planet pair? Give the synodic period formula and computed values for Earth-Mars, Earth-Venus, Earth-Jupiter.",
+    "answer": "Launch windows recur because favorable Earth-target relative geometry repeats with the synodic period T_syn = 1/|1/T1 - 1/T2| (T1, T2 = sidereal periods) — the cadence is set by the difference in the two planets' angular rates, not either planet's period alone. Computed (notes/t4_6_compute.py): Earth-Venus=583.92 d, Earth-Mars=779.93 d (matches master doc's ~780 d anchor), Earth-Jupiter=398.88 d — shorter than Earth-Mars despite Jupiter being far more distant, because Jupiter's very long period makes 1/T_jupiter nearly negligible, so T_syn approaches Earth's own ~365-day period from above."
+   }
+  ],
+  "gaps": [
+   "Could not directly open esa.github.io/pykep/documentation/simsflanagan.html or the raw GitHub .rst source (both 404'd) — Sims-Flanagan mechanics reconstructed from WebSearch snippets quoting the page, not read firsthand. Recommend a follow-up: pip install pykep into the venv and read its source/docstrings directly, or find the doc's new URL, before this detail becomes load-bearing for actual code.",
+   "Did not read NASA EMTG's docs/0_Users/ guide (only the thin top-level README) — MGALT vs FBLT distinction and SNOPT+MBH combination came from WebSearch summaries of secondary NTRS papers, not EMTG's own docs.",
+   "Did not access Conway's 'Spacecraft Trajectory Optimization' book as suggested — no full text located this session; optimal-control framing leans on Curtis Ch.8 (already in master doc) plus EMTG/pykep secondary sources, adequate for mention-only treatment but would need a real citation if expanded for a paper's related-work section.",
+   "Did not independently verify Dawn NSTAR thrust/Isp numbers by opening the NASA fact sheet or Springer chapter directly — took them from WebSearch snippets (low risk, well-known figures, but flagged per the honesty rule).",
+   "Did not cross-check the Level-1 SGP4 error-growth figure (~km/day) against a primary source this session — that number is properly Track 2's territory; stated here only as an illustrative range and flagged as needing Track 2's citation."
+  ]
+ }
+]

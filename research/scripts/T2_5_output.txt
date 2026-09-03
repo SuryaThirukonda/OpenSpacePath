@@ -1,0 +1,113 @@
+=== PART A: SGP4 vs Kepler from the same ISS TLE ===
+TLE epoch JD 2461284.998513  n = 15.48958602 rev/day -> a(mu=398600.4418) = 6797.908 km, a(mu WGS72) = 6797.910 km
+SGP4 at epoch: |r| = 6799.028 km, |v| = 7.6598 km/s, alt(spherical, RE=6378.135) = 420.9 km
+Osculating elements from SGP4 state at epoch: a=6804.394 km e=0.001576 i=51.6511 RAAN=282.3953 argp=60.0473 M=300.1090 deg
+TLE mean elements (Kozai n -> a):             a=6797.910 km e=0.000505 i=51.6312 RAAN=282.3953 argp=96.4740 M=263.6824 deg
+  -> osculating-minus-mean a = +6.48 km; if you used the osculating a as a period, the period would be off by +7.98 s/rev
+J2 secular rates from mean elements: RAAN_dot = -4.948 deg/day, argp_dot = +3.693 deg/day, dM/dt correction = +0.621 deg/day
+
+--- Variant A: TLE mean elems -> two-body (mu 398600.4418), i.e. the 6.1 pipeline fed a TLE ---
+       t |   |dr| km |    radial |  in-track |     cross
+   0.0 h |     11.75 |     -0.75 |     11.73 |     -0.00
+   0.2 h |      9.01 |      3.71 |      8.15 |     -1.01
+   1.0 h |     15.01 |     -4.16 |    -10.61 |      9.77
+   2.0 h |     16.55 |      6.75 |     -8.92 |     12.19
+   6.0 h |     83.19 |     -4.39 |    -10.02 |    -82.47
+  12.0 h |     37.08 |     -4.70 |    -36.75 |      1.42
+     1 d |    468.06 |    -16.86 |    -86.71 |    459.65
+     2 d |    928.49 |    -64.09 |   -143.86 |   -915.04
+     3 d |   1392.31 |   -143.29 |   -253.95 |   1361.44
+in-track drift, linear fit over first 24 h: -3.116 km/h = -74.78 km/day; in-track at 1 h = -10.61 km; |dr| max within 1 h = 20.73 km; |dr| max within 24 h = 468.06 km
+
+--- Variant B: two-body seeded from SGP4 osculating state at epoch ---
+       t |   |dr| km |    radial |  in-track |     cross
+   0.0 h |      0.00 |     -0.00 |     -0.00 |     -0.00
+   0.2 h |      2.13 |      2.04 |     -0.39 |      0.47
+   1.0 h |     53.58 |     10.28 |    -51.97 |      8.00
+   2.0 h |     75.60 |      8.55 |    -73.77 |     14.13
+   6.0 h |    275.13 |     -2.38 |   -262.88 |    -81.15
+  12.0 h |    520.13 |    -11.61 |   -519.77 |     15.42
+     1 d |   1116.11 |    -81.87 |  -1016.31 |    453.98
+     2 d |   2225.25 |   -360.38 |  -2020.01 |   -861.04
+     3 d |   3298.66 |   -794.47 |  -2973.92 |   1185.66
+in-track drift, linear fit over first 24 h: -42.372 km/h = -1016.94 km/day; in-track at 1 h = -51.97 km; |dr| max within 1 h = 53.58 km; |dr| max within 24 h = 1116.11 km
+
+--- Variant C: TLE mean elems + J2 secular rates (no drag, no periodics) ---
+       t |   |dr| km |    radial |  in-track |     cross
+   0.0 h |     11.75 |     -0.75 |     11.73 |     -0.00
+   0.2 h |     10.00 |      3.71 |      9.17 |      1.48
+   1.0 h |      6.38 |     -4.15 |     -4.47 |     -1.88
+   2.0 h |      7.91 |      6.77 |      3.40 |      2.28
+   6.0 h |     27.68 |     -3.94 |     27.34 |     -1.70
+  12.0 h |     37.26 |     -4.70 |     36.88 |     -2.37
+     1 d |     61.10 |     -0.98 |     61.09 |      0.14
+     2 d |    153.61 |     -2.50 |    153.59 |     -0.32
+     3 d |    195.56 |     -3.40 |    195.53 |      0.47
+in-track drift, linear fit over first 24 h: +3.032 km/h = +72.76 km/day; in-track at 1 h = -4.47 km; |dr| max within 1 h = 11.75 km; |dr| max within 24 h = 82.25 km
+
+=== PART B: public ISS TLE (18 SDS) vs CelesTrak supplemental (NASA OEM-derived) 6-h segments ===
+60 supplemental segments; public TLE epoch JD 2461284.99851
+ age bin (d) |   N | med |dr| km | max |dr| km | med in-track km | med |radial| | med |cross|
+ -1.0..-0.5 |  24 |        0.51 |        1.19 |            0.50 |        0.041 |       0.082
+ -0.5.. 0.0 |  24 |        0.38 |        1.02 |           -0.11 |        0.063 |       0.152
+  0.0.. 0.5 |  24 |        1.39 |        2.52 |           -1.39 |        0.109 |       0.103
+  0.5.. 1.0 |  24 |        2.67 |        3.93 |           -2.67 |        0.026 |       0.111
+  1.0.. 1.5 |  24 |        4.55 |        5.82 |           -4.54 |        0.109 |       0.264
+  1.5.. 2.0 |  24 |        6.09 |        7.55 |           -6.09 |        0.041 |       0.194
+  2.0.. 2.5 |  24 |        8.29 |       10.33 |           -8.28 |        0.122 |       0.416
+  2.5.. 3.0 |  24 |       10.91 |       12.92 |          -10.90 |        0.045 |       0.275
+  3.0.. 3.5 |  24 |       14.04 |       16.76 |          -14.03 |        0.116 |       0.556
+  3.5.. 4.0 |  24 |       17.97 |       20.65 |          -17.96 |        0.038 |       0.352
+  4.0.. 4.5 |  24 |       22.26 |       25.61 |          -22.26 |        0.190 |       0.691
+  4.5.. 5.0 |  24 |       27.28 |       30.48 |          -27.27 |        0.082 |       0.530
+  5.0.. 5.5 |  24 |       31.98 |       35.41 |          -31.96 |        0.182 |       0.866
+  5.5.. 6.0 |  24 |       37.56 |       40.80 |          -37.56 |        0.092 |       0.720
+  6.0.. 6.5 |  24 |       42.89 |       47.06 |          -42.88 |        0.166 |       1.056
+  6.5.. 7.0 |  24 |       49.77 |       53.99 |          -49.76 |        0.072 |       0.862
+  7.0.. 7.5 |  24 |       56.43 |       60.62 |          -56.42 |        0.170 |       1.040
+  7.5.. 8.0 |  24 |       64.71 |       69.21 |          -64.71 |        0.196 |       0.931
+  8.0.. 8.5 |  24 |       72.59 |       77.54 |          -72.58 |        0.227 |       1.118
+  8.5.. 9.0 |  24 |       81.89 |       87.17 |          -81.89 |        0.331 |       1.060
+  9.0.. 9.5 |  24 |       90.80 |       95.47 |          -90.79 |        0.478 |       1.237
+  9.5..10.0 |  24 |      100.59 |      105.89 |         -100.59 |        0.616 |       1.201
+ 10.0..10.5 |  24 |      110.47 |      115.74 |         -110.46 |        0.745 |       1.358
+ 10.5..11.0 |  24 |      121.50 |      127.67 |         -121.49 |        0.921 |       1.288
+ 11.0..11.5 |  24 |      133.44 |      138.48 |         -133.43 |        1.028 |       1.576
+ 11.5..12.0 |  24 |      145.97 |      152.33 |         -145.96 |        1.296 |       1.322
+ 12.0..12.5 |  24 |      159.18 |      165.19 |         -159.17 |        1.742 |       1.696
+ 12.5..13.0 |  24 |      172.82 |      180.32 |         -172.80 |        2.052 |       1.469
+ 13.0..13.5 |  24 |      187.79 |      193.43 |         -187.78 |        2.309 |       1.849
+ 13.5..14.0 |  24 |      202.41 |      209.64 |         -202.39 |        2.692 |       1.627
+linear fit 0-3 d: |dr| = 0.10 km + 3.84 km/day * age  (N=144)
+linear fit 0-7 d: |dr| = -5.82 km + 7.42 km/day * age  (N=336)
+power-law fit (age>0.1 d): |dr| ~ 3.76 * age^1.41 km
+CAVEAT: supplemental TLEs are SGP4 fits to NASA's OEM over 6-h windows (their own error is sub-km); 'truth-ish', not truth. Any reboost inside the span appears as a jump.
+supplemental mean motion 15.489720 -> 15.491764 rev/day over 14.76 d => a: 6797.87 -> 6797.27 km => -41 m/day average (includes any reboost)
+
+=== PART C: pixel scale at globe scale (what 'visually truthful' means) ===
+                                view |   km/px |  1-px km |  3-px km
+      whole Earth disk fills 1000 px |   12.74 |    12.74 |     38.2
+             Earth disk fills 800 px |   15.93 |    15.93 |     47.8
+    continent view 3000 km / 1000 px |    3.00 |     3.00 |      9.0
+             region 500 km / 1000 px |    0.50 |     0.50 |      1.5
+               city 100 km / 1000 px |    0.10 |     0.10 |      0.3
+      4K monitor, disk fills 2000 px |    6.37 |     6.37 |     19.1
+camera height   3000 km, 60 deg vertical FOV, 1000 px tall -> ~3.5 km/px at nadir (flat approx)
+camera height  10000 km, 60 deg vertical FOV, 1000 px tall -> ~11.5 km/px at nadir (flat approx)
+camera height  20000 km, 60 deg vertical FOV, 1000 px tall -> ~23.1 km/px at nadir (flat approx)
+camera height  35786 km, 60 deg vertical FOV, 1000 px tall -> ~41.3 km/px at nadir (flat approx)
+
+=== PART D: refresh cadence from err(t) = e0 + k*t (round-number summaries of sources) ===
+                         class |    3px@12.7km/px |    1px@12.7km/px |     3px@0.5km/px |     1px@0.5km/px
+   ISS ~420 km (drag+reboosts) |  12.3 d =  296 h |   3.9 d =   94 h |   0.2 d =    4 h |   0.0 d =    0 h
+     LEO 500-600 km (Starlink) |  12.3 d =  296 h |   3.9 d =   94 h |   0.2 d =    4 h |   0.0 d =    0 h
+    LEO 800-1200 km (low drag) |  37.5 d =  900 h |  12.2 d =  293 h |   1.0 d =   24 h |   0.0 d =    0 h
+             MEO GPS 20,200 km |  37.5 d =  900 h |  12.2 d =  293 h |   1.0 d =   24 h |   0.0 d =    0 h
+              GEO station-kept |  75.0 d = 1800 h |  24.4 d =  586 h |   2.0 d =   48 h |   0.0 d =    0 h
+(time until modeled error exceeds threshold; refresh before that; 0 = already beyond at epoch)
+
+=== PART E: ISS decay implied by the TLE ndot/2 field ===
+ndot/2 = 0.00003910 rev/day^2 -> ndot = 7.820e-05 rev/day^2; a = 6797.91 km -> da/dt = -22.9 m/day
+  ignoring drag entirely for 1 d shifts mean anomaly by 0.00004 rev = 1.7 km along-track
+  ignoring drag entirely for 3 d shifts mean anomaly by 0.00035 rev = 15.0 km along-track
+  ignoring drag entirely for 7 d shifts mean anomaly by 0.00192 rev = 81.8 km along-track
