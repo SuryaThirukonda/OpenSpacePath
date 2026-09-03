@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DEG, RAD, wrapTwoPi } from '../core/constants'
-import { validateElements } from '../core/elements'
+import { apoapsisAltitude, periapsisAltitude, shapeFromAltitudes, validateElements } from '../core/elements'
 import { trueToMean, meanToTrue } from '../core/kepler'
 import { getBody } from '../data/bodies'
 import { ISS_TLE, newId, PRESETS, satelliteFromPreset } from '../data/presets'
@@ -14,8 +14,8 @@ const COLORS = ['#7cf5ff', '#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd'
 
 interface ElementFields {
   name: string
-  a: string
-  e: string
+  hp: string
+  ha: string
   i: string
   raan: string
   argp: string
@@ -23,12 +23,12 @@ interface ElementFields {
   color: string
 }
 
-function fieldsFromSatellite(s: KeplerSatellite): ElementFields {
+function fieldsFromSatellite(s: KeplerSatellite, bodyRadius: number): ElementFields {
   const el = s.elements
   return {
     name: s.name,
-    a: el.a.toFixed(1),
-    e: String(el.e),
+    hp: periapsisAltitude(el, bodyRadius).toFixed(1),
+    ha: apoapsisAltitude(el, bodyRadius).toFixed(1),
     i: (el.i * RAD).toFixed(2),
     raan: (el.raan * RAD).toFixed(2),
     argp: (el.argp * RAD).toFixed(2),
@@ -37,7 +37,14 @@ function fieldsFromSatellite(s: KeplerSatellite): ElementFields {
   }
 }
 
-const EMPTY: ElementFields = { name: 'New satellite', a: '7000', e: '0', i: '45', raan: '0', argp: '0', nu: '0', color: COLORS[0] }
+function derivedHint(f: ElementFields, R: number): string {
+  const hp = Number(f.hp), ha = Number(f.ha)
+  if (!(hp > 0) || !(ha > 0)) return ''
+  const { a, e } = shapeFromAltitudes(hp, ha, R)
+  return `a = ${a.toFixed(1)} km, e = ${e.toFixed(4)}.`
+}
+
+const EMPTY: ElementFields = { name: 'New satellite', hp: '500', ha: '500', i: '45', raan: '0', argp: '0', nu: '0', color: COLORS[0] }
 
 export function SatelliteForm() {
   const bodyId = useStore((s) => s.scenario.bodyId)
@@ -51,14 +58,14 @@ export function SatelliteForm() {
   const [tleText, setTleText] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  const body = getBody(bodyId)
   useEffect(() => {
     if (selected?.kind === 'kepler') {
-      setF(fieldsFromSatellite(selected))
+      setF(fieldsFromSatellite(selected, body.radius))
       setMode('elements')
     }
-  }, [selected])
+  }, [selected, body.radius])
 
-  const body = getBody(bodyId)
   const presets = PRESETS.filter((p) => p.bodyId === bodyId)
   useEffect(() => {
     if (!presets.some((p) => p.id === presetId) && presets[0]) setPresetId(presets[0].id)
@@ -66,9 +73,14 @@ export function SatelliteForm() {
 
   function parseElements(): OrbitalElements | null {
     const num = (s: string) => Number(s.trim())
-    const e = num(f.e)
+    const hp = num(f.hp), ha = num(f.ha)
+    if (!(hp > 0) || !(ha > 0)) {
+      setError('altitudes must be positive (km above the surface)')
+      return null
+    }
+    const { a, e } = shapeFromAltitudes(hp, ha, body.radius)
     const el: OrbitalElements = {
-      a: num(f.a), e,
+      a, e,
       i: num(f.i) * DEG, raan: num(f.raan) * DEG, argp: num(f.argp) * DEG,
       M0: Number.isFinite(e) && e < 1 ? trueToMean(num(f.nu) * DEG, e) : NaN,
     }
@@ -159,8 +171,8 @@ export function SatelliteForm() {
             <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           </label>
           <div className="grid2">
-            {field('a', 'a, km')}
-            {field('e', 'e (0 to 0.95)', '0.01')}
+            {field('hp', 'periapsis altitude, km')}
+            {field('ha', 'apoapsis altitude, km')}
             {field('i', 'i, deg')}
             {field('raan', 'RAAN, deg')}
             {field('argp', 'arg. periapsis, deg')}
@@ -185,7 +197,7 @@ export function SatelliteForm() {
             <button className={selected?.kind === 'kepler' ? '' : 'primary'} onClick={() => submitElements(true)}>Add as new</button>
             <button onClick={() => setF(EMPTY)}>Clear</button>
           </div>
-          <p className="hint">Angles in degrees; body: {body.name}, radius {body.radius.toFixed(0)} km, mu {body.mu.toPrecision(7)} km^3/s^2.</p>
+          <p className="hint">{derivedHint(f, body.radius)} Angles in degrees. Body: {body.name}, radius {body.radius.toFixed(0)} km, mu {body.mu.toPrecision(7)} km^3/s^2. Altitudes are kept when you switch bodies.</p>
         </div>
       )}
 

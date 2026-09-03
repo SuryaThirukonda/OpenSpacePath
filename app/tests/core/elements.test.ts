@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEG } from '../../src/core/constants'
 import {
-  apoapsisAltitude, periapsisAltitude, semiMajorAxisFromPeriod, validateElements, visViva,
+  apoapsisAltitude, periapsisAltitude, rescaleToBody, semiMajorAxisFromPeriod, shapeFromAltitudes, validateElements, visViva,
 } from '../../src/core/elements'
 import { BODY_BY_ID } from '../../src/data/bodies'
 import { PRESETS, presetElements } from '../../src/data/presets'
@@ -38,5 +38,25 @@ describe('validation', () => {
     expect(validateElements({ a: 6500, e: 0.1, i: 0, raan: 0, argp: 0, M0: 0 }, earth.radius).ok).toBe(false)
     expect(validateElements({ a: 7000, e: 1.2, i: 0, raan: 0, argp: 0, M0: 0 }, earth.radius).ok).toBe(false)
     expect(validateElements({ a: 7000, e: 0, i: 45 * DEG, raan: 0, argp: 0, M0: 0 }, earth.radius).ok).toBe(true)
+  })
+})
+
+describe('altitude-based shape and rescaling between bodies', () => {
+  it('recovers a and e from altitudes', () => {
+    const { a, e } = shapeFromAltitudes(537.9, 39905.9, earth.radius)
+    expect(a).toBeCloseTo(26600, 0)
+    expect(e).toBeCloseTo(0.74, 4)
+  })
+  it('keeps periapsis and apoapsis altitudes when moving Earth ISS to Jupiter and back', () => {
+    const jup = BODY_BY_ID.jupiter
+    const el = { a: 6797.9, e: 0.0005, i: 0.9, raan: 1, argp: 2, M0: 3 }
+    const onJup = rescaleToBody(el, earth.radius, jup.radius)
+    expect(periapsisAltitude(onJup, jup.radius)).toBeCloseTo(periapsisAltitude(el, earth.radius), 6)
+    expect(apoapsisAltitude(onJup, jup.radius)).toBeCloseTo(apoapsisAltitude(el, earth.radius), 6)
+    expect(onJup.a).toBeGreaterThan(jup.radius)
+    const back = rescaleToBody(onJup, jup.radius, earth.radius)
+    expect(back.a).toBeCloseTo(el.a, 6)
+    expect(back.e).toBeCloseTo(el.e, 9)
+    expect(back.i).toBe(el.i)
   })
 })

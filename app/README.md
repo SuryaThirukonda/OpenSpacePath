@@ -16,7 +16,7 @@ Then open the printed URL. `npm test` runs the known-answer tests, `npm run buil
 ## What it does
 
 - Central body registry with gravitational parameters and radii from NASA/JPL fact sheets (`src/data/bodies.ts`).
-- Satellites from classical elements a, e, i, RAAN, argument of periapsis, true anomaly at epoch (`Elements` tab), from presets (ISS-class LEO, GPS, GEO, Molniya, sun-synchronous, areostationary, low lunar orbit), or from a pasted TLE propagated with SGP4 (`TLE` tab, Earth only).
+- Satellites from periapsis and apoapsis altitude above the surface plus i, RAAN, argument of periapsis and true anomaly at epoch (`Elements` tab; a and e are derived and shown), which keeps every orbit above the surface and visible when you switch the central body, from presets (ISS-class LEO, GPS, GEO, Molniya, sun-synchronous, areostationary, low lunar orbit), or from a pasted TLE propagated with SGP4 (`TLE` tab, Earth only).
 - Orbit paths sampled uniformly in eccentric anomaly so eccentric orbits look right near periapsis; TLE paths cover one period from the current time.
 - Timeline: play/pause (space bar), scrub slider over a span (one orbit of the selected satellite, 1 hour to 30 days, or custom), playback rates from real time to one day per second, editable epoch.
 - Elements panel with live derived quantities: period, periapsis and apoapsis altitude, radius, speed, true and mean anomaly.

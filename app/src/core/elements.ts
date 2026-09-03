@@ -39,6 +39,25 @@ export function semiMajorAxisFromAltitude(alt: number, bodyRadius: number): numb
   return bodyRadius + alt
 }
 
+/** a and e from periapsis and apoapsis altitudes above the surface (km). */
+export function shapeFromAltitudes(periAlt: number, apoAlt: number, bodyRadius: number): { a: number; e: number } {
+  const rp = bodyRadius + Math.min(periAlt, apoAlt)
+  const ra = bodyRadius + Math.max(periAlt, apoAlt)
+  return { a: (rp + ra) / 2, e: (ra - rp) / (ra + rp) }
+}
+
+/**
+ * Move an orbit to another central body while keeping its periapsis and apoapsis ALTITUDES
+ * (distance above the surface) unchanged, so satellites stay visible when the planet changes.
+ * Angles are kept as they are; a and e are recomputed.
+ */
+export function rescaleToBody(el: OrbitalElements, oldRadius: number, newRadius: number): OrbitalElements {
+  const periAlt = periapsisAltitude(el, oldRadius)
+  const apoAlt = apoapsisAltitude(el, oldRadius)
+  const { a, e } = shapeFromAltitudes(periAlt, apoAlt, newRadius)
+  return { ...el, a, e }
+}
+
 export interface ElementsValidation {
   ok: boolean
   problems: string[]
