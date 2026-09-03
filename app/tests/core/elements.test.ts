@@ -3,7 +3,7 @@ import { DEG } from '../../src/core/constants'
 import {
   apoapsisAltitude, periapsisAltitude, rescaleToBody, semiMajorAxisFromPeriod, shapeFromAltitudes, validateElements, visViva,
 } from '../../src/core/elements'
-import { BODY_BY_ID } from '../../src/data/bodies'
+import { BODIES, BODY_BY_ID } from '../../src/data/bodies'
 import { PRESETS, presetElements } from '../../src/data/presets'
 
 const earth = BODY_BY_ID.earth
@@ -28,11 +28,17 @@ describe('derived quantities', () => {
 })
 
 describe('validation', () => {
-  it('accepts every preset against its own body', () => {
-    for (const p of PRESETS) {
-      const body = BODY_BY_ID[p.bodyId]
-      expect(validateElements(presetElements(p), body.radius).ok, p.name).toBe(true)
+  it('accepts every preset around every body', () => {
+    for (const body of BODIES) {
+      for (const p of PRESETS) {
+        expect(validateElements(presetElements(p, body), body.radius).ok, `${p.name} @ ${body.name}`).toBe(true)
+      }
     }
+  })
+  it('synchronous preset matches GEO at Earth and the areostationary radius at Mars', () => {
+    const sync = PRESETS.find((p) => p.id === 'sync')!
+    expect(presetElements(sync, earth).a).toBeCloseTo(42164.17, 0)
+    expect(presetElements(sync, BODY_BY_ID.mars).a).toBeCloseTo(20428, -1)
   })
   it('rejects sub-surface periapsis and e out of range', () => {
     expect(validateElements({ a: 6500, e: 0.1, i: 0, raan: 0, argp: 0, M0: 0 }, earth.radius).ok).toBe(false)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { BODY_BY_ID } from '../../src/data/bodies'
 import { ISS_TLE, PRESETS, satelliteFromPreset } from '../../src/data/presets'
 import type { Scenario } from '../../src/types'
 import { decodeScenario, encodeScenario, scenarioFromLocation, scenarioToSearch } from '../../src/url/urlState'
@@ -7,7 +8,7 @@ const sc: Scenario = {
   bodyId: 'earth',
   epoch: '2026-09-01T12:00:00Z',
   satellites: [
-    satelliteFromPreset(PRESETS[0]),
+    satelliteFromPreset(PRESETS[0], BODY_BY_ID.earth),
     { id: 'tle-1', kind: 'tle', name: ISS_TLE.name, color: '#fff', line1: ISS_TLE.line1, line2: ISS_TLE.line2 },
   ],
   spanSeconds: 5580,

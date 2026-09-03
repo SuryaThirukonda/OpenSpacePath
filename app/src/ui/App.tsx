@@ -7,6 +7,7 @@ import { ElementsPanel } from './ElementsPanel'
 import { SatelliteForm } from './SatelliteForm'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
+import { Panel } from './Panel'
 import { Viewport } from './Viewport'
 
 /** Keep the URL in sync with the scenario (debounced), and bind the space bar to play/pause. */
@@ -50,15 +51,12 @@ export function App() {
   return (
     <div className="app">
       <Viewport />
-      <div className="panel left">
-        <div className="brand">
-          <div className="title">Orbit Lab</div>
-          <div className="hint">Keplerian orbits around any body, SGP4 for Earth. Drag to orbit, wheel to zoom, right-drag to pan.</div>
-        </div>
+      <Panel position="left" title="Orbit Lab">
+        <div className="hint">Keplerian orbits around any body, SGP4 for Earth. Drag to orbit, wheel to zoom, right-drag to pan.</div>
         <BodySelector />
         <SatelliteList />
         <SatelliteForm />
-      </div>
+      </Panel>
       <ElementsPanel />
       <CameraButtons />
       <TimelinePanel />

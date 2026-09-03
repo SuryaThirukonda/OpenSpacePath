@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { DEG, RAD, wrapTwoPi } from '../core/constants'
-import { apoapsisAltitude, periapsisAltitude, shapeFromAltitudes, validateElements } from '../core/elements'
+import { apoapsisAltitude, periapsisAltitude, period, shapeFromAltitudes, validateElements } from '../core/elements'
 import { trueToMean, meanToTrue } from '../core/kepler'
 import { getBody } from '../data/bodies'
-import { ISS_TLE, newId, PRESETS, satelliteFromPreset } from '../data/presets'
+import { ISS_TLE, newId, PRESETS, presetElements, satelliteFromPreset, type Preset } from '../data/presets'
 import { parseTle } from '../propagation/sgp4Propagator'
 import { selectedSatellite, useStore } from '../store/store'
 import type { KeplerSatellite, OrbitalElements } from '../types'
@@ -44,6 +44,13 @@ function derivedHint(f: ElementFields, R: number): string {
   return `a = ${a.toFixed(1)} km, e = ${e.toFixed(4)}.`
 }
 
+function presetHint(p: Preset | undefined, body: ReturnType<typeof getBody>): string {
+  if (!p) return ''
+  const el = presetElements(p, body)
+  const T = period(el.a, body.mu) / 60
+  return `${p.description}. At ${body.name}: a = ${el.a.toFixed(0)} km, e = ${el.e.toFixed(3)}, period ${T >= 120 ? (T / 60).toFixed(2) + ' h' : T.toFixed(1) + ' min'}.`
+}
+
 const EMPTY: ElementFields = { name: 'New satellite', hp: '500', ha: '500', i: '45', raan: '0', argp: '0', nu: '0', color: COLORS[0] }
 
 export function SatelliteForm() {
@@ -66,10 +73,7 @@ export function SatelliteForm() {
     }
   }, [selected, body.radius])
 
-  const presets = PRESETS.filter((p) => p.bodyId === bodyId)
-  useEffect(() => {
-    if (!presets.some((p) => p.id === presetId) && presets[0]) setPresetId(presets[0].id)
-  }, [presets, presetId])
+  const presets = PRESETS
 
   function parseElements(): OrbitalElements | null {
     const num = (s: string) => Number(s.trim())
@@ -106,7 +110,7 @@ export function SatelliteForm() {
   function submitPreset() {
     const p = PRESETS.find((x) => x.id === presetId)
     if (!p) return
-    addSatellite(satelliteFromPreset(p))
+    addSatellite(satelliteFromPreset(p, body))
     setError(null)
   }
 
@@ -156,7 +160,7 @@ export function SatelliteForm() {
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-          <p className="hint">{PRESETS.find((p) => p.id === presetId)?.description}</p>
+          <p className="hint">{presetHint(presets.find((p) => p.id === presetId), body)}</p>
           <div className="row">
             <button className="primary" onClick={submitPreset}>Add preset</button>
             <button onClick={() => { submitPreset(); requestCamera('orbit') }}>Add and frame</button>

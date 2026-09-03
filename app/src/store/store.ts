@@ -41,10 +41,13 @@ export interface AppState {
 
 export function defaultScenario(): Scenario {
   const byId = Object.fromEntries(PRESETS.map((p) => [p.id, p]))
+  const earth = getBody('earth')
   return {
     bodyId: 'earth',
     epoch: DEFAULT_EPOCH,
-    satellites: [satelliteFromPreset(byId.iss), satelliteFromPreset(byId.molniya), satelliteFromPreset(byId.geo)],
+    satellites: [
+      satelliteFromPreset(byId.iss, earth), satelliteFromPreset(byId.molniya, earth), satelliteFromPreset(byId.sync, earth),
+    ],
     spanSeconds: 86400,
     rate: 60,
   }

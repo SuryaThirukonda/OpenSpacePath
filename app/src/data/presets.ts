@@ -1,78 +1,74 @@
 /**
- * Satellite presets. Element values come from research/track1_orbital_mechanics.md section 3.3
- * (ISS-class LEO, GPS MEO, GEO, Molniya, sun-synchronous 700 km). Angles are given in degrees here
- * and converted once, at the bottom, so the table reads like the professor's lecture notes.
+ * Satellite presets, defined by altitude above the surface so they apply to any central body.
+ * Earth values come from research/track1_orbital_mechanics.md section 3.3 (ISS-class LEO, GPS MEO,
+ * GEO, Molniya, sun-synchronous 700 km). "Synchronous" derives its radius from the body's rotation
+ * period, so it is GEO at Earth, areostationary at Mars, and so on. Angles in degrees here.
  */
 import { DEG } from '../core/constants'
-import { semiMajorAxisFromPeriod } from '../core/elements'
-import type { KeplerSatellite, OrbitalElements, TleSatellite } from '../types'
-import { BODY_BY_ID } from './bodies'
+import { semiMajorAxisFromPeriod, shapeFromAltitudes } from '../core/elements'
+import type { CentralBody, KeplerSatellite, OrbitalElements, TleSatellite } from '../types'
 
 export interface Preset {
   id: string
   name: string
-  bodyId: string
   color: string
   description: string
-  /** a in km; angles in degrees. */
-  el: { a: number; e: number; i: number; raan: number; argp: number; M0: number }
+  /** Periapsis and apoapsis altitude, km above the surface; ignored when `synchronous` is set. */
+  periAlt: number
+  apoAlt: number
+  /** Circular equatorial orbit whose period equals the body's rotation period. */
+  synchronous?: boolean
+  i: number
+  raan: number
+  argp: number
+  nu0: number
 }
-
-const mars = BODY_BY_ID.mars
-const moon = BODY_BY_ID.moon
 
 export const PRESETS: Preset[] = [
   {
-    id: 'iss', name: 'ISS-class LEO', bodyId: 'earth', color: '#7cf5ff',
-    description: 'a 6797.9 km, e 0.0005, i 51.6 deg; elements from the 2026-09-01 TLE, period 93.0 min',
-    el: { a: 6797.9, e: 0.0005, i: 51.6312, raan: 282.3953, argp: 96.474, M0: 263.6824 },
+    id: 'iss', name: 'Low orbit (ISS-class)', color: '#7cf5ff',
+    description: '416 x 423 km, inclined 51.6 deg; the ISS orbit at Earth (period 93 min there)',
+    periAlt: 416.4, apoAlt: 423.2, i: 51.6312, raan: 282.3953, argp: 96.474, nu0: 263.6,
   },
   {
-    id: 'gps', name: 'GPS MEO', bodyId: 'earth', color: '#ffd166',
-    description: 'a 26561.8 km, i 55 deg, half a sidereal day (718 min)',
-    el: { a: 26561.8, e: 0.01, i: 55, raan: 30, argp: 0, M0: 0 },
+    id: 'polar', name: 'Low polar orbit', color: '#b8f28b',
+    description: '700 km circular at 98.2 deg; sun-synchronous at Earth, a mapping orbit anywhere',
+    periAlt: 700, apoAlt: 700, i: 98.19, raan: 90, argp: 0, nu0: 0,
   },
   {
-    id: 'geo', name: 'GEO', bodyId: 'earth', color: '#f9a8d4',
-    description: 'a 42164.17 km, circular, equatorial; period one sidereal day (86164.09 s)',
-    el: { a: 42164.17, e: 0, i: 0, raan: 0, argp: 0, M0: 0 },
+    id: 'meo', name: 'Medium orbit (GPS-class)', color: '#ffd166',
+    description: '20,184 km circular at 55 deg; half a sidereal day at Earth',
+    periAlt: 20184, apoAlt: 20184, i: 55, raan: 30, argp: 0, nu0: 0,
   },
   {
-    id: 'molniya', name: 'Molniya', bodyId: 'earth', color: '#ff8a5c',
-    description: 'a 26600 km, e 0.74, i 63.4 deg (critical inclination), apogee over the north',
-    el: { a: 26600, e: 0.74, i: 63.4, raan: 0, argp: 270, M0: 0 },
+    id: 'sync', name: 'Synchronous equatorial', color: '#f9a8d4',
+    description: 'Circular equatorial orbit with the body\'s rotation period (GEO at Earth, areostationary at Mars)',
+    periAlt: 0, apoAlt: 0, synchronous: true, i: 0, raan: 0, argp: 0, nu0: 0,
   },
   {
-    id: 'sso', name: 'Sun-synchronous 700 km', bodyId: 'earth', color: '#b8f28b',
-    description: 'a 7078.1 km, circular, i 98.19 deg (retrograde), period 98.8 min',
-    el: { a: 7078.137, e: 0, i: 98.19, raan: 90, argp: 0, M0: 0 },
+    id: 'molniya', name: 'Highly elliptical (Molniya-class)', color: '#ff8a5c',
+    description: '538 x 39,906 km at 63.4 deg (the critical inclination), apoapsis over the north',
+    periAlt: 537.9, apoAlt: 39905.9, i: 63.4, raan: 0, argp: 270, nu0: 0,
   },
   {
-    id: 'areo', name: 'Areostationary', bodyId: 'mars', color: '#ffd166',
-    description: 'Mars-synchronous circular equatorial orbit, period one Martian sidereal day (24.62 h)',
-    el: { a: semiMajorAxisFromPeriod(mars.rotationPeriod, mars.mu), e: 0, i: 0, raan: 0, argp: 0, M0: 0 },
+    id: 'low-polar-100', name: 'Very low polar (100 km)', color: '#c4b5fd',
+    description: '100 km circular polar orbit; a low lunar or Mars science orbit',
+    periAlt: 100, apoAlt: 100, i: 90, raan: 0, argp: 0, nu0: 0,
   },
   {
-    id: 'mars-low', name: 'Low Mars orbit', bodyId: 'mars', color: '#7cf5ff',
-    description: '400 km circular near-polar orbit, period about 2 h',
-    el: { a: mars.radius + 400, e: 0, i: 93, raan: 45, argp: 0, M0: 0 },
-  },
-  {
-    id: 'llo', name: 'Low lunar orbit', bodyId: 'moon', color: '#7cf5ff',
-    description: '100 km circular polar orbit, period about 118 min',
-    el: { a: moon.radius + 100, e: 0, i: 90, raan: 0, argp: 0, M0: 0 },
-  },
-  {
-    id: 'lunar-frozen', name: 'Lunar elliptical', bodyId: 'moon', color: '#ff8a5c',
-    description: 'a 3000 km, e 0.3, i 60 deg, a stand-in for an eccentric lunar science orbit',
-    el: { a: 3000, e: 0.3, i: 60, raan: 0, argp: 90, M0: 0 },
+    id: 'science', name: 'Elliptical science orbit', color: '#ffffff',
+    description: '300 x 3,000 km at 60 deg; a stand-in for an eccentric mapping orbit',
+    periAlt: 300, apoAlt: 3000, i: 60, raan: 0, argp: 90, nu0: 0,
   },
 ]
 
-export function presetElements(p: Preset): OrbitalElements {
+export function presetElements(p: Preset, body: CentralBody): OrbitalElements {
+  const shape = p.synchronous
+    ? { a: semiMajorAxisFromPeriod(Math.abs(body.rotationPeriod), body.mu), e: 0 }
+    : shapeFromAltitudes(p.periAlt, p.apoAlt, body.radius)
   return {
-    a: p.el.a, e: p.el.e,
-    i: p.el.i * DEG, raan: p.el.raan * DEG, argp: p.el.argp * DEG, M0: p.el.M0 * DEG,
+    a: shape.a, e: shape.e,
+    i: p.i * DEG, raan: p.raan * DEG, argp: p.argp * DEG, M0: p.nu0 * DEG, // e is small or 0 for nu0 != 0 presets
   }
 }
 
@@ -82,8 +78,9 @@ export function newId(prefix = 'sat'): string {
   return `${prefix}-${Date.now().toString(36)}-${counter}`
 }
 
-export function satelliteFromPreset(p: Preset): KeplerSatellite {
-  return { id: newId(p.id), kind: 'kepler', name: p.name, color: p.color, elements: presetElements(p) }
+export function satelliteFromPreset(p: Preset, body: CentralBody): KeplerSatellite {
+  const name = p.synchronous ? `${p.name} (${body.name})` : p.name
+  return { id: newId(p.id), kind: 'kepler', name, color: p.color, elements: presetElements(p, body) }
 }
 
 /** ISS element set from CelesTrak, epoch 2026-09-01 11:57:51 UTC (research/data/iss_tle_2026-09-01.txt). */

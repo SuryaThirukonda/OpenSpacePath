@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { absoluteDate, formatDuration, formatUtc } from '../core/time'
 import { epochMs, satellitePeriod, selectedSatellite, useStore } from '../store/store'
+import { Panel } from './Panel'
 
 const RATES: Array<[number, string]> = [
   [1, '1x (real time)'], [10, '10x'], [60, '60x'], [600, '600x'], [3600, '3600x'], [86400, '1 day/s'],
@@ -26,7 +27,7 @@ export function TimelinePanel() {
   const spanChoice = SPANS.find(([, s]) => s === span)?.[1] ?? (selectedPeriod && Math.abs(span - selectedPeriod) < 1e-6 ? 'orbit' : 'custom')
 
   return (
-    <div className="panel bottom">
+    <Panel position="bottom" title="Timeline">
       <div className="row timeline-row">
         <button className="primary play" onClick={togglePlaying} aria-label={playing ? 'pause' : 'play'}>
           {playing ? 'Pause' : 'Play'}
@@ -101,6 +102,6 @@ export function TimelinePanel() {
         </label>
         <button onClick={() => setT(0)}>To epoch</button>
       </div>
-    </div>
+    </Panel>
   )
 }
