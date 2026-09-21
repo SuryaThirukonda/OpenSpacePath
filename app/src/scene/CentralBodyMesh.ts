@@ -1,8 +1,12 @@
-/** Stylised central body: shaded sphere, lat/lon wireframe, faint equatorial ring. Local z is the pole. */
+/**
+ * Central body: procedurally shaded sphere (see surfaces.ts), lat/lon wireframe, faint
+ * equatorial ring, and a rim glow for bodies with an atmosphere or a corona. Local z is the pole.
+ */
 import * as THREE from 'three'
 import { DEG, TWO_PI } from '../core/constants'
 import type { CentralBody } from '../types'
 import { kmScalarToScene } from './frame'
+import { makeGlow, makeSurfaceMaterial } from './surfaces'
 
 export class CentralBodyMesh {
   readonly group = new THREE.Group()
@@ -10,6 +14,7 @@ export class CentralBodyMesh {
   private sphere?: THREE.Mesh
   private grid?: THREE.LineSegments
   private ring?: THREE.Mesh
+  private glows: THREE.Mesh[] = []
 
   setBody(body: CentralBody): void {
     if (this.body?.id === body.id) return
@@ -17,18 +22,14 @@ export class CentralBodyMesh {
     this.body = body
     const R = kmScalarToScene(body.radius)
 
-    const geo = new THREE.SphereGeometry(R, 96, 64)
+    const geo = new THREE.SphereGeometry(R, 128, 96)
     geo.rotateX(Math.PI / 2) // sphere poles along local z
-    const mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(body.color), roughness: 0.9, metalness: 0.0, emissive: new THREE.Color(body.color),
-      emissiveIntensity: 0.12,
-    })
-    this.sphere = new THREE.Mesh(geo, mat)
+    this.sphere = new THREE.Mesh(geo, makeSurfaceMaterial(body.surface, body.color))
     this.group.add(this.sphere)
 
     this.grid = new THREE.LineSegments(
-      latLonGrid(R * 1.002, 30, 30, 72),
-      new THREE.LineBasicMaterial({ color: new THREE.Color(body.gridColor), transparent: true, opacity: 0.28 }),
+      latLonGrid(R * 1.003, 30, 30, 72),
+      new THREE.LineBasicMaterial({ color: new THREE.Color(body.gridColor), transparent: true, opacity: 0.16 }),
     )
     this.group.add(this.grid)
 
@@ -38,6 +39,14 @@ export class CentralBodyMesh {
     })
     this.ring = new THREE.Mesh(ringGeo, ringMat)
     this.group.add(this.ring)
+
+    if (body.atmosphere) {
+      const star = body.surface === 'star'
+      this.glows = star
+        ? [makeGlow(R * 1.02, body.atmosphere, 0.9), makeGlow(R * 1.45, body.atmosphere, 0.8, true)]
+        : [makeGlow(R * 1.015, body.atmosphere, 0.6)]
+      for (const g of this.glows) this.group.add(g)
+    }
   }
 
   /** Spin the sphere and grid about the pole by a given angle (rad); the equatorial ring stays fixed. */
@@ -47,7 +56,7 @@ export class CentralBodyMesh {
   }
 
   dispose(): void {
-    for (const o of [this.sphere, this.grid, this.ring]) {
+    for (const o of [this.sphere, this.grid, this.ring, ...this.glows]) {
       if (!o) continue
       this.group.remove(o)
       o.geometry.dispose()
@@ -55,6 +64,8 @@ export class CentralBodyMesh {
     }
     this.sphere = this.grid = undefined
     this.ring = undefined
+    this.glows = []
+    this.body = null
   }
 }
 

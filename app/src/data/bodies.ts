@@ -13,27 +13,32 @@ export const BODIES: CentralBody[] = [
   {
     id: 'earth', name: 'Earth', mu: 398600.4418, radius: 6378.137,
     rotationPeriod: 86164.0905, color: '#2f6fb3', gridColor: '#5aa9ff', frameDistance: 60000,
+    surface: 'earth', atmosphere: '#6fb8ff',
   },
   {
     id: 'moon', name: 'Moon', mu: 4902.800066, radius: 1737.4,
     rotationPeriod: 27.321661 * DAY, color: '#8a8a8a', gridColor: '#c9c9c9', frameDistance: 12000,
+    surface: 'moon',
   },
   {
     id: 'mars', name: 'Mars', mu: 42828.375214, radius: 3396.19,
     rotationPeriod: 88642.663, color: '#b5502c', gridColor: '#ff9c6e', frameDistance: 28000,
+    surface: 'mars', atmosphere: '#e8a070',
   },
   {
     id: 'venus', name: 'Venus', mu: 324858.592, radius: 6051.8,
     rotationPeriod: -243.0226 * DAY, color: '#c9a86a', gridColor: '#ffe0a3', frameDistance: 50000,
+    surface: 'venus', atmosphere: '#f3dfa0',
   },
   {
     id: 'jupiter', name: 'Jupiter', mu: 126686531.9, radius: 71492,
     rotationPeriod: 9.925 * 3600, color: '#c08a5a', gridColor: '#ffd1a3', frameDistance: 320000,
+    surface: 'gas', atmosphere: '#e9c9a0',
   },
   {
     id: 'sun', name: 'Sun', mu: 132712440041.9, radius: 695700,
     rotationPeriod: 25.05 * DAY, color: '#e8b04a', gridColor: '#ffe680', frameDistance: 6500000,
-    altitudeScale: 695700 / 6378.137,
+    surface: 'star', atmosphere: '#ffb347',
   },
 ]
 
