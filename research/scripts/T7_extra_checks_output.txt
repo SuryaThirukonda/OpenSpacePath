@@ -1,0 +1,18 @@
+=== universal-variable propagation of the Curtis 5.2 Lambert solution ===
+position after 3600 s: [-14600.   2500.   7000.]  target [-14600.   2500.   7000.]  miss 0.023 km (v1 rounded to 1e-5 km/s)
+hyperbolic departure (v = 12 km/s at 7000 km): universal-variable vs RK4 after 5000 s differ by 9.23e-10 km
+
+=== ECEF velocity transform vs finite difference of rotated positions ===
+difference 7.67e-10 km/s
+
+=== geodetic iteration round trip ===
+worst latitude or height error over 111 cases: 7.28e-12 km
+
+=== 2-D hypervolume formula vs grid count ===
+formula 7, grid estimate 7.000
+
+=== log compression continuity at r0 ===
+value just below/above: 0.999999999 1.000000001; slope above r0: 0.999999; 30 AU maps to 4.401 AU
+
+=== pixel scale ===
+Earth diameter across 1000 px: 12.76 km/px; 45 deg fov, 30000 km away, 1000 px tall: 24.85 km/px

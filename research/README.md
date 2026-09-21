@@ -9,6 +9,9 @@ Date: 2026-09-01. These files answer the three asks from the August 31 meeting: 
 | `00_landscape_one_pager.md` | One-page landscape summary and v1 proposal, written for Prof. Rathinam. |
 | `01_master_doc_errata.md` | Corrections and qualifications to the master document found during the research (sign error in the rotation formula, ground-track shift, Kepler seed, CelesTrak policy, gap statement, naming of MOPBD*, public_emoa license, and more). |
 | `gap_statement.md` | The defensible gap claim with a 30-row comparison table, ranked nearest neighbours, caveats, and the search coverage behind it. |
+| `02_meeting_brief.md` | Pre-meeting brief for the week of 2026-09-07: landscape, library shelf, plan, questions, and things not to get wrong. |
+| `03_tech_stack.md` | First tech stack recommendation (2026-09-07), superseded by 04. |
+| `04_system_design.md` | System design: decisions, game-engine evaluation, architecture, full stack, the mathematics reference with a verification ledger. |
 
 ## Track study documents (Part II, Tracks 1 to 6)
 
@@ -33,6 +36,7 @@ Each track document has the same structure: orientation, sources actually read (
 - `T3_4_pass_math.py` look angles, footprint and pass prediction checked against skyfield.
 - `T4_1_lambert.py` Lambert check against Curtis Example 5.2; `T4_3_porkchop.py` with `T4_3_porkchop.csv` and `T4_3_porkchop.png`, the computed 2026 to 2029 Earth-Mars porkchop; `T4_2_patched_conics.py` Hohmann, SOI and synodic numbers.
 - `weighted_sum_counterexample.py` the non-convex Pareto counterexample; `t6_2_network_size_estimate.py` the time-expanded network size estimate.
+- `T7_design_math_check.py` and `T7_extra_checks.py` (2026-09-14) check every formula in `04_system_design.md` section 7, including a Lambert solver cross-check over 4,891 random cases; outputs saved beside them.
 
 `data/iss_tle_2026-09-01.txt` is the ISS element set used throughout (CelesTrak, epoch 2026-09-01).
 

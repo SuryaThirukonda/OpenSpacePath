@@ -1,0 +1,41 @@
+=== SGP4 un-Kozai mean motion (WGS-72), ISS TLE 2026-09-01 ===
+Kozai   : period 92.9657 min, a(WGS-84 mu) 6797.9 km, a(WGS-72 mu) 6797.9 km
+Brouwer : period 92.9760 min, a(WGS-84 mu) 6798.4 km, a(WGS-72 mu) 6798.4 km
+
+=== TLE epoch and checksum ===
+epoch: 2026-09-01T11:57:51.488640+00:00
+checksums: 2 vs 2 | 5 vs 5
+
+=== Maneuvers ===
+Earth-Mars Hohmann phase angle (target ahead at departure): 44.3 deg
+pure plane change 28.5 deg at 7.7258 km/s: 3.803 km/s; combined formula with v1=v2: 3.803 km/s
+rocket equation, dv 3.59 km/s, Isp 450 s: mass ratio 2.256
+
+=== Linear extrapolation error, ISS over 0.5 s ===
+0.5 * (mu/r^2) * dt^2 = 1.08 m
+
+=== CR3BP Earth-Moon ===
+mass ratio 0.012151; L1 58,019 km and L2 64,515 km from the Moon; Hill estimate 61,274 km
+Jacobi constant at L1: 3.18834
+
+=== Lagrange interpolation order on an e = 0.7 orbit, 120 samples per orbit ===
+120 samples/orbit: 4-point (cubic) worst 1.96e-04 a, 6-point (quintic) worst 3.91e-05 a
+240 samples/orbit: 4-point (cubic) worst 1.35e-05 a, 6-point (quintic) worst 8.41e-07 a
+
+=== Body pole rotation: Rz(90+a0) Rx(90-d0) maps z to the pole direction ===
+rotated z: [ 0.446113 -0.406216  0.797479]  expected: [ 0.446113 -0.406216  0.797479]
+
+=== LTAN: 12 h + (RAAN - RA_sun)/15 vs satvis UT + (RAAN - GMST)/15 ===
+day   0: apparent-Sun LTAN 6.567 h, mean-time LTAN 6.623 h, difference -3.3 min
+day  60: apparent-Sun LTAN 2.476 h, mean-time LTAN 2.680 h, difference -12.2 min
+day 120: apparent-Sun LTAN 22.785 h, mean-time LTAN 22.737 h, difference +2.8 min
+day 200: apparent-Sun LTAN 17.374 h, mean-time LTAN 17.481 h, difference -6.4 min
+day 300: apparent-Sun LTAN 11.179 h, mean-time LTAN 10.910 h, difference +16.2 min
+
+=== Cylindrical Earth shadow: eclipse duration formula vs sampled orbit, 420 km circular ===
+no-eclipse threshold beta* = asin(R/r) = 69.75 deg; period 92.97 min
+beta  0 deg: sampled  36.03 min, formula  36.03 min
+beta 40 deg: sampled  32.61 min, formula  32.61 min
+beta 60 deg: sampled  23.86 min, formula  23.86 min
+beta 69 deg: sampled   7.78 min, formula   7.78 min
+beta 75 deg: sampled   0.00 min, formula   0.00 min
