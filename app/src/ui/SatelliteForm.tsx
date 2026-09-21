@@ -201,7 +201,7 @@ export function SatelliteForm() {
             <button className={selected?.kind === 'kepler' ? '' : 'primary'} onClick={() => submitElements(true)}>Add as new</button>
             <button onClick={() => setF(EMPTY)}>Clear</button>
           </div>
-          <p className="hint">{derivedHint(f, body.radius)} Angles in degrees. Body: {body.name}, radius {body.radius.toFixed(0)} km, mu {body.mu.toPrecision(7)} km^3/s^2. Altitudes are kept when you switch bodies.</p>
+          <p className="hint">{derivedHint(f, body.radius)} Angles in degrees. Body: {body.name}, radius {body.radius.toFixed(0)} km, mu {body.mu.toPrecision(7)} km^3/s^2. Altitudes are kept when you switch bodies; at the Sun they scale with its radius so the orbits stay visible.</p>
         </div>
       )}
 

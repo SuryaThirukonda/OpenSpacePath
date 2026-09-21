@@ -1,5 +1,5 @@
 /** Derived quantities from classical elements. Units: km, s, rad. */
-import type { OrbitalElements } from '../types'
+import type { CentralBody, OrbitalElements } from '../types'
 import { TWO_PI } from './constants'
 import { meanMotion } from './kepler'
 
@@ -49,13 +49,22 @@ export function shapeFromAltitudes(periAlt: number, apoAlt: number, bodyRadius: 
 /**
  * Move an orbit to another central body while keeping its periapsis and apoapsis ALTITUDES
  * (distance above the surface) unchanged, so satellites stay visible when the planet changes.
- * Angles are kept as they are; a and e are recomputed.
+ * Angles are kept as they are; a and e are recomputed. `altitudeFactor` multiplies both
+ * altitudes on the way over; the store passes the ratio of the two bodies' altitudeScale, which
+ * is 1 between planets and about 109 going from Earth to the Sun.
  */
-export function rescaleToBody(el: OrbitalElements, oldRadius: number, newRadius: number): OrbitalElements {
-  const periAlt = periapsisAltitude(el, oldRadius)
-  const apoAlt = apoapsisAltitude(el, oldRadius)
+export function rescaleToBody(
+  el: OrbitalElements, oldRadius: number, newRadius: number, altitudeFactor = 1,
+): OrbitalElements {
+  const periAlt = periapsisAltitude(el, oldRadius) * altitudeFactor
+  const apoAlt = apoapsisAltitude(el, oldRadius) * altitudeFactor
   const { a, e } = shapeFromAltitudes(periAlt, apoAlt, newRadius)
   return { ...el, a, e }
+}
+
+/** Ratio of two bodies' altitude scales, for carrying an orbit from one body to another. */
+export function altitudeFactor(from: Pick<CentralBody, 'altitudeScale'>, to: Pick<CentralBody, 'altitudeScale'>): number {
+  return (to.altitudeScale ?? 1) / (from.altitudeScale ?? 1)
 }
 
 export interface ElementsValidation {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEG } from '../../src/core/constants'
 import {
-  apoapsisAltitude, periapsisAltitude, rescaleToBody, semiMajorAxisFromPeriod, shapeFromAltitudes, validateElements, visViva,
+  altitudeFactor, apoapsisAltitude, periapsisAltitude, rescaleToBody, semiMajorAxisFromPeriod, shapeFromAltitudes, validateElements, visViva,
 } from '../../src/core/elements'
 import { BODIES, BODY_BY_ID } from '../../src/data/bodies'
 import { PRESETS, presetElements } from '../../src/data/presets'
@@ -53,6 +53,30 @@ describe('altitude-based shape and rescaling between bodies', () => {
     expect(a).toBeCloseTo(26600, 0)
     expect(e).toBeCloseTo(0.74, 4)
   })
+  it('scales altitudes by the radius ratio when moving Earth ISS to the Sun and back', () => {
+    const earth = BODY_BY_ID.earth
+    const sun = BODY_BY_ID.sun
+    const el = presetElements(PRESETS.find((p) => p.id === 'iss')!, earth)
+    const factor = altitudeFactor(earth, sun)
+    expect(factor).toBeCloseTo(695700 / 6378.137, 6)
+    const onSun = rescaleToBody(el, earth.radius, sun.radius, factor)
+    expect(periapsisAltitude(onSun, sun.radius)).toBeCloseTo(416.4 * factor, 6)
+    expect(apoapsisAltitude(onSun, sun.radius)).toBeCloseTo(423.2 * factor, 6)
+    // the orbit keeps Earth-like proportions: same altitude-to-radius ratio, same eccentricity
+    expect(periapsisAltitude(onSun, sun.radius) / sun.radius).toBeCloseTo(416.4 / earth.radius, 9)
+    expect(onSun.e).toBeCloseTo(el.e, 9)
+    const back = rescaleToBody(onSun, sun.radius, earth.radius, altitudeFactor(sun, earth))
+    expect(periapsisAltitude(back, earth.radius)).toBeCloseTo(416.4, 6)
+    expect(apoapsisAltitude(back, earth.radius)).toBeCloseTo(423.2, 6)
+  })
+
+  it('Sun presets keep Earth proportions: a fresh ISS-class orbit sits 6.5% above the photosphere', () => {
+    const sun = BODY_BY_ID.sun
+    const el = presetElements(PRESETS.find((p) => p.id === 'iss')!, sun)
+    expect(periapsisAltitude(el, sun.radius) / sun.radius).toBeCloseTo(416.4 / 6378.137, 9)
+    expect(validateElements(el, sun.radius).ok).toBe(true)
+  })
+
   it('keeps periapsis and apoapsis altitudes when moving Earth ISS to Jupiter and back', () => {
     const jup = BODY_BY_ID.jupiter
     const el = { a: 6797.9, e: 0.0005, i: 0.9, raan: 1, argp: 2, M0: 3 }

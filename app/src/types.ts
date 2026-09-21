@@ -31,6 +31,12 @@ export interface CentralBody {
   gridColor: string
   /** Suggested camera distance when framing the body, km. */
   frameDistance: number
+  /**
+   * Multiplier applied to preset and carried-over altitudes. Planets and moons use 1, so a
+   * 400 km orbit stays a 400 km orbit. The Sun uses its radius ratio to Earth, so orbits keep
+   * Earth-like proportions instead of hugging a surface a hundred times larger.
+   */
+  altitudeScale?: number
 }
 
 /** Classical orbital elements at the scenario epoch. */

@@ -3,7 +3,7 @@
  * useStore.getState() inside its own animation loop and never goes through React.
  */
 import { create } from 'zustand'
-import { period, rescaleToBody } from '../core/elements'
+import { altitudeFactor, period, rescaleToBody } from '../core/elements'
 import { parseEpoch } from '../core/time'
 import { getBody } from '../data/bodies'
 import { DEFAULT_EPOCH, PRESETS, satelliteFromPreset } from '../data/presets'
@@ -67,10 +67,13 @@ export const useStore = create<AppState>((set) => ({
   loadScenario: (sc) => set({ scenario: sc, t: 0, selectedId: sc.satellites[0]?.id ?? null }),
   setBody: (bodyId) =>
     set((s) => {
-      const oldR = getBody(s.scenario.bodyId).radius
-      const newR = getBody(bodyId).radius
+      const oldBody = getBody(s.scenario.bodyId)
+      const newBody = getBody(bodyId)
+      const factor = altitudeFactor(oldBody, newBody)
       const satellites = s.scenario.satellites.map((sat) =>
-        sat.kind === 'kepler' ? { ...sat, elements: rescaleToBody(sat.elements, oldR, newR) } : sat,
+        sat.kind === 'kepler'
+          ? { ...sat, elements: rescaleToBody(sat.elements, oldBody.radius, newBody.radius, factor) }
+          : sat,
       )
       return { scenario: { ...s.scenario, bodyId, satellites } }
     }),

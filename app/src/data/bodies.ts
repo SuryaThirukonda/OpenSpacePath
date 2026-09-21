@@ -32,7 +32,8 @@ export const BODIES: CentralBody[] = [
   },
   {
     id: 'sun', name: 'Sun', mu: 132712440041.9, radius: 695700,
-    rotationPeriod: 25.05 * DAY, color: '#e8b04a', gridColor: '#ffe680', frameDistance: 3000000,
+    rotationPeriod: 25.05 * DAY, color: '#e8b04a', gridColor: '#ffe680', frameDistance: 6500000,
+    altitudeScale: 695700 / 6378.137,
   },
 ]
 

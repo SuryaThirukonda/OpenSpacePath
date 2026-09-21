@@ -1,5 +1,7 @@
 /**
- * Satellite presets, defined by altitude above the surface so they apply to any central body.
+ * Satellite presets, defined by altitude above the surface so they apply to any central body
+ * (multiplied by the body's altitudeScale, which only the Sun sets, so orbits there keep
+ * Earth-like proportions instead of vanishing against a surface a hundred times larger).
  * Earth values come from research/track1_orbital_mechanics.md section 3.3 (ISS-class LEO, GPS MEO,
  * GEO, Molniya, sun-synchronous 700 km). "Synchronous" derives its radius from the body's rotation
  * period, so it is GEO at Earth, areostationary at Mars, and so on. Angles in degrees here.
@@ -63,9 +65,10 @@ export const PRESETS: Preset[] = [
 ]
 
 export function presetElements(p: Preset, body: CentralBody): OrbitalElements {
+  const scale = body.altitudeScale ?? 1
   const shape = p.synchronous
     ? { a: semiMajorAxisFromPeriod(Math.abs(body.rotationPeriod), body.mu), e: 0 }
-    : shapeFromAltitudes(p.periAlt, p.apoAlt, body.radius)
+    : shapeFromAltitudes(p.periAlt * scale, p.apoAlt * scale, body.radius)
   return {
     a: shape.a, e: shape.e,
     i: p.i * DEG, raan: p.raan * DEG, argp: p.argp * DEG, M0: p.nu0 * DEG, // e is small or 0 for nu0 != 0 presets
