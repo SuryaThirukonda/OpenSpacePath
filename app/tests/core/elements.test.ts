@@ -77,16 +77,29 @@ describe('altitude-based shape and rescaling between bodies', () => {
     expect(validateElements(el, sun.radius).ok).toBe(true)
   })
 
-  it('keeps periapsis and apoapsis altitudes when moving Earth ISS to Jupiter and back', () => {
+  it('keeps the orbit shape when moving Earth ISS to Jupiter and back', () => {
+    const earth = BODY_BY_ID.earth
     const jup = BODY_BY_ID.jupiter
-    const el = { a: 6797.9, e: 0.0005, i: 0.9, raan: 1, argp: 2, M0: 3 }
-    const onJup = rescaleToBody(el, earth.radius, jup.radius)
-    expect(periapsisAltitude(onJup, jup.radius)).toBeCloseTo(periapsisAltitude(el, earth.radius), 6)
-    expect(apoapsisAltitude(onJup, jup.radius)).toBeCloseTo(apoapsisAltitude(el, earth.radius), 6)
-    expect(onJup.a).toBeGreaterThan(jup.radius)
-    const back = rescaleToBody(onJup, jup.radius, earth.radius)
-    expect(back.a).toBeCloseTo(el.a, 6)
-    expect(back.e).toBeCloseTo(el.e, 9)
-    expect(back.i).toBe(el.i)
+    const el = presetElements(PRESETS.find((p) => p.id === 'iss')!, earth)
+    const factor = altitudeFactor(earth, jup)
+    expect(factor).toBeCloseTo(jup.radius / earth.radius, 9)
+    const onJup = rescaleToBody(el, earth.radius, jup.radius, factor)
+    expect(periapsisAltitude(onJup, jup.radius) / jup.radius).toBeCloseTo(416.4 / earth.radius, 9)
+    expect(onJup.e).toBeCloseTo(el.e, 9)
+    const back = rescaleToBody(onJup, jup.radius, earth.radius, altitudeFactor(jup, earth))
+    expect(periapsisAltitude(back, earth.radius)).toBeCloseTo(416.4, 6)
+    expect(apoapsisAltitude(back, earth.radius)).toBeCloseTo(423.2, 6)
+  })
+
+  it('a Molniya orbit stays as eccentric on every body as it is at Earth', () => {
+    const earth = BODY_BY_ID.earth
+    const molniya = PRESETS.find((p) => p.id === 'molniya')!
+    const eEarth = presetElements(molniya, earth).e
+    expect(eEarth).toBeCloseTo(0.74, 2)
+    for (const body of BODIES) {
+      expect(presetElements(molniya, body).e).toBeCloseTo(eEarth, 9)
+      const carried = rescaleToBody(presetElements(molniya, earth), earth.radius, body.radius, altitudeFactor(earth, body))
+      expect(carried.e).toBeCloseTo(eEarth, 9)
+    }
   })
 })

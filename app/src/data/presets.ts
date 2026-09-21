@@ -1,7 +1,8 @@
 /**
- * Satellite presets, defined by altitude above the surface so they apply to any central body
- * (multiplied by the body's altitudeScale, which only the Sun sets, so orbits there keep
- * Earth-like proportions instead of vanishing against a surface a hundred times larger).
+ * Satellite presets, defined by altitude above Earth's surface. On another body the altitudes
+ * are multiplied by that body's radius over Earth's, so every preset keeps its shape: the same
+ * eccentricity and the same altitude relative to the radius, whether the body is the Moon or
+ * the Sun.
  * Earth values come from research/track1_orbital_mechanics.md section 3.3 (ISS-class LEO, GPS MEO,
  * GEO, Molniya, sun-synchronous 700 km). "Synchronous" derives its radius from the body's rotation
  * period, so it is GEO at Earth, areostationary at Mars, and so on. Angles in degrees here.
@@ -9,6 +10,9 @@
 import { DEG } from '../core/constants'
 import { semiMajorAxisFromPeriod, shapeFromAltitudes } from '../core/elements'
 import type { CentralBody, KeplerSatellite, OrbitalElements, TleSatellite } from '../types'
+
+/** Preset altitudes are stated for Earth; see presetElements. */
+export const PRESET_REFERENCE_RADIUS = 6378.137
 
 export interface Preset {
   id: string
@@ -65,7 +69,7 @@ export const PRESETS: Preset[] = [
 ]
 
 export function presetElements(p: Preset, body: CentralBody): OrbitalElements {
-  const scale = body.altitudeScale ?? 1
+  const scale = body.radius / PRESET_REFERENCE_RADIUS
   const shape = p.synchronous
     ? { a: semiMajorAxisFromPeriod(Math.abs(body.rotationPeriod), body.mu), e: 0 }
     : shapeFromAltitudes(p.periAlt * scale, p.apoAlt * scale, body.radius)

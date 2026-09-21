@@ -50,8 +50,10 @@ export function shapeFromAltitudes(periAlt: number, apoAlt: number, bodyRadius: 
  * Move an orbit to another central body while keeping its periapsis and apoapsis ALTITUDES
  * (distance above the surface) unchanged, so satellites stay visible when the planet changes.
  * Angles are kept as they are; a and e are recomputed. `altitudeFactor` multiplies both
- * altitudes on the way over; the store passes the ratio of the two bodies' altitudeScale, which
- * is 1 between planets and about 109 going from Earth to the Sun.
+ * altitudes on the way over; the store passes the ratio of the two bodies' radii, so an orbit
+ * keeps its shape (eccentricity and altitude relative to the radius) instead of flattening into
+ * a circle on a larger body: a 538 x 39,906 km Molniya orbit carried to Jupiter at fixed
+ * altitudes would have e = 0.21, and at the Sun e = 0.03.
  */
 export function rescaleToBody(
   el: OrbitalElements, oldRadius: number, newRadius: number, altitudeFactor = 1,
@@ -62,9 +64,9 @@ export function rescaleToBody(
   return { ...el, a, e }
 }
 
-/** Ratio of two bodies' altitude scales, for carrying an orbit from one body to another. */
-export function altitudeFactor(from: Pick<CentralBody, 'altitudeScale'>, to: Pick<CentralBody, 'altitudeScale'>): number {
-  return (to.altitudeScale ?? 1) / (from.altitudeScale ?? 1)
+/** Altitude multiplier for carrying an orbit from one body to another: the ratio of their radii. */
+export function altitudeFactor(from: Pick<CentralBody, 'radius'>, to: Pick<CentralBody, 'radius'>): number {
+  return to.radius / from.radius
 }
 
 export interface ElementsValidation {
