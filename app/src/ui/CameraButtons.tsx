@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useStore } from '../store/store'
 
 export function CameraButtons() {
@@ -7,8 +8,23 @@ export function CameraButtons() {
   const toggleAxes = useStore((s) => s.toggleAxes)
   const toggleLabels = useStore((s) => s.toggleLabels)
   const hasSelection = useStore((s) => s.selectedId !== null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // On narrow screens this row sits above the timeline and the Elements sheet stacks on top of it,
+  // so its height (one row or several, depending on wrapping) has to be measured.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const publish = () =>
+      document.documentElement.style.setProperty('--buttons-h', `${Math.round(el.getBoundingClientRect().height)}px`)
+    publish()
+    const observer = new ResizeObserver(publish)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   return (
-    <div className="panel topright">
+    <div ref={ref} className="panel topright">
       <button onClick={() => requestCamera('body')}>Frame body</button>
       <button onClick={() => requestCamera('orbit')} disabled={!hasSelection}>Frame orbit</button>
       <button onClick={() => requestCamera('reset')}>Reset view</button>

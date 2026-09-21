@@ -7,6 +7,7 @@ import { ElementsPanel } from './ElementsPanel'
 import { SatelliteForm } from './SatelliteForm'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
+import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
 import { Viewport } from './Viewport'
 
@@ -51,7 +52,7 @@ export function App() {
   return (
     <div className="app">
       <Viewport />
-      <Panel position="left" title="Orbit Lab">
+      <Panel position="left" title="Orbit Lab" defaultOpen={!isNarrowScreen()}>
         <div className="hint">Keplerian orbits around any body, SGP4 for Earth. Drag to orbit, wheel to zoom, right-drag to pan.</div>
         <BodySelector />
         <SatelliteList />

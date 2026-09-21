@@ -5,6 +5,7 @@ import { formatDuration } from '../core/time'
 import { getBody } from '../data/bodies'
 import { satrecFor, satrecToElements, sgp4Epoch, sgp4StateAt } from '../propagation/sgp4Propagator'
 import { epochMs, selectedSatellite, useStore } from '../store/store'
+import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
 
 interface Row {
@@ -19,7 +20,7 @@ export function ElementsPanel() {
   const eMs = useStore(epochMs)
   if (!sat) {
     return (
-      <Panel position="right" title="Elements">
+      <Panel position="right" title="Elements" defaultOpen={!isNarrowScreen()}>
         <p className="hint">Select a satellite to see its elements and live state.</p>
       </Panel>
     )
@@ -85,7 +86,7 @@ export function ElementsPanel() {
   }
 
   return (
-    <Panel position="right" title="Elements">
+    <Panel position="right" title="Elements" defaultOpen={!isNarrowScreen()}>
       <div className="label">
         <span className="swatch" style={{ background: sat.color }} /> {sat.name}
       </div>

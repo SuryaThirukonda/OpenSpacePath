@@ -7,6 +7,13 @@
   --accent: #7cf5ff;
   --accent-2: #ff8a5c;
   --danger: #ff6b6b;
+  /* Layout. --timeline-h and --buttons-h are republished at runtime by Panel.tsx and
+     CameraButtons.tsx, so nothing below has to guess how tall those rows are. */
+  --gap: 14px;
+  --timeline-h: 125px;
+  --buttons-h: 44px;
+  --side-w: 320px;
+  --right-w: 330px;
   font-family: system-ui, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   color: var(--text);
@@ -29,12 +36,16 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); overflow: hi
   padding: 12px 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
-.panel.left { top: 14px; left: 14px; bottom: 118px; width: 320px; display: flex; flex-direction: column; }
-.panel.right { top: 14px; right: 14px; width: 330px; max-height: calc(100% - 140px); display: flex; flex-direction: column; }
-.panel.topright { top: 14px; right: 358px; display: flex; gap: 6px; padding: 8px; }
-.panel.bottom { left: 14px; right: 14px; bottom: 14px; display: flex; flex-direction: column; }
+.panel.left { top: var(--gap); left: var(--gap); width: var(--side-w); max-height: calc(100% - var(--timeline-h) - var(--gap) * 3); display: flex; flex-direction: column; }
+.panel.right { top: var(--gap); right: var(--gap); width: var(--right-w); max-height: calc(100% - var(--timeline-h) - var(--gap) * 3); display: flex; flex-direction: column; }
+.panel.topright {
+  top: var(--gap); right: calc(var(--right-w) + var(--gap) * 2);
+  display: flex; gap: 6px; padding: 8px; flex-wrap: wrap; justify-content: flex-end;
+  max-width: calc(100vw - var(--side-w) - var(--right-w) - var(--gap) * 5);
+}
+.panel.bottom { left: var(--gap); right: var(--gap); bottom: var(--gap); display: flex; flex-direction: column; }
 .panel.collapsed { max-height: none; width: auto; min-width: 150px; }
-.panel.left.collapsed, .panel.right.collapsed { bottom: auto; }
+.panel.left.collapsed, .panel.right.collapsed { top: var(--gap); bottom: auto; }
 .panel.bottom.collapsed { right: auto; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .panel-title { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--accent); text-transform: uppercase; }
@@ -97,7 +108,35 @@ button.icon:hover { color: var(--danger); border-color: transparent; }
 .scrub { flex: 1; accent-color: var(--accent); }
 .clock { min-width: 210px; text-align: right; font-variant-numeric: tabular-nums; }
 
-@media (max-width: 1100px) {
-  .panel.right { width: 260px; }
-  .panel.topright { right: 288px; }
+/* Narrow the side panels before the scene between them disappears. */
+@media (max-width: 1180px) { :root { --right-w: 280px; } }
+@media (max-width: 1024px) { :root { --side-w: 300px; --right-w: 260px; } }
+
+/* Tablet: the view controls no longer fit between the panels, so they become a strip
+   above the timeline instead of sliding off the left edge. */
+@media (max-width: 860px) {
+  :root { --side-w: 280px; --right-w: 250px; }
+  .panel.topright {
+    top: auto; left: var(--gap); right: var(--gap);
+    bottom: calc(var(--timeline-h) + var(--gap) * 2);
+    max-width: none; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto;
+  }
+}
+
+/* Phone: panels become full-width sheets that share whatever height the timeline and the
+   control strip leave, and they start collapsed (see isNarrowScreen in Panel.tsx). */
+@media (max-width: 680px) {
+  :root {
+    --side-w: calc(100vw - var(--gap) * 2);
+    --right-w: calc(100vw - var(--gap) * 2);
+    --sheet-space: calc(100% - var(--timeline-h) - var(--buttons-h) - var(--gap) * 5);
+  }
+  .panel.left { max-height: calc(var(--sheet-space) * 0.55); }
+  .panel.right {
+    top: auto; bottom: calc(var(--timeline-h) + var(--buttons-h) + var(--gap) * 3);
+    max-height: calc(var(--sheet-space) * 0.45);
+  }
+  .panel.right.collapsed { top: var(--gap); bottom: auto; }
+  .timeline-row { flex-wrap: wrap; }
+  .clock { min-width: 0; text-align: left; }
 }
