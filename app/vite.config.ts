@@ -7,6 +7,8 @@ export default defineConfig({
   base: './',
   // satellite.js ships an optional WASM build whose worker uses top-level await; ES-format workers allow it.
   worker: { format: 'es' },
+  // The Python planner runs separately in development (npm run dev:api); the browser only ever calls /api.
+  server: { proxy: { '/api': 'http://localhost:8000' } },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],

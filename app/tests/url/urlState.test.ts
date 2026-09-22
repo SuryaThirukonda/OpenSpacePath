@@ -25,4 +25,32 @@ describe('url state', () => {
     expect(decodeScenario(encodeScenario({ ...sc, epoch: 'yesterday' }))).toBeNull()
     expect(scenarioFromLocation('?x=1')).toBeNull()
   })
+  it('rejects scenarios that would crash the app', () => {
+    expect(decodeScenario(encodeScenario({ ...sc, bodyId: 'pluto' }))).toBeNull()
+    expect(decodeScenario(encodeScenario({ ...sc, spanSeconds: 0 }))).toBeNull()
+    expect(decodeScenario(raw({ v: 3, ...sc }))).toBeNull()
+  })
+  it('drops malformed satellites but keeps the scenario', () => {
+    const bad = { ...sc.satellites[0], id: 'bad', elements: { ...(sc.satellites[0] as { elements: object }).elements, e: 1.5 } }
+    const badTle = { ...sc.satellites[1], id: 'bad-tle', line2: sc.satellites[1].kind === 'tle' ? sc.satellites[1].line2.slice(0, 68) + '0' : '' }
+    const out = decodeScenario(encodeScenario({ ...sc, satellites: [...sc.satellites, bad as Scenario['satellites'][number], badTle as Scenario['satellites'][number]] }))
+    expect(out?.satellites.map((s) => s.id)).toEqual(sc.satellites.map((s) => s.id))
+  })
+  it('snaps the playback rate to an offered value and strips unknown keys', () => {
+    expect(decodeScenario(encodeScenario({ ...sc, rate: -60 }))?.rate).toBe(1)
+    expect(decodeScenario(encodeScenario({ ...sc, rate: 500 }))?.rate).toBe(600)
+    const withJunk = { ...sc, satellites: [{ ...sc.satellites[0], junk: 'x' }] } as unknown as Scenario
+    expect(decodeScenario(encodeScenario(withJunk))?.satellites[0]).not.toHaveProperty('junk')
+  })
+  it('reads version 1 links that have no v field', () => {
+    const { v: _v, ...rest } = JSON.parse(JSON.stringify({ v: 2, ...sc })) as { v: number } & Scenario
+    expect(decodeScenario(raw(rest))).toEqual(sc)
+  })
 })
+
+function raw(o: object): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(o))
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}

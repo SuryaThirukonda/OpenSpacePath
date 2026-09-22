@@ -1,11 +1,8 @@
 import { useState } from 'react'
-import { absoluteDate, formatDuration, formatUtc } from '../core/time'
+import { absoluteDate, formatDuration, formatUtc, PLAYBACK_RATES } from '../core/time'
 import { epochMs, satellitePeriod, selectedSatellite, useStore } from '../store/store'
 import { Panel } from './Panel'
 
-const RATES: Array<[number, string]> = [
-  [1, '1x (real time)'], [10, '10x'], [60, '60x'], [600, '600x'], [3600, '3600x'], [86400, '1 day/s'],
-]
 const SPANS: Array<[string, number]> = [
   ['1 hour', 3600], ['6 hours', 21600], ['1 day', 86400], ['1 week', 604800], ['30 days', 2592000],
 ]
@@ -50,7 +47,7 @@ export function TimelinePanel() {
         <label className="inline">
           <span>Rate</span>
           <select value={rate} onChange={(e) => setRate(Number(e.target.value))}>
-            {RATES.map(([r, l]) => (
+            {PLAYBACK_RATES.map(([r, l]) => (
               <option key={r} value={r}>{l}</option>
             ))}
           </select>

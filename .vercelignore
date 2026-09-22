@@ -1,3 +1,6 @@
 research/
 rathinam_project_master.md
 .claude/
+api/.venv/
+api/tests/
+**/__pycache__/

@@ -1,4 +1,17 @@
 /** Time helpers. The app keeps one epoch (UTC instant) and a simulated offset t in seconds. */
+
+/** Playback rates offered by the timeline and accepted from URLs, simulated seconds per real second. */
+export const PLAYBACK_RATES: Array<[number, string]> = [
+  [1, '1x (real time)'], [10, '10x'], [60, '60x'], [600, '600x'], [3600, '3600x'], [86400, '1 day/s'],
+]
+
+/** Nearest offered playback rate, so a hand-edited URL cannot run time backwards or at an absurd speed. */
+export function snapRate(rate: number): number {
+  if (!Number.isFinite(rate)) return 60
+  let best = PLAYBACK_RATES[0][0]
+  for (const [r] of PLAYBACK_RATES) if (Math.abs(r - rate) < Math.abs(best - rate)) best = r
+  return best
+}
 import type { TimeState } from '../types'
 
 export function parseEpoch(iso: string): number {

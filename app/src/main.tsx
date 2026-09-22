@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import { useStore } from './store/store'
 import { App } from './ui/App'
+import { ErrorBoundary } from './ui/ErrorBoundary'
 import { scenarioFromLocation } from './url/urlState'
 
 const fromUrl = scenarioFromLocation(location.search)
@@ -11,6 +12,8 @@ else useStore.getState().select(useStore.getState().scenario.satellites[0]?.id ?
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

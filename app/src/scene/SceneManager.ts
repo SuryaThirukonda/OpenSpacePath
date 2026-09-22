@@ -5,6 +5,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TWO_PI } from '../core/constants'
+import { advanceTime } from '../core/time'
 import { getBody } from '../data/bodies'
 import { keplerPathSamples, keplerStateAt } from '../propagation/keplerPropagator'
 import { gmst, satrecFor, sgp4PathSamples, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
@@ -89,10 +90,7 @@ export class SceneManager {
     const s = useStore.getState()
 
     if (s.playing) {
-      let t = s.t + (dt / 1000) * s.scenario.rate
-      const span = s.scenario.spanSeconds
-      if (span > 0 && t > span) t = t % span
-      s.setT(t)
+      s.setT(advanceTime({ epochMs: 0, t: s.t, playing: true, rate: s.scenario.rate, spanSeconds: s.scenario.spanSeconds }, dt).t)
     }
     const state = useStore.getState()
     this.syncBody(state)

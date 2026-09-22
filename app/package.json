@@ -10,7 +10,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "dev:api": "cd .. && api/.venv/bin/uvicorn api.index:app --reload --port 8000"
   },
   "dependencies": {
     "react": "^19.2.8",

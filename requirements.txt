@@ -1,0 +1,6 @@
+fastapi==0.135.0
+lamberthub==1.0.0
+numpy>=2.2,<3
+scipy>=1.16,<2
+sgp4>=2.27,<3
+pydantic>=2.11,<3
