@@ -3,5 +3,17 @@
   "framework": null,
   "installCommand": "npm --prefix app ci",
   "buildCommand": "npm --prefix app run build",
-  "outputDirectory": "app/dist"
+  "outputDirectory": "app/dist",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{api/tests/**,api/.venv/**,research/**,app/**}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    }
+  ]
 }
