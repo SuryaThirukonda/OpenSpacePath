@@ -6,7 +6,7 @@
   "outputDirectory": "app/dist",
   "functions": {
     "api/index.py": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "excludeFiles": "{api/tests/**,api/.venv/**,research/**,app/**}"
     }
   },

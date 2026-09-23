@@ -77,7 +77,7 @@ def _solve_at(r_s, v_s, t_d: float, tof: float, target_fn, mu: float, T_target: 
 
 
 def plan_two_burn(r_s, v_s, t_d: float, target_fn, T_target: float, mu: float, radius: float,
-                  bounds=None, window: float = 0.0, grid: int = 240):
+                  bounds=None, window: float = 0.0, grid: int = 120):
     """Two-burn rendezvous with the time of flight (and optionally the departure time) chosen
     to minimise total delta-v. Returns the best LegSolution or None when no transfer exists."""
     r_s = np.asarray(r_s, float)

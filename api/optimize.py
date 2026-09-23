@@ -5,7 +5,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 
-def minimize_chain(objective, x0, maxfev: int = 300, restarts: int = 1, rng_seed: int = 0):
+def minimize_chain(objective, x0, maxfev: int = 220, restarts: int = 1, rng_seed: int = 0):
     """Best of Nelder-Mead runs from x0 and from perturbed copies. Returns (x_best, f_best)."""
     x0 = np.asarray(x0, float)
     rng = np.random.default_rng(rng_seed)
