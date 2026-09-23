@@ -7,8 +7,10 @@ export function SatelliteList() {
   const select = useStore((s) => s.select)
   const remove = useStore((s) => s.removeSatellite)
   const requestCamera = useStore((s) => s.requestCamera)
-  const stops = useStore((s) => s.scenario.mission?.stops ?? [])
-  const stopIndex = (id: string) => stops.map((st, i) => (st.satelliteId === id ? i + 1 : 0)).filter(Boolean)
+  // Select the stored array itself (or undefined): a selector that builds a new array each call
+  // would make React re-render forever, since it never sees the same snapshot twice.
+  const stops = useStore((s) => s.scenario.mission?.stops)
+  const stopIndex = (id: string) => (stops ?? []).map((st, i) => (st.satelliteId === id ? i + 1 : 0)).filter(Boolean)
   return (
     <div className="section">
       <div className="label">Satellites ({sats.length})</div>
