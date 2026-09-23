@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import lambert
-from .propagation import propagate_universal
+from .propagation import min_radius_on_conic_arc, propagate_universal
 
 GOLDEN = (math.sqrt(5) - 1) / 2
 
@@ -69,7 +69,7 @@ def _solve_at(r_s, v_s, t_d: float, tof: float, target_fn, mu: float, T_target: 
             continue
         v1, v2 = res
         sol = LegSolution(t_d, t_a, v1, v2, v1 - v_s, v2t - v2, M, low)
-        if min_radius_on_arc(r_s, v1, tof, mu) < radius * 1.01:
+        if min_radius_on_conic_arc(r_s, v1, r2, mu, M) < radius * 1.01:
             continue  # the transfer would dip into the body
         if best is None or sol.cost < best.cost:
             best = sol

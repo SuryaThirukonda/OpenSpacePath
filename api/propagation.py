@@ -156,6 +156,37 @@ def propagate_universal(r0, v0, dt: float, mu: float):
     return r, fdot * r0 + gdot * v0
 
 
+def min_radius_on_conic_arc(r0, v0, r1, mu: float, revolutions: int = 0) -> float:
+    """Smallest distance from the centre along the conic arc from r0 (with velocity v0) to r1.
+
+    The arc passes periapsis when the true anomaly wraps through zero between the two ends, or
+    on any complete revolution; otherwise the minimum is at one of the ends. Closed form, so the
+    optimizer can call it thousands of times.
+    """
+    r0 = np.asarray(r0, float); v0 = np.asarray(v0, float); r1 = np.asarray(r1, float)
+    rn0, rn1 = float(np.linalg.norm(r0)), float(np.linalg.norm(r1))
+    ends = min(rn0, rn1)
+    h = np.cross(r0, v0)
+    hn = float(np.linalg.norm(h))
+    if hn == 0:
+        return 0.0
+    evec = np.cross(v0, h) / mu - r0 / rn0
+    e = float(np.linalg.norm(evec))
+    p = hn * hn / mu
+    rp = p / (1 + e)
+    if e < 1e-9 or revolutions > 0:
+        return min(ends, rp) if revolutions > 0 else ends
+    hh = h / hn
+    ehat = evec / e
+    def nu(r):
+        c = float(np.clip(np.dot(ehat, r) / np.linalg.norm(r), -1, 1))
+        a = math.acos(c)
+        return a if float(np.dot(np.cross(ehat, r), hh)) >= 0 else TWO_PI - a
+    n0, n1 = nu(r0), nu(r1)
+    passes_periapsis = n1 < n0   # motion increases nu; wrapping past 2pi means passing periapsis
+    return min(ends, rp) if passes_periapsis else ends
+
+
 def sgp4_state(line1: str, line2: str, epoch_ms: float, t: float):
     """TEME state of a TLE satellite t seconds after the scenario epoch, or None on decay/error."""
     sat = Satrec.twoline2rv(line1, line2)

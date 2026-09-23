@@ -59,15 +59,21 @@ def test_two_stop_tour_rendezvous_is_exact():
     stops = ["geo", "iss"]
     for leg, sid in zip(plan.legs, stops):
         target_fn = target_state_fn(sats[sid], MU_EARTH, DEFAULT_EPOCH_MS)
-        depart, arrive = leg.burns
-        arc = leg.arcs[0]
-        r0 = np.array(arc.samples.r[0]); v0 = np.array(arc.samples.v[0])
-        r_end, v_end = propagate_universal(r0, v0, arc.t1 - arc.t0, MU_EARTH)
-        r_t, v_t = target_fn(arc.t1)
-        assert np.linalg.norm(r_end - r_t) < 1e-3          # 1 m
-        assert np.linalg.norm(v_end + np.array(arrive.dv) - v_t) < 1e-6   # 1 mm/s
-        assert abs(arrive.t - arc.t1) < 1e-9 and abs(depart.t - arc.t0) < 1e-9
-        assert leg.ride is not None and leg.ride.t0 == arc.t1
+        assert len(leg.burns) == len(leg.arcs) + 1
+        # every coast, propagated from its own first sample, lands on the next burn
+        for arc, nxt in zip(leg.arcs, leg.burns[1:]):
+            r0 = np.array(arc.samples.r[0]); v0 = np.array(arc.samples.v[0])
+            r_end, _ = propagate_universal(r0, v0, arc.t1 - arc.t0, MU_EARTH)
+            assert np.linalg.norm(r_end - np.array(nxt.r)) < 1e-3          # 1 m
+            assert abs(nxt.t - arc.t1) < 1e-9
+        last = leg.arcs[-1]
+        r0 = np.array(last.samples.r[0]); v0 = np.array(last.samples.v[0])
+        r_end, v_end = propagate_universal(r0, v0, last.t1 - last.t0, MU_EARTH)
+        r_t, v_t = target_fn(last.t1)
+        assert np.linalg.norm(r_end - r_t) < 1e-3
+        assert np.linalg.norm(v_end + np.array(leg.burns[-1].dv) - v_t) < 1e-6   # 1 mm/s
+        assert abs(leg.burns[0].t - leg.arcs[0].t0) < 1e-9
+        assert leg.ride is not None and leg.ride.t0 == last.t1
 
 
 def test_plan_is_continuous_across_every_boundary():
@@ -76,13 +82,17 @@ def test_plan_is_continuous_across_every_boundary():
     prev_r = prev_v = None
     prev_dv = None
     for leg in plan.legs:
-        arc = leg.arcs[0]
+        first = leg.arcs[0]
         if prev_r is not None:
-            assert np.linalg.norm(np.array(arc.samples.r[0]) - prev_r) < 1e-6
-            assert np.linalg.norm(np.array(arc.samples.v[0]) - prev_v - np.array(leg.burns[0].dv)) < 1e-9
+            assert np.linalg.norm(np.array(first.samples.r[0]) - prev_r) < 1e-6
+            assert np.linalg.norm(np.array(first.samples.v[0]) - prev_v - np.array(leg.burns[0].dv)) < 1e-9
+        for a, b, burn in zip(leg.arcs, leg.arcs[1:], leg.burns[1:]):
+            assert np.linalg.norm(np.array(b.samples.r[0]) - np.array(a.samples.r[-1])) < 1e-3
+            assert np.linalg.norm(np.array(b.samples.v[0]) - np.array(a.samples.v[-1]) - np.array(burn.dv)) < 1e-6
+        last = leg.arcs[-1]
         ride = leg.ride
-        assert np.linalg.norm(np.array(ride.samples.r[0]) - np.array(arc.samples.r[-1])) < 1e-3
-        assert np.linalg.norm(np.array(ride.samples.v[0]) - np.array(arc.samples.v[-1]) - np.array(leg.burns[1].dv)) < 1e-6
+        assert np.linalg.norm(np.array(ride.samples.r[0]) - np.array(last.samples.r[-1])) < 1e-3
+        assert np.linalg.norm(np.array(ride.samples.v[0]) - np.array(last.samples.v[-1]) - np.array(leg.burns[-1].dv)) < 1e-6
         prev_r, prev_v = np.array(ride.samples.r[-1]), np.array(ride.samples.v[-1])
     assert plan.totalTime > 0 and plan.totalDv > 0
 
