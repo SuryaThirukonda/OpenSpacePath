@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from '../store/store'
 import { scenarioToSearch } from '../url/urlState'
 import { BodySelector } from './BodySelector'
 import { CameraButtons } from './CameraButtons'
 import { ElementsPanel } from './ElementsPanel'
 import { SatelliteForm } from './SatelliteForm'
+import { MissionPanel } from './MissionPanel'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
 import { isNarrowScreen } from './layout'
@@ -46,6 +47,29 @@ function useKeys() {
   }, [])
 }
 
+function LeftTabs() {
+  const [tab, setTab] = useState<'satellites' | 'mission'>('satellites')
+  const stops = useStore((s) => s.scenario.mission?.stops.length ?? 0)
+  return (
+    <>
+      <div className="tabs">
+        <button className={tab === 'satellites' ? 'tab active' : 'tab'} onClick={() => setTab('satellites')}>Satellites</button>
+        <button className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>Mission{stops ? ` (${stops})` : ''}</button>
+      </div>
+      {tab === 'satellites' ? (
+        <>
+          <div className="hint">Keplerian orbits around any body, SGP4 for Earth. Drag to orbit, wheel to zoom, right-drag to pan.</div>
+          <BodySelector />
+          <SatelliteList />
+          <SatelliteForm />
+        </>
+      ) : (
+        <MissionPanel />
+      )}
+    </>
+  )
+}
+
 export function App() {
   useUrlSync()
   useKeys()
@@ -53,10 +77,7 @@ export function App() {
     <div className="app">
       <Viewport />
       <Panel position="left" title="Orbit Lab" defaultOpen={!isNarrowScreen()}>
-        <div className="hint">Keplerian orbits around any body, SGP4 for Earth. Drag to orbit, wheel to zoom, right-drag to pan.</div>
-        <BodySelector />
-        <SatelliteList />
-        <SatelliteForm />
+        <LeftTabs />
       </Panel>
       <ElementsPanel />
       <CameraButtons />

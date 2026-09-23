@@ -2,7 +2,10 @@
  * Mission types, a mirror of api/models.py. Units km, km/s, s, kg, N, rad; times are simulated
  * seconds since the scenario epoch, the same clock as the timeline.
  */
-import type { OrbitalElements, Vec3 } from '../types'
+import type { OrbitalElements } from '../types'
+
+/** Vectors on the wire are plain triples, km or km/s. */
+export type Triple = [number, number, number]
 
 export interface Ship {
   name: string
@@ -37,8 +40,8 @@ export interface MissionInput {
 
 export interface Burn {
   t: number
-  r: Vec3
-  dv: Vec3
+  r: Triple
+  dv: Triple
   magnitude: number
   duration: number
   propellant: number
@@ -47,8 +50,8 @@ export interface Burn {
 
 export interface Samples {
   t: number[]
-  r: [number, number, number][]
-  v: [number, number, number][]
+  r: Triple[]
+  v: Triple[]
 }
 
 export interface Arc {

@@ -20,8 +20,15 @@ export function TimelinePanel() {
   const [customSpan, setCustomSpan] = useState('')
   const [epochDraft, setEpochDraft] = useState<string | null>(null)
 
+  const plan = useStore((s) => s.plan)
+  const missionEnd = plan ? (useStore.getState().scenario.mission?.startT ?? 0) + plan.totalTime : null
   const selectedPeriod = selected ? satellitePeriod(selected, bodyId) : null
-  const spanChoice = SPANS.find(([, s]) => s === span)?.[1] ?? (selectedPeriod && Math.abs(span - selectedPeriod) < 1e-6 ? 'orbit' : 'custom')
+  const spanChoice =
+    SPANS.find(([, s]) => s === span)?.[1] ??
+    (selectedPeriod && Math.abs(span - selectedPeriod) < 1e-6 ? 'orbit' : missionEnd && Math.abs(span - missionEnd) < 1e-6 ? 'mission' : 'custom')
+  const ticks = plan
+    ? plan.legs.flatMap((l) => l.burns.map((b) => ({ t: b.t, label: b.label, leg: l.toStop })))
+    : []
 
   return (
     <Panel position="bottom" title="Timeline">
@@ -29,15 +36,23 @@ export function TimelinePanel() {
         <button className="primary play" onClick={togglePlaying} aria-label={playing ? 'pause' : 'play'}>
           {playing ? 'Pause' : 'Play'}
         </button>
-        <input
-          className="scrub"
-          type="range"
-          min={0}
-          max={span}
-          step={span / 4000}
-          value={Math.min(t, span)}
-          onChange={(e) => setT(Number(e.target.value))}
-        />
+        <div className="scrub-wrap">
+          <div className="ticks" aria-hidden="true">
+            {ticks.filter((k) => k.t >= 0 && k.t <= span).map((k, i) => (
+              <span key={i} className={`tick ${k.label}`} style={{ left: `${(100 * k.t) / span}%` }} title={`${k.label}, leg ${k.leg + 1}`} />
+            ))}
+          </div>
+          <input
+            className="scrub"
+            type="range"
+            min={0}
+            max={span}
+            step={span / 4000}
+            value={Math.min(t, span)}
+            aria-label="simulated time"
+            onChange={(e) => setT(Number(e.target.value))}
+          />
+        </div>
         <div className="clock">
           <div>{formatUtc(absoluteDate(eMs, t))}</div>
           <div className="hint">t = {formatDuration(t)} of {formatDuration(span)}</div>
@@ -59,11 +74,13 @@ export function TimelinePanel() {
             onChange={(e) => {
               const v = e.target.value
               if (v === 'orbit' && selectedPeriod) setSpan(selectedPeriod)
+              else if (v === 'mission' && missionEnd) setSpan(missionEnd)
               else if (v === 'custom') setSpan(Number(customSpan) * 3600 || span)
               else setSpan(Number(v))
             }}
           >
             <option value="orbit" disabled={!selectedPeriod}>1 orbit of selected{selectedPeriod ? ` (${formatDuration(selectedPeriod)})` : ''}</option>
+            <option value="mission" disabled={!missionEnd}>whole mission{missionEnd ? ` (${formatDuration(missionEnd)})` : ''}</option>
             {SPANS.map(([l, s]) => (
               <option key={s} value={s}>{l}</option>
             ))}

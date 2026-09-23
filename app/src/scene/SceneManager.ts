@@ -9,9 +9,14 @@ import { advanceTime } from '../core/time'
 import { getBody } from '../data/bodies'
 import { keplerPathSamples, keplerStateAt } from '../propagation/keplerPropagator'
 import { gmst, satrecFor, sgp4PathSamples, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
+import { flattenPlan, shipStateAt, type FlatPlan } from '../mission/state'
+import type { MissionPlan } from '../mission/types'
 import { epochMs, isRenderable, useStore, type AppState } from '../store/store'
 import type { CentralBody, Satellite, Vec3 } from '../types'
 import { InertialAxes } from './AxesHelper'
+import { BurnEffect } from './BurnEffect'
+import { MissionPath } from './MissionPath'
+import { ShipMarker } from './ShipMarker'
 import { CentralBodyMesh } from './CentralBodyMesh'
 import { kmScalarToScene, kmToScene, makeInertialGroup } from './frame'
 import { OrbitPath } from './OrbitPath'
@@ -42,6 +47,16 @@ export class SceneManager {
   private disposed = false
   private readonly container: HTMLElement
 
+  // mission visuals
+  private readonly missionPath = new MissionPath()
+  private readonly burnEffect = new BurnEffect()
+  private ship: ShipMarker | null = null
+  private flat: FlatPlan | null = null
+  private planRef: MissionPlan | null = null
+  private firedBurns = new Set<number>()
+  private prevT = Number.NaN
+  private followLeg = -1
+
   constructor(container: HTMLElement) {
     this.container = container
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
@@ -63,6 +78,8 @@ export class SceneManager {
 
     this.inertial.add(this.bodyMesh.group)
     this.inertial.add(this.axes.group)
+    this.inertial.add(this.missionPath.group)
+    this.inertial.add(this.burnEffect.group)
     this.scene.add(this.inertial)
 
     this.resizeObserver = new ResizeObserver(() => this.resize())
@@ -95,6 +112,11 @@ export class SceneManager {
     const state = useStore.getState()
     this.syncBody(state)
     this.syncSatellites(state)
+    try {
+      this.syncMission(state, now, dt)
+    } catch (e) {
+      console.error('mission sync failed', e)
+    }
     this.handleCameraRequest(state)
 
     this.axes.group.visible = state.showAxes
@@ -209,6 +231,10 @@ export class SceneManager {
     const body = getBody(s.scenario.bodyId)
     if (req.kind === 'body' || req.kind === 'reset') {
       this.frameBody(body)
+    } else if (req.kind === 'ship') {
+      const sphere = s.selectedLeg !== null ? this.missionPath.legSphere(s.selectedLeg) : this.missionPath.wholeSphere()
+      if (sphere) this.frameSphere(sphere)
+      else this.frameBody(body)
     } else if (req.kind === 'orbit') {
       const v = s.selectedId ? this.visuals.get(s.selectedId) : undefined
       const sphere = v?.path.boundingSphere()
@@ -247,12 +273,99 @@ export class SceneManager {
     this.controls.update()
   }
 
+  /** Ship, path, burn flares and the follow camera, all driven by the plan in the store and the current time. */
+  private syncMission(s: AppState, nowMs: number, dtMs: number): void {
+    if (s.plan !== this.planRef) {
+      this.planRef = s.plan
+      this.firedBurns.clear()
+      this.followLeg = -1
+      if (s.plan) {
+        this.flat = flattenPlan(s.plan)
+        this.missionPath.setPlan(this.flat, s.plan)
+        if (!this.ship) {
+          this.ship = new ShipMarker(s.scenario.mission?.ship.name ?? 'Ship', '#ffffff')
+          this.inertial.add(this.ship.group)
+        }
+      } else {
+        this.flat = null
+        this.missionPath.clear()
+        if (this.ship) {
+          this.inertial.remove(this.ship.group)
+          this.ship.dispose()
+          this.ship = null
+        }
+        this.burnEffect.group.visible = false
+      }
+    }
+    if (!s.plan || !this.flat || !this.ship) {
+      this.prevT = s.t
+      return
+    }
+    const st = shipStateAt(this.flat, s.t)
+    if (!st) return
+    const pos = kmToScene(st.r)
+    const vel = new THREE.Vector3(st.v.x, st.v.y, st.v.z)
+    this.ship.setState(pos, vel)
+    this.ship.setLabelVisible(s.showLabels)
+    const worldPos = this.inertial.localToWorld(pos.clone())
+    const dist = this.camera.position.distanceTo(worldPos)
+    const fov = (this.camera.fov * Math.PI) / 180
+    const h = this.container.clientHeight || 1
+    this.ship.updateScale(dist, h, fov)
+    this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg },
+      this.camera.position, h, fov, (v) => this.inertial.localToWorld(v))
+
+    // burns: fire when the clock crosses one while playing, not when scrubbing across it
+    const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
+    if (Number.isFinite(this.prevT) && s.playing && s.t > this.prevT && s.t - this.prevT <= maxStep) {
+      s.plan.legs.forEach((leg, li) =>
+        leg.burns.forEach((b, bi) => {
+          const key = li * 10 + bi
+          if (this.prevT < b.t && b.t <= s.t && !this.firedBurns.has(key)) {
+            this.firedBurns.add(key)
+            const exhaust = new THREE.Vector3(-b.dv[0], -b.dv[1], -b.dv[2])
+            const wallMs = s.scenario.rate <= 60 ? Math.max(400, (b.duration / s.scenario.rate) * 1000) : 800
+            this.burnEffect.trigger(exhaust, wallMs, nowMs)
+          }
+        }),
+      )
+    }
+    if (s.t < this.prevT) this.firedBurns.clear() // scrubbed back: burns can fire again
+    this.prevT = s.t
+    this.burnEffect.group.position.copy(pos)
+    this.burnEffect.update(nowMs, dist, h, fov)
+
+    // follow camera while coasting: keep the ship at the controls' target and carry the camera along
+    if (s.followShip && st.kind === 'arc' && !st.outside) {
+      if (this.followLeg !== st.leg) {
+        this.followLeg = st.leg
+        const sphere = this.missionPath.legSphere(st.leg)
+        if (sphere) {
+          const d = Math.max((sphere.radius * 1.2) / Math.sin(fov / 2), kmScalarToScene(getBody(s.scenario.bodyId).radius) * 3)
+          const dir = this.camera.position.clone().sub(this.controls.target).normalize()
+          if (dir.lengthSq() === 0) dir.set(0.5, 0.6, 0.65).normalize()
+          this.controls.target.copy(worldPos)
+          this.camera.position.copy(worldPos).add(dir.multiplyScalar(d))
+          return
+        }
+      }
+      const delta = worldPos.clone().sub(this.controls.target)
+      this.controls.target.copy(worldPos)
+      this.camera.position.add(delta)
+    } else {
+      this.followLeg = -1
+    }
+  }
+
   dispose(): void {
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.resizeObserver.disconnect()
     for (const id of [...this.visuals.keys()]) this.removeVisual(id)
     this.bodyMesh.dispose()
+    this.missionPath.dispose()
+    this.burnEffect.dispose()
+    this.ship?.dispose()
     this.controls.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
