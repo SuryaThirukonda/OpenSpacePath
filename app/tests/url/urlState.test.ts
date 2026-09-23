@@ -42,6 +42,18 @@ describe('url state', () => {
     const withJunk = { ...sc, satellites: [{ ...sc.satellites[0], junk: 'x' }] } as unknown as Scenario
     expect(decodeScenario(encodeScenario(withJunk))?.satellites[0]).not.toHaveProperty('junk')
   })
+  it('carries mission inputs and drops stops that point at missing satellites', () => {
+    const mission = {
+      ship: { name: 'S', dryMass: 5000, propellantMass: 60000, isp: 350, maxThrust: 100000, minBurnSpacing: 60 },
+      startT: 0, start: { kind: 'satellite' as const, id: sc.satellites[0].id },
+      stops: [{ satelliteId: sc.satellites[1].id, dwellSeconds: 600, strategy: 'best' as const }, { satelliteId: 'ghost', dwellSeconds: 0, strategy: 'best' as const }],
+      departureWindow: 0,
+    }
+    const out = decodeScenario(encodeScenario({ ...sc, mission }))
+    expect(out?.mission?.stops.map((s) => s.satelliteId)).toEqual([sc.satellites[1].id])
+    expect(out?.mission?.ship.isp).toBe(350)
+    expect(decodeScenario(encodeScenario({ ...sc, mission: { ...mission, ship: { ...mission.ship, dryMass: -1 } } }))?.mission).toBeUndefined()
+  })
   it('reads version 1 links that have no v field', () => {
     const { v: _v, ...rest } = JSON.parse(JSON.stringify({ v: 2, ...sc })) as { v: number } & Scenario
     expect(decodeScenario(raw(rest))).toEqual(sc)

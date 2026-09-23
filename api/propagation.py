@@ -74,7 +74,10 @@ def _stumpff_c(z: float) -> float:
     if z > 0:
         return (1 - math.cos(math.sqrt(z))) / z
     if z < 0:
-        return (math.cosh(math.sqrt(-z)) - 1) / (-z)
+        s = math.sqrt(-z)
+        if s > 700:  # cosh would overflow; the residual is already enormous
+            return math.inf
+        return (math.cosh(s) - 1) / (-z)
     return 0.5
 
 
@@ -84,37 +87,70 @@ def _stumpff_s(z: float) -> float:
         return (s - math.sin(s)) / s ** 3
     if z < 0:
         s = math.sqrt(-z)
+        if s > 700:
+            return math.inf
         return (math.sinh(s) - s) / s ** 3
     return 1 / 6
 
 
 def propagate_universal(r0, v0, dt: float, mu: float):
-    """Two-body propagation by dt seconds for any conic (Curtis Algorithm 3.4 with f and g)."""
+    """Two-body propagation by dt seconds for any conic (Curtis Algorithm 3.4 with f and g).
+
+    The residual F(chi) is monotonic in chi (its derivative is the radius), so a safeguarded
+    Newton iteration inside a bracket cannot diverge, whatever the conic.
+    """
     r0 = np.asarray(r0, float)
     v0 = np.asarray(v0, float)
     if dt == 0:
         return r0.copy(), v0.copy()
-    rn0 = np.linalg.norm(r0)
-    vn0 = np.linalg.norm(v0)
+    rn0 = float(np.linalg.norm(r0))
+    vn0 = float(np.linalg.norm(v0))
     vr0 = float(r0 @ v0) / rn0
     alpha = 2 / rn0 - vn0 * vn0 / mu
     smu = math.sqrt(mu)
-    chi = smu * abs(alpha) * dt if alpha != 0 else smu * dt / rn0
-    for _ in range(100):
+    sign = 1.0 if dt > 0 else -1.0
+
+    def residual(chi):
         z = alpha * chi * chi
         C, S = _stumpff_c(z), _stumpff_s(z)
+        if not (math.isfinite(C) and math.isfinite(S)):
+            return sign * math.inf, math.inf
         F = rn0 * vr0 / smu * chi * chi * C + (1 - alpha * rn0) * chi ** 3 * S + rn0 * chi - smu * dt
         dF = rn0 * vr0 / smu * chi * (1 - z * S) + (1 - alpha * rn0) * chi * chi * C + rn0
-        d = F / dF
-        chi -= d
-        if abs(d) < 1e-12 * max(1.0, abs(chi)):
+        return F, dF
+
+    # bracket: F(0) has the sign of -dt; expand the other end until the sign flips
+    lo, hi = 0.0, smu * abs(alpha) * abs(dt) if alpha != 0 else smu * abs(dt) / rn0
+    hi = max(hi, 1e-9) * sign
+    for _ in range(200):
+        if residual(hi)[0] * sign > 0:
             break
+        hi *= 2
+    if sign < 0:
+        lo, hi = hi, lo
+    chi = 0.5 * (lo + hi)
+    for _ in range(100):
+        F, dF = residual(chi)
+        if not math.isfinite(F):
+            chi_new = 0.5 * (lo + hi)
+        else:
+            if F > 0:
+                hi = chi
+            else:
+                lo = chi
+            chi_new = chi - F / dF if dF > 0 and math.isfinite(dF) else 0.5 * (lo + hi)
+            if not (lo < chi_new < hi) if lo < hi else not (hi < chi_new < lo):
+                chi_new = 0.5 * (lo + hi)
+        if abs(chi_new - chi) < 1e-12 * max(1.0, abs(chi)):
+            chi = chi_new
+            break
+        chi = chi_new
     z = alpha * chi * chi
     C, S = _stumpff_c(z), _stumpff_s(z)
     f = 1 - chi * chi / rn0 * C
     g = dt - chi ** 3 / smu * S
     r = f * r0 + g * v0
-    rn = np.linalg.norm(r)
+    rn = float(np.linalg.norm(r))
     fdot = smu / (rn * rn0) * (alpha * chi ** 3 * S - chi)
     gdot = 1 - chi * chi / rn * C
     return r, fdot * r0 + gdot * v0

@@ -3,6 +3,8 @@
  * kilometres, seconds, radians. Degrees exist only at the UI boundary.
  */
 
+import type { MissionInput } from './mission/types'
+
 export interface Vec3 {
   x: number
   y: number
@@ -84,6 +86,8 @@ export interface Scenario {
   spanSeconds: number
   /** Playback rate, simulated seconds per real second. */
   rate: number
+  /** Mission inputs (ship, start orbit, stops); the planner's answer is never stored here. */
+  mission?: MissionInput
 }
 
 export interface TimeState {

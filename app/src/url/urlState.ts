@@ -8,7 +8,8 @@ import { validateElements } from '../core/elements'
 import { snapRate } from '../core/time'
 import { BODY_BY_ID } from '../data/bodies'
 import { validateTleLines } from '../propagation/sgp4Propagator'
-import type { KeplerSatellite, Satellite, Scenario, TleSatellite } from '../types'
+import type { MissionInput, Stop, Strategy } from '../mission/types'
+import type { KeplerSatellite, OrbitalElements, Satellite, Scenario, TleSatellite } from '../types'
 
 export const PARAM = 's'
 /** Bump when the encoded shape changes. Absent means 1. */
@@ -58,6 +59,56 @@ function cleanSatellite(s: unknown, bodyRadius: number): Satellite | null {
   return null
 }
 
+const STRATEGIES: Strategy[] = ['lambert2', 'phasing3', 'bielliptic3', 'waypoint4', 'best']
+
+function cleanElements(x: unknown, bodyRadius: number): OrbitalElements | null {
+  const el = x as Record<string, unknown> | undefined
+  if (!el || !['a', 'e', 'i', 'raan', 'argp', 'M0'].every((k) => isNum(el[k]))) return null
+  const elements = { a: el.a as number, e: el.e as number, i: el.i as number, raan: el.raan as number, argp: el.argp as number, M0: el.M0 as number }
+  return validateElements(elements, bodyRadius).ok ? elements : null
+}
+
+/** Mission inputs from a URL, or undefined when absent or malformed (the scenario survives either way). */
+function cleanMission(x: unknown, satellites: Satellite[], bodyRadius: number): MissionInput | undefined {
+  if (!x || typeof x !== 'object') return undefined
+  const m = x as Record<string, unknown>
+  const ship = m.ship as Record<string, unknown> | undefined
+  if (!ship || !['dryMass', 'propellantMass', 'isp', 'maxThrust', 'minBurnSpacing'].every((k) => isNum(ship[k]))) return undefined
+  if (!((ship.dryMass as number) > 0) || !((ship.isp as number) > 0) || !((ship.maxThrust as number) > 0)) return undefined
+  const ids = new Set(satellites.map((s) => s.id))
+  const start = m.start as Record<string, unknown> | undefined
+  let cleanStart: MissionInput['start'] | null = null
+  if (start?.kind === 'satellite' && typeof start.id === 'string' && ids.has(start.id)) cleanStart = { kind: 'satellite', id: start.id }
+  if (start?.kind === 'elements') {
+    const el = cleanElements(start.elements, bodyRadius)
+    if (el) cleanStart = { kind: 'elements', elements: el }
+  }
+  if (!cleanStart) return undefined
+  const stops: Stop[] = []
+  for (const raw of Array.isArray(m.stops) ? m.stops : []) {
+    const st = raw as Record<string, unknown>
+    if (typeof st.satelliteId !== 'string' || !ids.has(st.satelliteId)) continue
+    const strategy = STRATEGIES.includes(st.strategy as Strategy) ? (st.strategy as Strategy) : 'best'
+    const dwell = isNum(st.dwellSeconds) && (st.dwellSeconds as number) >= 0 ? (st.dwellSeconds as number) : 0
+    const stop: Stop = { satelliteId: st.satelliteId, dwellSeconds: dwell, strategy }
+    const tb = st.tofBounds as unknown[] | undefined
+    if (Array.isArray(tb) && tb.length === 2 && isNum(tb[0]) && isNum(tb[1]) && (tb[0] as number) > 0 && (tb[1] as number) > (tb[0] as number)) stop.tofBounds = [tb[0] as number, tb[1] as number]
+    stops.push(stop)
+  }
+  return {
+    ship: {
+      name: typeof ship.name === 'string' ? ship.name : 'Ship',
+      dryMass: ship.dryMass as number, propellantMass: Math.max(0, ship.propellantMass as number), isp: ship.isp as number,
+      maxThrust: ship.maxThrust as number, minBurnSpacing: Math.max(0, ship.minBurnSpacing as number),
+      ...(isNum(ship.maxSpeed) && (ship.maxSpeed as number) > 0 ? { maxSpeed: ship.maxSpeed as number } : {}),
+    },
+    startT: isNum(m.startT) ? (m.startT as number) : 0,
+    start: cleanStart,
+    stops,
+    departureWindow: isNum(m.departureWindow) && (m.departureWindow as number) >= 0 ? (m.departureWindow as number) : 0,
+  }
+}
+
 /** Returns null for anything that does not look like a scenario. Malformed satellites are dropped, not fatal. */
 export function decodeScenario(encoded: string): Scenario | null {
   try {
@@ -70,7 +121,10 @@ export function decodeScenario(encoded: string): Scenario | null {
     if (!isNum(o.spanSeconds) || o.spanSeconds <= 0 || !isNum(o.rate)) return null
     const radius = BODY_BY_ID[o.bodyId].radius
     const satellites = o.satellites.map((s) => cleanSatellite(s, radius)).filter((s): s is Satellite => s !== null)
-    return { bodyId: o.bodyId, epoch: o.epoch, satellites, spanSeconds: o.spanSeconds, rate: snapRate(o.rate) }
+    const scenario: Scenario = { bodyId: o.bodyId, epoch: o.epoch, satellites, spanSeconds: o.spanSeconds, rate: snapRate(o.rate) }
+    const mission = cleanMission(o.mission, satellites, radius)
+    if (mission) scenario.mission = mission
+    return scenario
   } catch {
     return null
   }

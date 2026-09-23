@@ -10,8 +10,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from . import lambert
+from .mission import plan_mission
+from .models import MissionPlan, PlanRequest
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 app = FastAPI(title="Orbit Lab planner", version=VERSION)
 
@@ -50,3 +52,11 @@ def lambert_route(q: LambertRequest) -> LambertResponse:
         raise HTTPException(status_code=422, detail="no Lambert solution for this geometry, time of flight and revolution count")
     v1, v2 = res
     return LambertResponse(v1=v1.tolist(), v2=v2.tolist())
+
+
+@app.post("/api/plan", response_model=MissionPlan)
+def plan_route(req: PlanRequest) -> MissionPlan:
+    try:
+        return plan_mission(req)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
