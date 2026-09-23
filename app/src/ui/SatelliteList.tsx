@@ -7,6 +7,8 @@ export function SatelliteList() {
   const select = useStore((s) => s.select)
   const remove = useStore((s) => s.removeSatellite)
   const requestCamera = useStore((s) => s.requestCamera)
+  const stops = useStore((s) => s.scenario.mission?.stops ?? [])
+  const stopIndex = (id: string) => stops.map((st, i) => (st.satelliteId === id ? i + 1 : 0)).filter(Boolean)
   return (
     <div className="section">
       <div className="label">Satellites ({sats.length})</div>
@@ -25,6 +27,7 @@ export function SatelliteList() {
           >
             <span className="swatch" style={{ background: s.color }} />
             <span className="satname">{s.name}</span>
+            {stopIndex(s.id).length > 0 && <span className="badge" title="stop in the mission tour">stop {stopIndex(s.id).join(', ')}</span>}
             <span className="kind">{s.kind === 'tle' ? 'SGP4' : 'Kepler'}{!isRenderable(s, bodyId) ? ' (hidden)' : ''}</span>
             <button
               className="icon"

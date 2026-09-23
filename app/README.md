@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Then open the printed URL. `npm test` runs the known-answer tests, `npm run build` produces a static site in `dist/` that can be hosted anywhere (no API keys, no tokens).
+Then open the printed URL. `npm test` runs the known-answer tests, `npm run build` produces a static site in `dist/`. The Mission tab needs the Python planner in `../api` (see its README): run `npm run dev:api` in a second terminal and the dev server proxies `/api` to it. In production the planner is a Vercel Python function in the same deployment. No API keys, no tokens.
 
 ## What it does
 
@@ -21,11 +21,13 @@ Then open the printed URL. `npm test` runs the known-answer tests, `npm run buil
 - Timeline: play/pause (space bar), scrub slider over a span (one orbit of the selected satellite, 1 hour to 30 days, or custom), playback rates from real time to one day per second, editable epoch.
 - Elements panel with live derived quantities: period, periapsis and apoapsis altitude, radius, speed, true and mean anomaly.
 - Camera: drag to orbit, wheel to zoom, right-drag to pan; Frame body, Frame orbit, Reset view; axes and label toggles.
-- Shareable URLs: the whole scenario is encoded in the `?s=` query parameter (Copy link).
+- Shareable URLs: the whole scenario, mission inputs included, is encoded in the `?s=` query parameter (Copy link).
+- Mission tab: a spaceship tours the satellites you order. Each leg is a Lambert rendezvous to where the target will be, with a braking burn to match it; three- and four-burn strategies (phasing loops, bi-elliptic, node plane change) are tried by the planner and the cheapest kept. The tour draws as one line, flown part solid and remainder dashed, with burn markers, dwell badges, an engine flare at each burn, and a camera that follows the ship. Ship mass, propellant, Isp and thrust give burn durations and a delta-v budget.
 
 ## Fidelity, stated honestly
 
 - Keplerian satellites are propagated with the two-body problem only: no J2, drag or third-body effects. They are for teaching and for scenario sketches, not for tracking real spacecraft.
+- Mission legs are impulsive-burn, two-body coasts: no finite burns, drag, or perturbations on the ship. Each leg's endpoint is taken from the target's own propagator at the arrival time, so the ship arrives exactly where that model puts the target.
 - TLE satellites use SGP4 through satellite.js. SGP4 outputs the TEME frame; the scene treats TEME as its Earth-centred inertial frame, which differs from J2000 by about 0.37 degrees in 2026. Earth's rotation is applied from Greenwich mean sidereal time, so the grid turns correctly under the satellites.
 - Keplerian and TLE satellites share one inertial frame in the scene; for non-Earth bodies the frame is the body's equatorial frame by definition.
 - Elements are only valid for closed orbits; the form limits eccentricity to 0.95 and rejects orbits whose periapsis is below the surface.
@@ -39,6 +41,7 @@ src/propagation/  Keplerian and SGP4 propagators
 src/data/         central bodies, presets, bundled ISS TLE
 src/store/        zustand store shared by the panels and the scene
 src/url/          scenario <-> URL codec
+src/mission/      mission types, planner client, ship state by Hermite interpolation of the planner's samples
 src/scene/        Three.js scene: inertial frame group, body mesh, orbit paths, markers, camera
 src/ui/           React panels
 tests/            Vitest known-answer tests (Curtis Example 4.7, circular hand cases, ISS, GEO, SGP4 cross-check)

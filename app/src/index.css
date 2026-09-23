@@ -94,6 +94,7 @@ button.icon:hover { color: var(--danger); border-color: transparent; }
 .stops li.selected, .legs li.selected { border-color: var(--accent); background: rgba(124, 245, 255, 0.08); }
 .legs li { cursor: pointer; }
 .stop-index { font-size: 11px; color: var(--muted); min-width: 14px; text-align: right; }
+.badge { font-size: 10px; letter-spacing: 0.04em; color: var(--accent-2); border: 1px solid rgba(255, 138, 92, 0.5); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
 .mission select { width: auto; flex: 1; min-width: 0; }
 .mission .grid2 select, .mission > select { width: 100%; }
 .satlist li {

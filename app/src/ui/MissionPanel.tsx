@@ -120,6 +120,7 @@ export function MissionPanel() {
         {plan && <button onClick={() => { const end = mission.startT + plan.totalTime; setSpan(end); setT(mission.startT); }}>Fit timeline</button>}
         {plan && <button onClick={() => requestCamera('ship')}>Frame tour</button>}
       </div>
+      {planStatus === 'loading' && <p className="hint">Solving Lambert transfers on the server. "Best of all" tries every strategy and takes about 15 s per stop; a single strategy is a few seconds.</p>}
       {planStatus === 'error' && <p className="error">{planError}</p>}
       {planStatus === 'idle' && scenario.mission && scenario.mission.stops.length > 0 && !plan && <p className="hint">Inputs changed. Press Plan to recompute.</p>}
 

@@ -12,6 +12,7 @@ Date: 2026-09-01. These files answer the three asks from the August 31 meeting: 
 | `02_meeting_brief.md` | Pre-meeting brief for the week of 2026-09-07: landscape, library shelf, plan, questions, and things not to get wrong. |
 | `03_tech_stack.md` | First tech stack recommendation (2026-09-07), superseded by 04. |
 | `04_system_design.md` | System design: decisions, game-engine evaluation, architecture, full stack, the mathematics reference with a verification ledger. |
+| `05_mission_path_plan.md` | Implementation plan for the satellite-tour visualization: Lambert rendezvous with moving targets, 2- to 4-burn strategies, ship model, path and burn animation, camera follow. Plan only. |
 
 ## Track study documents (Part II, Tracks 1 to 6)
 

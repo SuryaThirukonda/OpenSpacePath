@@ -4,6 +4,8 @@
 
 This document collects the research, the technology choices and the reasons for them, the system architecture, and the mathematics Orbit Lab needs from Phase 0 through Phase C. It supersedes `03_tech_stack.md`.
 
+> **Amendment 2026-09-22.** The transfer mathematics for the mission-path feature (Lambert rendezvous, multi-burn strategies, ship arithmetic) will run in Python on Vercel functions with `lamberthub`, not as a TypeScript port, per `05_mission_path_plan.md` §12. The static-site decision in §1 and §5.13 now reads: static frontend plus Python functions in the same project; rendering, satellite propagation for markers and URL state stay in the browser.
+
 **Evidence base.** The six track studies, the gap statement and the errata in this folder (research snapshot 2026-09-01); Part III of `../rathinam_project_master.md`; the `app/` code at commit `d0b8eb9`; registry, documentation and repository checks made on 2026-09-07 and 2026-09-14 (listed in §10); and a numerical check of every formula in §7, saved as `scripts/T7_design_math_check.py` with its output.
 
 **Reading order.** §1 is the one-page summary. §4 answers whether a game engine such as Unity or PlayCanvas would be a better base. §7 is the mathematics reference, and §8 records how each formula was checked.
