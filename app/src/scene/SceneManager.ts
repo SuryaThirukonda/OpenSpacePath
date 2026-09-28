@@ -19,6 +19,7 @@ import { MissionPath } from './MissionPath'
 import { ShipMarker } from './ShipMarker'
 import { CentralBodyMesh } from './CentralBodyMesh'
 import { kmScalarToScene, kmToScene, makeInertialGroup } from './frame'
+import { LINE_RESOLUTION } from './lines'
 import { OrbitPath } from './OrbitPath'
 import { SatelliteMarker } from './SatelliteMarker'
 
@@ -96,6 +97,7 @@ export class SceneManager {
     const w = this.container.clientWidth || 1
     const h = this.container.clientHeight || 1
     this.renderer.setSize(w, h, false)
+    LINE_RESOLUTION.set(w, h)
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
   }

@@ -1,32 +1,43 @@
-/** A closed (or one-period) orbit path as a line, plus a short glowing trail behind the satellite. */
+/** A closed (or one-period) orbit path as a thick screen-space line. */
 import * as THREE from 'three'
+import { Line2 } from 'three/examples/jsm/lines/Line2.js'
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
+import type { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import type { Vec3 } from '../types'
 import { kmToScene } from './frame'
+import { makeLineMaterial } from './lines'
+
+const WIDTH = 2.4
+const WIDTH_SELECTED = 3.4
 
 export class OrbitPath {
-  readonly line: THREE.Line
-  private readonly material: THREE.LineBasicMaterial
+  readonly line: Line2
+  private readonly material: LineMaterial
+  private sphere: THREE.Sphere | null = null
 
   constructor(color: string) {
-    this.material = new THREE.LineBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.85 })
-    this.line = new THREE.Line(new THREE.BufferGeometry(), this.material)
+    this.material = makeLineMaterial({ color, width: WIDTH, opacity: 0.85 })
+    this.line = new Line2(new LineGeometry(), this.material)
     this.line.frustumCulled = false
   }
 
   setPoints(points: Vec3[]): void {
     const arr = new Float32Array(points.length * 3)
     const v = new THREE.Vector3()
+    const pts: THREE.Vector3[] = []
     points.forEach((p, k) => {
       kmToScene(p, v)
       arr[k * 3] = v.x
       arr[k * 3 + 1] = v.y
       arr[k * 3 + 2] = v.z
+      if (k % 4 === 0) pts.push(v.clone())
     })
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(arr, 3))
     this.line.geometry.dispose()
+    const geo = new LineGeometry()
+    if (points.length >= 2) geo.setPositions(arr)
     this.line.geometry = geo
-    geo.computeBoundingSphere()
+    this.line.visible = points.length >= 2
+    this.sphere = pts.length ? new THREE.Sphere().setFromPoints(pts) : null
   }
 
   setColor(color: string): void {
@@ -34,11 +45,12 @@ export class OrbitPath {
   }
 
   setEmphasis(selected: boolean, anySelected: boolean): void {
-    this.material.opacity = selected ? 1.0 : anySelected ? 0.3 : 0.75
+    this.material.opacity = selected ? 1.0 : anySelected ? 0.3 : 0.8
+    this.material.linewidth = selected ? WIDTH_SELECTED : WIDTH
   }
 
   boundingSphere(): THREE.Sphere | null {
-    return this.line.geometry.boundingSphere
+    return this.sphere
   }
 
   dispose(): void {

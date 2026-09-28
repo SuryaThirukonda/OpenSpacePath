@@ -1,12 +1,18 @@
 /**
- * The whole tour as one line, split each frame into the part already flown (solid) and the part
- * still to come (dashed, dimmer), plus burn markers with labels and dwell badges.
+ * The whole tour as one thick line, split each frame into the part already flown (solid) and
+ * the part still to come (dashed, dimmer), plus burn markers with labels and dwell badges.
+ * The remaining line stores its samples in reverse so that limiting the instance count draws
+ * the tail of the tour back to the ship.
  */
 import * as THREE from 'three'
+import { Line2 } from 'three/examples/jsm/lines/Line2.js'
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
+import type { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import type { FlatPlan } from '../mission/state'
 import { flownCount } from '../mission/state'
 import type { MissionPlan } from '../mission/types'
 import { kmToScene } from './frame'
+import { makeLineMaterial, segmentCounts } from './lines'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export const LEG_COLORS = ['#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd', '#7cf5ff']
@@ -24,12 +30,12 @@ interface Marker {
 
 export class MissionPath {
   readonly group = new THREE.Group()
-  private flown?: THREE.Line
-  private remaining?: THREE.Line
-  private flownGeo?: THREE.BufferGeometry
-  private remainingGeo?: THREE.BufferGeometry
-  private flownMat?: THREE.LineBasicMaterial
-  private remainingMat?: THREE.LineDashedMaterial
+  private flown?: Line2
+  private remaining?: Line2
+  private flownGeo?: LineGeometry
+  private remainingGeo?: LineGeometry
+  private flownMat?: LineMaterial
+  private remainingMat?: LineMaterial
   private markers: Marker[] = []
   private flat: FlatPlan | null = null
   private legSpheres: THREE.Sphere[] = []
@@ -49,21 +55,28 @@ export class MissionPath {
       if (flat.kind[i] === 1) c.multiplyScalar(0.7) // rides a little dimmer than coasts
       col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b
     }
-    const position = new THREE.BufferAttribute(pos, 3)
-    const color = new THREE.BufferAttribute(col, 3)
-    this.flownGeo = new THREE.BufferGeometry()
-    this.flownGeo.setAttribute('position', position)
-    this.flownGeo.setAttribute('color', color)
-    this.remainingGeo = new THREE.BufferGeometry()
-    this.remainingGeo.setAttribute('position', position)
-    this.remainingGeo.setAttribute('color', color)
-    this.flownMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1 })
-    this.remainingMat = new THREE.LineDashedMaterial({ vertexColors: true, transparent: true, opacity: 0.4, dashSize: 0.35, gapSize: 0.22 })
-    this.flown = new THREE.Line(this.flownGeo, this.flownMat)
-    this.remaining = new THREE.Line(this.remainingGeo, this.remainingMat)
-    this.remaining.computeLineDistances()
-    this.flown.frustumCulled = this.remaining.frustumCulled = false
-    this.group.add(this.flown, this.remaining)
+    if (n >= 2) {
+      const rpos = new Float32Array(3 * n)
+      const rcol = new Float32Array(3 * n)
+      for (let i = 0; i < n; i++) {
+        const j = n - 1 - i
+        rpos[3 * i] = pos[3 * j]; rpos[3 * i + 1] = pos[3 * j + 1]; rpos[3 * i + 2] = pos[3 * j + 2]
+        rcol[3 * i] = col[3 * j]; rcol[3 * i + 1] = col[3 * j + 1]; rcol[3 * i + 2] = col[3 * j + 2]
+      }
+      this.flownGeo = new LineGeometry()
+      this.flownGeo.setPositions(pos)
+      this.flownGeo.setColors(col)
+      this.remainingGeo = new LineGeometry()
+      this.remainingGeo.setPositions(rpos)
+      this.remainingGeo.setColors(rcol)
+      this.flownMat = makeLineMaterial({ vertexColors: true, width: 3, opacity: 1 })
+      this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.45, dashed: { dashSize: 0.35, gapSize: 0.22 } })
+      this.flown = new Line2(this.flownGeo, this.flownMat)
+      this.remaining = new Line2(this.remainingGeo, this.remainingMat)
+      this.remaining.computeLineDistances()
+      this.flown.frustumCulled = this.remaining.frustumCulled = false
+      this.group.add(this.flown, this.remaining)
+    }
 
     // one bounding sphere per leg, for framing
     this.legSpheres = flat.legStart.map((start, k) => {
@@ -118,12 +131,14 @@ export class MissionPath {
   /** Per-frame: split flown/remaining at t, dim passed markers, size labels. */
   update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null },
          cameraPos: THREE.Vector3, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3): void {
-    if (!this.flat || !this.flownGeo || !this.remainingGeo || !this.remaining) return
-    const k = flownCount(this.flat, t)
-    this.flownGeo.setDrawRange(0, Math.max(k, 0))
-    const from = Math.max(k - 1, 0)
-    this.remainingGeo.setDrawRange(from, this.flat.n - from)
-    this.remaining.visible = opts.showRemaining
+    if (!this.flat) return
+    if (this.flownGeo && this.remainingGeo && this.remaining) {
+      const k = flownCount(this.flat, t)
+      const counts = segmentCounts(this.flat.n, k)
+      this.flownGeo.instanceCount = counts.flown
+      this.remainingGeo.instanceCount = counts.remaining
+      this.remaining.visible = opts.showRemaining && counts.remaining > 0
+    }
     for (const m of this.markers) {
       const passed = m.t <= t
       const dim = opts.selectedLeg !== null && opts.selectedLeg !== m.leg
