@@ -79,7 +79,7 @@ export class MissionPath {
         let best = 0
         for (let i = 1; i < s.t.length; i++) if (Math.abs(s.t[i] - ev.t) < Math.abs(s.t[best] - ev.t)) best = i
         const r = s.r[best]
-        const text = ev.label === 'liftoff' ? `liftoff from ${plan.launch.siteName}` : ev.label
+        const text = ev.label
         this.addMarker(ev.t, 0, kmToScene({ x: r[0], y: r[1], z: r[2] }), text, ASCENT_COLOR, ev.label !== 'liftoff')
       }
     }

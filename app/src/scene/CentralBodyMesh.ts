@@ -7,7 +7,7 @@ import { DEG, TWO_PI } from '../core/constants'
 import type { CentralBody } from '../types'
 import { kmScalarToScene } from './frame'
 import { makeGlow, makeSurfaceMaterial } from './surfaces'
-import { disposeSprite, getGlowTexture, makeLabelSprite } from './textures'
+import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export class CentralBodyMesh {
   readonly group = new THREE.Group()
@@ -17,7 +17,9 @@ export class CentralBodyMesh {
   private ring?: THREE.Mesh
   private glows: THREE.Mesh[] = []
   private marker?: THREE.Group
+  private markerLabel?: { sprite: THREE.Sprite; aspect: number }
   private markerKey = ''
+  private readonly tmp = new THREE.Vector3()
 
   setBody(body: CentralBody): void {
     if (this.body?.id === body.id) return
@@ -74,11 +76,20 @@ export class CentralBodyMesh {
     pt.frustumCulled = false
     g.add(pt)
     const { sprite, aspect } = makeLabelSprite(site.name, color)
-    sprite.scale.set(R * 0.06 * aspect, R * 0.06, 1)
-    sprite.position.set(0, 0, R * 0.03)
+    sprite.position.set(0, 0, 0)
     g.add(sprite)
     this.sphere.add(g)
     this.marker = g
+    this.markerLabel = { sprite, aspect }
+  }
+
+  /** Keep the marker label a constant size on screen, like the satellite and burn labels. */
+  updateMarkerScale(cameraPos: THREE.Vector3, viewportHeight: number, fovRad: number): void {
+    if (!this.marker || !this.markerLabel) return
+    this.marker.getWorldPosition(this.tmp)
+    const h = 14 * worldPerPixel(cameraPos.distanceTo(this.tmp), viewportHeight, fovRad)
+    this.markerLabel.sprite.scale.set(h * this.markerLabel.aspect, h, 1)
+    this.markerLabel.sprite.center.set(0.5, -0.4)
   }
 
   private clearMarker(): void {
@@ -89,6 +100,7 @@ export class CentralBodyMesh {
       if (c instanceof THREE.Sprite) disposeSprite(c)
     }
     this.marker = undefined
+    this.markerLabel = undefined
   }
 
   /** Spin the sphere and grid about the pole by a given angle (rad); the equatorial ring stays fixed. */

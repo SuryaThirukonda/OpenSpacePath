@@ -143,6 +143,7 @@ export class SceneManager {
     this.bodyMesh.setSpin(spin)
     const start = s.scenario.mission?.start
     this.bodyMesh.setSurfaceMarker(start?.kind === 'launch' ? start.launch.site : null)
+    this.bodyMesh.updateMarkerScale(this.camera.position, this.container.clientHeight || 1, (this.camera.fov * Math.PI) / 180)
   }
 
   private syncSatellites(s: AppState): void {
