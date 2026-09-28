@@ -1,6 +1,6 @@
 # Mission path visualization with burns: implementation plan
 
-**Document** OSP-PLAN-002 · **Date** 2026-09-22, revised the same day for Python compute · **Status** implemented 2026-09-22/23 through step 5 (see `api/README.md`); this document is the design record · **Builds on** `04_system_design.md` §5, §7.14, §7.15, §7.17, amended by §12 below
+**Document** OSP-PLAN-002 · **Date** 2026-09-22, revised the same day for Python compute · **Status** implemented 2026-09-22/23 through step 5, launch-from-the-ground added 2026-09-28 (§13; see `api/README.md`); this document is the design record · **Builds on** `04_system_design.md` §5, §7.14, §7.15, §7.17, amended by §12 below
 
 ## 1. What is being built
 
@@ -265,3 +265,29 @@ The system design (04, §1 and §5.13) chose a static site with no backend and a
 
 **Not migrated.** Rendering, the satellites' own propagation for their markers, URL state, and everything else the browser does today stay in TypeScript. There is no server-side rendering and no database.
 
+
+
+## 13. Launch from a site on the ground (added 2026-09-28)
+
+The start of a tour can be a launch pad instead of a parking orbit or a satellite. `api/launch.py` carries the ascent to a circular parking orbit; the tour's first leg then departs from the insertion state at the insertion time, through the same Lambert machinery as every other leg.
+
+### 13.1 Geometry
+
+- The pad is on the WGS-84 ellipsoid (geodetic latitude, longitude, altitude) and is rotated into the inertial frame by Greenwich mean sidereal time (IAU 1982, UT1 taken as UTC), the same formula the browser uses to spin the globe (`satellite.gstime`), so the drawn pad marker and the computed pad coincide. Other bodies use a sphere spun at 2π t / rotationPeriod, again matching the browser.
+- Earth's rotation gives the pad a velocity ω × r (about 0.409 km/s at Cape Canaveral). The component along the launch direction is free; the component out of the launch plane must be steered out and costs about v⊥² / (2 Δv) by vector addition, a few m/s, charged at cutoff.
+- Launch azimuth β from cos i = cos φ sin β, ascending or descending node; an inclination below the latitude is unreachable, so the planner launches due east into i = |φ| and warns that the first leg pays the plane change.
+- Launch window: slide the liftoff time over one rotation and pick the instant where the plane through the pad and the launch direction best aligns with the first stop's orbit plane (720-point scan, golden-section refinement). Alignment is reported; below cos 3° a warning says the first leg pays for the difference.
+
+### 13.2 Ascent model
+
+Planar state (r, θ, v_r, v_t, m) in the launch plane, RK4 at 0.5 s. Per step: thrust from the current stage with sea-level to vacuum Isp blended by an exponential pressure profile (scale height 7 km), throttled so acceleration stays under the vehicle's g-limit; drag ½ρ v_rel² C_D A with an exponential atmosphere (ρ₀ 1.225 kg/m³, scale height 7.16 km, off above 150 km) and a co-rotating air mass; gravity μ/r². Steering: 8 s vertical, an 8 s pitch kick of κ degrees, then a gravity turn (thrust along the air-relative velocity) while the first stage burns below 60 km, then a closed-loop law that commands the pitch so the radial speed reaches zero exactly at the parking radius (constant radial deceleration, clamped to −10°…+60°). Stages drop when a tank empties. Main engine cutoff when the osculating apoapsis reaches the parking radius; Kepler coast to apoapsis; impulsive circularization from the same stage's remaining propellant. κ is scanned (1°–15°) and the feasible ascent that burns the least propellant is kept.
+
+Reported per launch: liftoff, staging, cutoff and insertion times; azimuth, inclination, RAAN and plane alignment; gross liftoff mass and payload (the tour ship, dry plus propellant); propellant burned and left per stage with burn times; the delta-v budget as integrated thrust acceleration (ideal), gravity loss ∫g sin γ dt, drag loss ∫D/m dt, steering loss ∫a_T (1 − cos α) dt, circularization, rotation help and plane correction; max-Q, max acceleration, downrange distance; samples at 2 s during powered flight and 100 along the coast; the burn intervals for the continuous flare.
+
+Check figures for the illustrative Falcon 9-class vehicle with a 15 t payload to 200 km from 28.5° N: 8.8 km/s delivered, losses 1.3 km/s (gravity 0.8, drag 0.02, steering 0.5), max-Q 35 kPa, cutoff at about 400 s, second stage keeps about 9 t. Public figures for the real vehicle are 9.0 to 9.4 km/s with 1.5 to 1.7 km/s of losses; the model flies a lofted closed-loop profile with no max-Q throttle-down, which is why its losses come out a little lower.
+
+Not modelled: winds, a tabulated atmosphere, fairing jettison, boost-back or landing reserves, range constraints, yaw steering as a separate channel, finite circularization.
+
+### 13.3 In the app
+
+`StartOrbit` gains `kind: 'launch'` with a site (presets for nine pads, or custom coordinates), a vehicle (Falcon 9-class, a small launcher, a heavy three-stage, each stage editable: dry mass, propellant, vacuum Isp, thrust; drag area and g-limit), and the parking altitude. The URL schema (still v2) carries it. The plan's `launch` report renders as a table under the totals; the ascent draws in white ahead of the first leg with liftoff, staging, cutoff and circularization markers; the pad is a labelled dot parented to the spinning globe; the engine flare stays lit through each stage's burn interval; the follow camera tracks the ascent. "Whole mission" on the timeline and "Fit timeline" start at liftoff.

@@ -16,6 +16,10 @@ Units: km, km/s, s, kg, N, rad. Times are simulated seconds since the scenario e
 
 `legs.py` scans the time of flight, solves Lambert with `lamberthub.izzo2015` to the target's position at arrival, and returns the departure and braking burns. `strategies.py` expresses three- and four-burn transfers as chains of Lambert legs through waypoints and tunes them with scipy's Nelder-Mead: phasing loops, bi-elliptic transfers, and a node plane change. `best` keeps the cheapest. `mission.py` chains legs, rides the target during dwells, and samples everything for the browser. Fidelity: impulsive burns, two-body coasts for the ship, targets on their own propagators (two-body or SGP4).
 
+## Launching from the ground
+
+A tour can start on a launch pad (`start.kind = "launch"`). `launch.py` finds the launch window and azimuth that put the pad in the first stop's orbit plane, integrates a staged ascent with drag, gravity and steering losses and a g-limit, cuts off when the apoapsis reaches the parking altitude, coasts and circularizes, and hands the parking state to the tour. The `launch` field of the plan reports the times, masses, the delta-v budget with its losses, max-Q and per-stage propellant. `research/05_mission_path_plan.md` §13 has the model and its limits.
+
 ## Local development
 
 ```bash
@@ -33,7 +37,7 @@ System Python 3.14 cannot install `numba`, which `lamberthub` needs, hence the 3
 api/.venv/bin/pytest api/tests -q
 ```
 
-Anchors: Curtis Examples 4.7 and 5.2; 500 random legs against lamberthub's Gooding and Vallado solvers and an independent numpy Izzo port; every planned leg propagated to its target within 1 m and 1 mm/s; Hohmann recovered when the phase is right; bi-elliptic beats Hohmann at a radius ratio of 15 and not at 8; phasing fixes a quarter-turn phase error for under 1 km/s. CI runs the suite on Python 3.12.
+Anchors: Curtis Examples 4.7 and 5.2; 500 random legs against lamberthub's Gooding and Vallado solvers and an independent numpy Izzo port; every planned leg propagated to its target within 1 m and 1 mm/s; Hohmann recovered when the phase is right; bi-elliptic beats Hohmann at a radius ratio of 15 and not at 8; phasing fixes a quarter-turn phase error for under 1 km/s; GMST matches the browser's anchor; a Falcon 9-class ascent reaches a 200 km circular orbit with realistic losses and the first leg departs from its insertion state. CI runs the suite on Python 3.12.
 
 ## Deployment
 

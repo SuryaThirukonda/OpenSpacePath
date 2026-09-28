@@ -36,6 +36,32 @@ function fakePlan(): MissionPlan {
   }
 }
 
+function withLaunch(plan: MissionPlan): MissionPlan {
+  const samples = sampled(el, -600, 0, 20)
+  return {
+    ...plan,
+    launch: {
+      siteName: 'Cape', vehicleName: 'F9', liftoffT: -600, mecoT: -200, insertionT: 0, azimuthDeg: 45, inclinationDeg: 51.6, raanDeg: 0,
+      planeAlignment: 1, parkingAltitude: 200, parkingPeriod: 5300, grossLiftoffMass: 5e5, payloadMass: 1e4, kickAngleDeg: 3, maxQ: 30, maxG: 4,
+      downrangeKm: 1000, events: [{ t: -600, label: 'liftoff' }], stages: [], samples, warnings: [], feasible: true,
+      budget: { ideal: 8, gravityLoss: 1, dragLoss: 0.1, steeringLoss: 0.2, circularization: 0.1, earthRotation: 0.3, planeCorrection: 0.01 },
+      burnIntervals: [{ t0: -600, t1: -200, label: 'burn' }],
+    },
+  }
+}
+
+describe('mission state with a launch', () => {
+  it('puts the ascent first, before the first leg, and reports it as its own kind', () => {
+    const flat = flattenPlan(withLaunch(fakePlan()))
+    expect(flat.tStart).toBe(-600)
+    expect(flat.kind[0]).toBe(2)
+    expect(shipStateAt(flat, -300)?.kind).toBe('ascent')
+    expect(shipStateAt(flat, 10)?.kind).toBe('arc')
+    expect(flat.legStart).toEqual([0])
+    for (let i = 1; i < flat.n; i++) expect(flat.t[i]).toBeGreaterThanOrEqual(flat.t[i - 1])
+  })
+})
+
 describe('mission state interpolation', () => {
   const flat = flattenPlan(fakePlan())
   const T = period(el.a, mu)

@@ -6,7 +6,7 @@
 import type { StateVector, Vec3 } from '../types'
 import type { MissionPlan } from './types'
 
-export type SegmentKind = 'arc' | 'ride'
+export type SegmentKind = 'arc' | 'ride' | 'ascent'
 
 /** All samples of a plan concatenated in time order, as typed arrays for per-frame use. */
 export interface FlatPlan {
@@ -16,7 +16,7 @@ export interface FlatPlan {
   v: Float64Array
   /** leg index per sample */
   leg: Uint16Array
-  /** 0 = coast arc, 1 = ride with a target */
+  /** 0 = coast arc, 1 = ride with a target, 2 = powered ascent from the pad */
   kind: Uint8Array
   /** sample index where each leg starts */
   legStart: number[]
@@ -25,7 +25,8 @@ export interface FlatPlan {
 }
 
 export function flattenPlan(plan: MissionPlan): FlatPlan {
-  const parts: Array<{ t: number[]; r: number[][]; v: number[][]; leg: number; kind: 0 | 1 }> = []
+  const parts: Array<{ t: number[]; r: number[][]; v: number[][]; leg: number; kind: 0 | 1 | 2 }> = []
+  if (plan.launch && plan.launch.samples.t.length > 0) parts.push({ ...plan.launch.samples, leg: 0, kind: 2 })
   plan.legs.forEach((leg, k) => {
     for (const arc of leg.arcs) parts.push({ ...arc.samples, leg: k, kind: 0 })
     if (leg.ride && leg.ride.samples.t.length > 0) parts.push({ ...leg.ride.samples, leg: k, kind: 1 })
@@ -88,7 +89,7 @@ export function shipStateAt(flat: FlatPlan, t: number): ShipState | null {
   const pick = (k: number): ShipState => ({
     r: { x: flat.r[3 * k], y: flat.r[3 * k + 1], z: flat.r[3 * k + 2] },
     v: { x: flat.v[3 * k], y: flat.v[3 * k + 1], z: flat.v[3 * k + 2] },
-    leg: flat.leg[k], kind: flat.kind[k] === 0 ? 'arc' : 'ride', outside: t < flat.tStart || t > flat.tEnd,
+    leg: flat.leg[k], kind: kindName(flat.kind[k]), outside: t < flat.tStart || t > flat.tEnd,
   })
   if (i >= flat.n - 1 || t <= flat.t[0]) return pick(i)
   const j = i + 1
@@ -115,8 +116,12 @@ export function shipStateAt(flat: FlatPlan, t: number): ShipState | null {
   }
   return {
     r: { x: r[0], y: r[1], z: r[2] }, v: { x: v[0], y: v[1], z: v[2] },
-    leg: flat.leg[i], kind: flat.kind[i] === 0 ? 'arc' : 'ride', outside: false,
+    leg: flat.leg[i], kind: kindName(flat.kind[i]), outside: false,
   }
+}
+
+function kindName(k: number): SegmentKind {
+  return k === 0 ? 'arc' : k === 1 ? 'ride' : 'ascent'
 }
 
 export function toVec3(a: [number, number, number]): Vec3 {

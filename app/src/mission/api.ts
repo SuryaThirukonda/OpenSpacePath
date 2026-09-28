@@ -18,7 +18,7 @@ export async function planMission(scenario: Scenario, mission: MissionInput, sig
     headers: { 'content-type': 'application/json' },
     signal,
     body: JSON.stringify({
-      body: { id: body.id, mu: body.mu, radius: body.radius },
+      body: { id: body.id, mu: body.mu, radius: body.radius, rotationPeriod: body.rotationPeriod, atmosphere: body.atmosphere !== undefined },
       epoch: scenario.epoch,
       satellites: scenario.satellites.map(wireSatellite),
       mission,

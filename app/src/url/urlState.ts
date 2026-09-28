@@ -8,7 +8,7 @@ import { validateElements } from '../core/elements'
 import { snapRate } from '../core/time'
 import { BODY_BY_ID } from '../data/bodies'
 import { validateTleLines } from '../propagation/sgp4Propagator'
-import type { MissionInput, Stop, Strategy } from '../mission/types'
+import type { LaunchSpec, MissionInput, Stage, Stop, Strategy } from '../mission/types'
 import type { KeplerSatellite, OrbitalElements, Satellite, Scenario, TleSatellite } from '../types'
 
 export const PARAM = 's'
@@ -68,6 +68,40 @@ function cleanElements(x: unknown, bodyRadius: number): OrbitalElements | null {
   return validateElements(elements, bodyRadius).ok ? elements : null
 }
 
+function cleanLaunch(x: unknown): LaunchSpec | null {
+  if (!x || typeof x !== 'object') return null
+  const o = x as Record<string, unknown>
+  const site = o.site as Record<string, unknown> | undefined
+  const vehicle = o.vehicle as Record<string, unknown> | undefined
+  if (!site || !vehicle) return null
+  if (!isNum(site.latitude) || Math.abs(site.latitude) > 90 || !isNum(site.longitude) || Math.abs(site.longitude) > 360) return null
+  const stages: Stage[] = []
+  for (const raw of Array.isArray(vehicle.stages) ? vehicle.stages : []) {
+    const st = raw as Record<string, unknown>
+    if (!['dryMass', 'propellantMass', 'ispVacuum', 'thrustVacuum'].every((k) => isNum(st[k]) && (st[k] as number) > 0)) return null
+    stages.push({
+      name: typeof st.name === 'string' ? st.name : `stage ${stages.length + 1}`,
+      dryMass: st.dryMass as number, propellantMass: st.propellantMass as number, ispVacuum: st.ispVacuum as number, thrustVacuum: st.thrustVacuum as number,
+      ...(isNum(st.ispSeaLevel) && (st.ispSeaLevel as number) > 0 ? { ispSeaLevel: st.ispSeaLevel as number } : {}),
+    })
+  }
+  if (stages.length < 1 || stages.length > 4) return null
+  const parking = isNum(o.parkingAltitude) ? Math.min(2000, Math.max(120, o.parkingAltitude as number)) : 200
+  const spec: LaunchSpec = {
+    site: { name: typeof site.name === 'string' ? site.name : 'site', latitude: site.latitude, longitude: site.longitude, altitude: isNum(site.altitude) ? site.altitude : 0 },
+    vehicle: {
+      name: typeof vehicle.name === 'string' ? vehicle.name : 'launcher', stages,
+      dragArea: isNum(vehicle.dragArea) && (vehicle.dragArea as number) > 0 ? (vehicle.dragArea as number) : 10,
+      dragCoefficient: isNum(vehicle.dragCoefficient) && (vehicle.dragCoefficient as number) > 0 ? (vehicle.dragCoefficient as number) : 0.3,
+      maxAcceleration: isNum(vehicle.maxAcceleration) && (vehicle.maxAcceleration as number) > 1 ? Math.min(20, vehicle.maxAcceleration as number) : 5,
+    },
+    parkingAltitude: parking,
+  }
+  if (isNum(o.inclination) && (o.inclination as number) >= 0 && (o.inclination as number) <= 180) spec.inclination = o.inclination as number
+  if (isNum(o.launchTime)) spec.launchTime = o.launchTime as number
+  return spec
+}
+
 /** Mission inputs from a URL, or undefined when absent or malformed (the scenario survives either way). */
 function cleanMission(x: unknown, satellites: Satellite[], bodyRadius: number): MissionInput | undefined {
   if (!x || typeof x !== 'object') return undefined
@@ -82,6 +116,10 @@ function cleanMission(x: unknown, satellites: Satellite[], bodyRadius: number): 
   if (start?.kind === 'elements') {
     const el = cleanElements(start.elements, bodyRadius)
     if (el) cleanStart = { kind: 'elements', elements: el }
+  }
+  if (start?.kind === 'launch') {
+    const launch = cleanLaunch(start.launch)
+    if (launch) cleanStart = { kind: 'launch', launch }
   }
   if (!cleanStart) return undefined
   const stops: Stop[] = []

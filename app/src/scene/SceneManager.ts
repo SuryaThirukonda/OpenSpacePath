@@ -141,6 +141,8 @@ export class SceneManager {
     const date = new Date(epochMs(s) + s.t * 1000)
     const spin = body.id === 'earth' ? gmst(date) : (TWO_PI * s.t) / body.rotationPeriod
     this.bodyMesh.setSpin(spin)
+    const start = s.scenario.mission?.start
+    this.bodyMesh.setSurfaceMarker(start?.kind === 'launch' ? start.launch.site : null)
   }
 
   private syncSatellites(s: AppState): void {
@@ -331,12 +333,16 @@ export class SceneManager {
       )
     }
     if (s.t < this.prevT) this.firedBurns.clear() // scrubbed back: burns can fire again
+    // powered ascent: the engines stay lit for the whole interval
+    if (s.plan.launch && s.playing && st.kind === 'ascent' && s.plan.launch.burnIntervals.some((b) => b.t0 <= s.t && s.t < b.t1)) {
+      this.burnEffect.sustain(vel.clone().negate(), nowMs)
+    }
     this.prevT = s.t
     this.burnEffect.group.position.copy(pos)
     this.burnEffect.update(nowMs, dist, h, fov)
 
     // follow camera while coasting: keep the ship at the controls' target and carry the camera along
-    if (s.followShip && st.kind === 'arc' && !st.outside) {
+    if (s.followShip && st.kind !== 'ride' && !st.outside) {
       if (this.followLeg !== st.leg) {
         this.followLeg = st.leg
         const sphere = this.missionPath.legSphere(st.leg)

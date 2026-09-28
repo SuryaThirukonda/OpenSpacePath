@@ -10,6 +10,7 @@ import { kmToScene } from './frame'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export const LEG_COLORS = ['#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd', '#7cf5ff']
+export const ASCENT_COLOR = '#ffffff'
 
 interface Marker {
   t: number
@@ -44,7 +45,7 @@ export class MissionPath {
     for (let i = 0; i < n; i++) {
       kmToScene({ x: flat.r[3 * i], y: flat.r[3 * i + 1], z: flat.r[3 * i + 2] }, v)
       pos[3 * i] = v.x; pos[3 * i + 1] = v.y; pos[3 * i + 2] = v.z
-      c.set(LEG_COLORS[flat.leg[i] % LEG_COLORS.length])
+      c.set(flat.kind[i] === 2 ? ASCENT_COLOR : LEG_COLORS[flat.leg[i] % LEG_COLORS.length])
       if (flat.kind[i] === 1) c.multiplyScalar(0.7) // rides a little dimmer than coasts
       col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b
     }
@@ -72,6 +73,16 @@ export class MissionPath {
       return new THREE.Sphere().setFromPoints(pts)
     })
 
+    if (plan.launch) {
+      const s = plan.launch.samples
+      for (const ev of plan.launch.events) {
+        let best = 0
+        for (let i = 1; i < s.t.length; i++) if (Math.abs(s.t[i] - ev.t) < Math.abs(s.t[best] - ev.t)) best = i
+        const r = s.r[best]
+        const text = ev.label === 'liftoff' ? `liftoff from ${plan.launch.siteName}` : ev.label
+        this.addMarker(ev.t, 0, kmToScene({ x: r[0], y: r[1], z: r[2] }), text, ASCENT_COLOR, ev.label !== 'liftoff')
+      }
+    }
     plan.legs.forEach((leg, k) => {
       const color = LEG_COLORS[k % LEG_COLORS.length]
       for (const b of leg.burns) {

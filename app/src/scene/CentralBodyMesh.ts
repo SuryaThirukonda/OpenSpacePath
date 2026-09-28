@@ -7,6 +7,7 @@ import { DEG, TWO_PI } from '../core/constants'
 import type { CentralBody } from '../types'
 import { kmScalarToScene } from './frame'
 import { makeGlow, makeSurfaceMaterial } from './surfaces'
+import { disposeSprite, getGlowTexture, makeLabelSprite } from './textures'
 
 export class CentralBodyMesh {
   readonly group = new THREE.Group()
@@ -15,6 +16,8 @@ export class CentralBodyMesh {
   private grid?: THREE.LineSegments
   private ring?: THREE.Mesh
   private glows: THREE.Mesh[] = []
+  private marker?: THREE.Group
+  private markerKey = ''
 
   setBody(body: CentralBody): void {
     if (this.body?.id === body.id) return
@@ -49,6 +52,45 @@ export class CentralBodyMesh {
     }
   }
 
+  /** Put a labelled dot on the surface at a geodetic latitude and longitude (deg); it spins with the body. */
+  setSurfaceMarker(site: { latitude: number; longitude: number; name: string } | null, color = '#ffffff'): void {
+    const key = site ? `${site.name}|${site.latitude}|${site.longitude}|${color}` : ''
+    if (key === this.markerKey) return
+    this.markerKey = key
+    this.clearMarker()
+    if (!site || !this.sphere || !this.body) return
+    const R = kmScalarToScene(this.body.radius) * 1.004
+    const lat = site.latitude * DEG
+    const lon = site.longitude * DEG
+    const g = new THREE.Group()
+    g.position.set(R * Math.cos(lat) * Math.cos(lon), R * Math.cos(lat) * Math.sin(lon), R * Math.sin(lat))
+    const pg = new THREE.BufferGeometry()
+    pg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3))
+    const pm = new THREE.PointsMaterial({
+      size: 10, sizeAttenuation: false, map: getGlowTexture(), color: new THREE.Color(color),
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    })
+    const pt = new THREE.Points(pg, pm)
+    pt.frustumCulled = false
+    g.add(pt)
+    const { sprite, aspect } = makeLabelSprite(site.name, color)
+    sprite.scale.set(R * 0.06 * aspect, R * 0.06, 1)
+    sprite.position.set(0, 0, R * 0.03)
+    g.add(sprite)
+    this.sphere.add(g)
+    this.marker = g
+  }
+
+  private clearMarker(): void {
+    if (!this.marker) return
+    this.sphere?.remove(this.marker)
+    for (const c of this.marker.children) {
+      if (c instanceof THREE.Points) { c.geometry.dispose(); (c.material as THREE.Material).dispose() }
+      if (c instanceof THREE.Sprite) disposeSprite(c)
+    }
+    this.marker = undefined
+  }
+
   /** Spin the sphere and grid about the pole by a given angle (rad); the equatorial ring stays fixed. */
   setSpin(angle: number): void {
     if (this.sphere) this.sphere.rotation.z = angle
@@ -56,6 +98,8 @@ export class CentralBodyMesh {
   }
 
   dispose(): void {
+    this.clearMarker()
+    this.markerKey = ''
     for (const o of [this.sphere, this.grid, this.ring, ...this.glows]) {
       if (!o) continue
       this.group.remove(o)

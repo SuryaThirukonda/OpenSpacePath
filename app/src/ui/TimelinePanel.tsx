@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { absoluteDate, formatDuration, formatUtc, PLAYBACK_RATES } from '../core/time'
+import { planStart } from '../mission/types'
 import { epochMs, satellitePeriod, selectedSatellite, useStore } from '../store/store'
 import { Panel } from './Panel'
 
@@ -21,7 +22,7 @@ export function TimelinePanel() {
   const [epochDraft, setEpochDraft] = useState<string | null>(null)
 
   const plan = useStore((s) => s.plan)
-  const missionEnd = plan ? (useStore.getState().scenario.mission?.startT ?? 0) + plan.totalTime : null
+  const missionEnd = plan ? planStart(plan, useStore.getState().scenario.mission?.startT ?? 0) + plan.totalTime : null
   const selectedPeriod = selected ? satellitePeriod(selected, bodyId) : null
   const spanChoice =
     SPANS.find(([, s]) => s === span)?.[1] ??

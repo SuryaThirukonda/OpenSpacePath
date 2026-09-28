@@ -37,6 +37,14 @@ export class BurnEffect {
     this.group.visible = true
   }
 
+  /** Keep the flare lit this frame (a powered ascent); it fades out shortly after the last call. */
+  sustain(exhaustDir: THREE.Vector3, nowMs: number): void {
+    this.cone.quaternion.setFromUnitVectors(UP, exhaustDir.clone().normalize().negate())
+    if (!this.group.visible || nowMs >= this.endMs) this.startMs = nowMs - 300
+    this.endMs = nowMs + 300
+    this.group.visible = true
+  }
+
   get active(): boolean {
     return this.group.visible
   }

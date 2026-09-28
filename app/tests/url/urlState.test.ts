@@ -42,6 +42,22 @@ describe('url state', () => {
     const withJunk = { ...sc, satellites: [{ ...sc.satellites[0], junk: 'x' }] } as unknown as Scenario
     expect(decodeScenario(encodeScenario(withJunk))?.satellites[0]).not.toHaveProperty('junk')
   })
+  it('carries a launch start and rejects an impossible latitude', () => {
+    const launch = {
+      site: { name: 'Cape Canaveral', latitude: 28.5, longitude: -80.6, altitude: 0 },
+      vehicle: { name: 'F9', stages: [{ name: 's1', dryMass: 25600, propellantMass: 395700, ispVacuum: 311, ispSeaLevel: 282, thrustVacuum: 8227000 }], dragArea: 10.5, dragCoefficient: 0.3, maxAcceleration: 5 },
+      parkingAltitude: 200,
+    }
+    const mission = {
+      ship: { name: 'x', dryMass: 1000, propellantMass: 5000, isp: 350, maxThrust: 1e5, minBurnSpacing: 60 },
+      startT: 0, start: { kind: 'launch' as const, launch }, stops: [{ satelliteId: sc.satellites[0].id, dwellSeconds: 0, strategy: 'best' as const }], departureWindow: 0,
+    }
+    const out = decodeScenario(encodeScenario({ ...sc, mission }))
+    expect(out?.mission?.start).toEqual({ kind: 'launch', launch })
+    const bad = { ...mission, start: { kind: 'launch' as const, launch: { ...launch, site: { ...launch.site, latitude: 95 } } } }
+    expect(decodeScenario(encodeScenario({ ...sc, mission: bad }))?.mission).toBeUndefined()
+  })
+
   it('carries mission inputs and drops stops that point at missing satellites', () => {
     const mission = {
       ship: { name: 'S', dryMass: 5000, propellantMass: 60000, isp: 350, maxThrust: 100000, minBurnSpacing: 60 },
