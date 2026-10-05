@@ -59,6 +59,38 @@ def test_falcon9_class_ascent_to_200_km_is_realistic():
     assert used < sum(s.propellant for s in stages)
 
 
+# The three vehicle presets the app ships (app/src/data/launch.ts), each with payloads it should carry.
+PRESETS = {
+    "falcon9": (F9["stages"], 0.3 * 10.5, 5.0, [4800.0, 15000.0]),
+    "small": ([{"name": "s1", "dryMass": 950, "propellantMass": 9250, "ispVacuum": 303, "ispSeaLevel": 275, "thrustVacuum": 225000},
+               {"name": "s2", "dryMass": 250, "propellantMass": 2050, "ispVacuum": 343, "thrustVacuum": 25800}], 0.35 * 1.2, 7.0, [150.0, 300.0]),
+    "heavy": ([{"name": "s1", "dryMass": 130000, "propellantMass": 2100000, "ispVacuum": 304, "ispSeaLevel": 263, "thrustVacuum": 38000000},
+               {"name": "s2", "dryMass": 36000, "propellantMass": 445000, "ispVacuum": 421, "thrustVacuum": 5100000},
+               {"name": "s3", "dryMass": 10000, "propellantMass": 107000, "ispVacuum": 421, "thrustVacuum": 1000000}], 0.32 * 45, 4.5, [4800.0, 55000.0, 120000.0]),
+}
+
+
+def _stages(spec):
+    return [L.Stage(s["name"], s["dryMass"], s["propellantMass"], s["ispVacuum"], s.get("ispSeaLevel", 0.9 * s["ispVacuum"]), s["thrustVacuum"]) for s in spec]
+
+
+def test_every_vehicle_preset_reaches_orbit():
+    # A liftoff thrust-to-weight near 1.15 (the heavy vehicle) used to tip over in the gravity turn.
+    for name, (spec, cd_area, max_g, payloads) in PRESETS.items():
+        for payload in payloads:
+            res = L.best_ascent(_stages(spec), payload, R_EARTH, 0.29, MU_EARTH, R_EARTH + 200.0, cd_area, max_g=max_g)
+            assert res.feasible, (name, payload, res.warnings)
+            assert 0.5 < res.gravity_loss < 2.0, (name, payload, res.gravity_loss)
+            assert res.max_g <= max_g + 1e-9
+            assert 15 < res.max_q < 70, (name, payload, res.max_q)
+
+
+def test_a_vehicle_that_cannot_lift_off_says_so():
+    res = L.best_ascent(_stages(PRESETS["small"][0]), 12000.0, R_EARTH, 0.29, MU_EARTH, R_EARTH + 200.0, 0.42)
+    assert not res.feasible
+    assert "thrust-to-weight at liftoff" in res.warnings[0]
+
+
 def test_too_heavy_a_payload_is_infeasible():
     stages = [L.Stage(s["name"], s["dryMass"], s["propellantMass"], s["ispVacuum"], s.get("ispSeaLevel", 0.9 * s["ispVacuum"]), s["thrustVacuum"]) for s in F9["stages"]]
     res = L.best_ascent(stages, 300000.0, R_EARTH, 0.4, MU_EARTH, R_EARTH + 200.0, 3.15)

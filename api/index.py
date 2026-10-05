@@ -13,7 +13,7 @@ from . import lambert
 from .mission import plan_mission
 from .models import MissionPlan, PlanRequest
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 app = FastAPI(title="Orbit Lab planner", version=VERSION)
 

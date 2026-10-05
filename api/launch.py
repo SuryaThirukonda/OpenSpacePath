@@ -7,7 +7,7 @@ What is modelled, and how honestly:
 - Launch azimuth from spherical trigonometry, cos i = cos(lat) sin(azimuth), and a launch window
   found by sliding the liftoff time until the pad lies in the target satellite's orbit plane.
 - A planar ascent integrated step by step: staged thrust with sea-level to vacuum Isp blending,
-  exponential-atmosphere drag, a vertical rise, a pitch kick, then a gravity turn (thrust along
+  exponential-atmosphere drag, a vertical rise to 50 m/s, a pitch kick, then a gravity turn (thrust along
   the air-relative velocity) with a pitch limit on upper stages; main-engine cutoff when the
   apoapsis reaches the parking radius; coast to apoapsis; an impulsive circularization burn.
   The kick angle is chosen by a scan for the least propellant.
@@ -199,13 +199,15 @@ def _apoapsis(r, vr, vt, mu):
 def simulate_ascent(stages: list[Stage], payload: float, r0: float, vt0: float, mu: float, r_park: float,
                     cd_area: float, kick_deg: float, dt: float = 0.5, t_vertical: float = 8.0,
                     t_kick: float = 8.0, max_g: float = 5.0, radius: float = A_WGS84,
-                    atmosphere: bool = True, v_perp: float = 0.0) -> AscentResult:
+                    atmosphere: bool = True, v_perp: float = 0.0, v_kick: float = 0.05) -> AscentResult:
     """Planar ascent in the launch plane; r km, velocities km/s, masses kg, forces N.
     r0 is the pad radius, radius the local sea-level radius (for altitude and the atmosphere).
     v_perp is the pad's velocity component out of the launch plane; the vehicle has to steer it
     out, which by vector addition costs about v_perp^2 / (2 dv) and is charged at cutoff.
 
-    Steering: vertical rise, a pitch kick of kick_deg, then a gravity turn (thrust along the
+    Steering: vertical rise until both t_vertical seconds have passed and the climb rate has
+    reached v_kick (a slow, heavy vehicle has to wait longer, or the turn that follows tips it
+    over), a pitch kick of kick_deg, then a gravity turn (thrust along the
     air-relative velocity) while the first stage burns inside the sensible atmosphere; after that a
     closed-loop law picks the pitch so the radial speed reaches zero exactly at the parking radius
     (constant radial deceleration), which is what a simple launch guidance does. Thrust is
@@ -227,11 +229,18 @@ def simulate_ascent(stages: list[Stage], payload: float, r0: float, vt0: float, 
     samples = []
     meco = None
     g_cap = max_g * G0 / 1000.0                          # km/s^2
+    kick_t0 = [math.inf]                                 # set when the vertical rise ends
+    first = stages[0]
+    liftoff_thrust = first.thrust_vac * (first.isp_sl / first.isp_vac if atmosphere else 1.0)   # N
+    liftoff_tw = (liftoff_thrust / m / 1000.0) / (mu / (r0 * r0))
+    if liftoff_tw <= 1.02:
+        return AscentResult(False, kick_deg, 0.0, 0.0, [], [], events, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, (r, th, vr, vt, m), r0,
+                            [f"thrust-to-weight at liftoff is {liftoff_tw:.2f}; the vehicle cannot lift {m / 1000:.0f} t off the pad"])
 
     def derivs(state, t, stage: Stage, closed_loop: bool):
         r, th, vr, vt, m = state
         h_km = r - radius
-        isp = stage.isp_vac - (stage.isp_vac - stage.isp_sl) * math.exp(-h_km / H_P)
+        isp = stage.isp_vac - (stage.isp_vac - stage.isp_sl) * math.exp(-h_km / H_P) if atmosphere else stage.isp_vac
         F = stage.thrust_vac * isp / stage.isp_vac       # N, sea-level to vacuum thrust
         a_thr = F / m / 1000.0                            # km/s^2
         if a_thr > g_cap:                                 # throttle down
@@ -244,9 +253,9 @@ def simulate_ascent(stages: list[Stage], payload: float, r0: float, vt0: float, 
         q = 0.5 * rho * (vrel * 1000.0) ** 2              # Pa
         a_drag = q * cd_area / m / 1000.0
         g = mu / (r * r)
-        if t < t_vertical:
+        if t < kick_t0[0]:
             ur, ut = 1.0, 0.0
-        elif t < t_vertical + t_kick:
+        elif t < kick_t0[0] + t_kick:
             ur, ut = math.cos(kick), math.sin(kick)
         elif not closed_loop:
             gamma = math.atan2(vr, vt_air) if vrel > 1e-9 else math.pi / 2
@@ -272,6 +281,8 @@ def simulate_ascent(stages: list[Stage], payload: float, r0: float, vt0: float, 
         stage = stages[stage_i]
         while prop_left[stage_i] > 0:
             closed_loop = stage_i > 0 or (r - radius) > 60.0
+            if kick_t0[0] == math.inf and t >= t_vertical and vr >= v_kick:
+                kick_t0[0] = t
             state = (r, th, vr, vt, m)
             k1, book = derivs(state, t, stage, closed_loop)
             s2 = tuple(x + 0.5 * dt * k for x, k in zip(state, k1)); k2, _ = derivs(s2, t + 0.5 * dt, stage, closed_loop)
@@ -347,7 +358,7 @@ def best_ascent(stages, payload, r0, vt0, mu, r_park, cd_area, max_g=5.0, radius
     """Scan the pitch-kick angle and keep the feasible ascent that burns the least propellant."""
     best = None
     attempts = []
-    for kick in (1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0):
+    for kick in (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0):
         res = simulate_ascent(stages, payload, r0, vt0, mu, r_park, cd_area, kick, max_g=max_g, radius=radius,
                               atmosphere=atmosphere, v_perp=v_perp)
         attempts.append(res)
