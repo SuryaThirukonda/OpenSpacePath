@@ -15,6 +15,9 @@ import type { Satellite, Scenario } from '../types'
 
 export type CameraRequestKind = 'body' | 'orbit' | 'reset' | 'ship'
 
+/** free: the user steers. follow: the camera travels with the ship. chase: third person behind it. birdseye: fixed, above the current route. */
+export type CameraMode = 'free' | 'follow' | 'chase' | 'birdseye'
+
 export type PlanStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export interface AppState {
@@ -31,7 +34,7 @@ export interface AppState {
   plan: MissionPlan | null
   planStatus: PlanStatus
   planError: string | null
-  followShip: boolean
+  cameraMode: CameraMode
   showRemaining: boolean
   showBurnLabels: boolean
   selectedLeg: number | null
@@ -55,7 +58,7 @@ export interface AppState {
   setMission: (mission: MissionInput | null) => void
   requestPlan: () => Promise<void>
   clearPlan: () => void
-  toggleFollowShip: () => void
+  setCameraMode: (mode: CameraMode) => void
   toggleRemaining: () => void
   toggleBurnLabels: () => void
   selectLeg: (leg: number | null) => void
@@ -89,7 +92,7 @@ export const useStore = create<AppState>((set) => ({
   plan: null,
   planStatus: 'idle',
   planError: null,
-  followShip: true,
+  cameraMode: 'follow',
   showRemaining: true,
   showBurnLabels: true,
   selectedLeg: null,
@@ -169,7 +172,7 @@ export const useStore = create<AppState>((set) => ({
     }
   },
   clearPlan: () => set({ ...invalidPlan }),
-  toggleFollowShip: () => set((s) => ({ followShip: !s.followShip })),
+  setCameraMode: (cameraMode) => set({ cameraMode }),
   toggleRemaining: () => set((s) => ({ showRemaining: !s.showRemaining })),
   toggleBurnLabels: () => set((s) => ({ showBurnLabels: !s.showBurnLabels })),
   selectLeg: (leg) => set({ selectedLeg: leg }),

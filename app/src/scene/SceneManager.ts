@@ -9,12 +9,13 @@ import { advanceTime } from '../core/time'
 import { getBody } from '../data/bodies'
 import { keplerPathSamples, keplerStateAt } from '../propagation/keplerPropagator'
 import { gmst, satrecFor, sgp4PathSamples, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
-import { flattenPlan, shipStateAt, type FlatPlan } from '../mission/state'
+import { flattenPlan, shipStateAt, type FlatPlan, type ShipState } from '../mission/state'
 import type { MissionPlan } from '../mission/types'
-import { epochMs, isRenderable, useStore, type AppState } from '../store/store'
+import { epochMs, isRenderable, useStore, type AppState, type CameraMode } from '../store/store'
 import type { CentralBody, Satellite, Vec3 } from '../types'
 import { InertialAxes } from './AxesHelper'
 import { BurnEffect } from './BurnEffect'
+import { birdsEyePose, chaseDistanceKm, chasePose, chaseUp, perpendicular } from './cameraViews'
 import { MissionPath } from './MissionPath'
 import { ShipMarker } from './ShipMarker'
 import { CentralBodyMesh } from './CentralBodyMesh'
@@ -58,6 +59,18 @@ export class SceneManager {
   private prevT = Number.NaN
   private followLeg = -1
 
+  // camera views: in chase and bird's-eye the scene owns the camera and OrbitControls stand down
+  private managedCamera = false
+  private lastMode: CameraMode = 'follow'
+  private viewZoom = 1
+  private readonly chaseF = new THREE.Vector3()
+  private readonly chaseU = new THREE.Vector3()
+  private chaseReady = false
+  private readonly birdTarget = new THREE.Vector3()
+  private birdReady = false
+  private insetValue = 0
+  private insetAt = -Infinity
+
   constructor(container: HTMLElement) {
     this.container = container
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
@@ -70,6 +83,7 @@ export class SceneManager {
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.08
     this.controls.zoomSpeed = 0.8
+    this.renderer.domElement.addEventListener('wheel', this.onWheel, { passive: true })
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.35))
     const sun = new THREE.DirectionalLight(0xffffff, 1.6)
@@ -93,11 +107,38 @@ export class SceneManager {
     this.raf = requestAnimationFrame(this.tick)
   }
 
+  /** In the managed views the wheel moves the camera closer or further instead of driving OrbitControls. */
+  private readonly onWheel = (e: WheelEvent): void => {
+    if (!this.managedCamera) return
+    this.viewZoom = Math.min(6, Math.max(0.4, this.viewZoom * Math.exp(e.deltaY * 0.0012)))
+  }
+
+  /**
+   * Fraction of the viewport height hidden by panels that span the bottom of the screen (the
+   * timeline, and on narrow screens the button row above it). Measured from the DOM a few times
+   * a second, since the panels collapse, wrap and resize on their own.
+   */
+  private bottomInset(nowMs: number): number {
+    if (nowMs - this.insetAt < 300) return this.insetValue
+    this.insetAt = nowMs
+    const box = this.container.getBoundingClientRect()
+    let covered = 0
+    if (box.height > 0) {
+      for (const el of document.querySelectorAll('.panel.bottom, .panel.topright')) {
+        const r = el.getBoundingClientRect()
+        if (r.width > box.width * 0.6 && r.top > box.top + box.height * 0.45) covered = Math.max(covered, box.bottom - r.top)
+      }
+    }
+    this.insetValue = box.height > 0 ? Math.min(0.6, Math.max(0, covered / box.height)) : 0
+    return this.insetValue
+  }
+
   private resize(): void {
     const w = this.container.clientWidth || 1
     const h = this.container.clientHeight || 1
     this.renderer.setSize(w, h, false)
     LINE_RESOLUTION.set(w, h)
+    this.insetAt = -Infinity
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
   }
@@ -122,7 +163,9 @@ export class SceneManager {
     this.handleCameraRequest(state)
 
     this.axes.group.visible = state.showAxes
-    this.controls.update()
+    if (!this.managedCamera) this.controls.update()
+    // surface labels are sized last, once the camera for this frame is final
+    this.bodyMesh.updateLabels(this.camera.position, this.container.clientHeight || 1, (this.camera.fov * Math.PI) / 180)
     this.renderer.render(this.scene, this.camera)
     this.raf = requestAnimationFrame(this.tick)
   }
@@ -145,7 +188,6 @@ export class SceneManager {
     this.bodyMesh.setSpin(spin)
     const start = s.scenario.mission?.start
     this.bodyMesh.setSurfaceMarker(start?.kind === 'launch' ? start.launch.site : null)
-    this.bodyMesh.updateLabels(this.camera.position, this.container.clientHeight || 1, (this.camera.fov * Math.PI) / 180)
   }
 
   private syncSatellites(s: AppState): void {
@@ -302,6 +344,31 @@ export class SceneManager {
         this.burnEffect.group.visible = false
       }
     }
+    // Which camera is in charge. A framing request (Frame body, Frame tour, ...) takes it back from a managed view.
+    const pending = s.cameraRequest !== null && s.cameraRequest.seq !== this.lastCameraSeq
+    let mode = s.cameraMode
+    if (pending && (mode === 'chase' || mode === 'birdseye')) {
+      s.setCameraMode('free')
+      mode = 'free'
+    }
+    const managed = s.plan !== null && (mode === 'chase' || mode === 'birdseye')
+    if (managed !== this.managedCamera || mode !== this.lastMode) {
+      const wasManaged = this.managedCamera
+      this.managedCamera = managed
+      this.lastMode = mode
+      this.controls.enabled = !managed
+      this.viewZoom = 1
+      this.chaseReady = this.birdReady = false
+      if (wasManaged && !managed) {
+        this.camera.up.set(0, 1, 0)
+        this.followLeg = -1
+        if (!pending) {
+          const sphere = s.plan ? this.missionPath.wholeSphere() : null
+          if (sphere) this.frameSphere(sphere)
+          else this.frameBody(getBody(s.scenario.bodyId))
+        }
+      }
+    }
     if (!s.plan || !this.flat || !this.ship) {
       this.prevT = s.t
       return
@@ -313,15 +380,24 @@ export class SceneManager {
     this.ship.setState(pos, vel)
     this.ship.setLabelVisible(s.showLabels)
     const worldPos = this.inertial.localToWorld(pos.clone())
-    const dist = this.camera.position.distanceTo(worldPos)
     const fov = (this.camera.fov * Math.PI) / 180
     const h = this.container.clientHeight || 1
-    this.ship.updateScale(dist, h, fov)
+    // ease the managed cameras only while time flows; a scrub or a jump snaps them
+    const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
+    const continuous = Number.isFinite(this.prevT) && Math.abs(s.t - this.prevT) <= maxStep
+    if (!continuous) this.chaseReady = this.birdReady = false
+    if (this.managedCamera && mode === 'chase') this.chaseCamera(st, worldPos, vel, dtMs)
+    else if (this.managedCamera) this.birdsEyeCamera(st, nowMs, dtMs, fov)
+    else if (mode === 'follow') this.followCamera(s, st, worldPos, fov)
+    else this.followLeg = -1
+    const dist = this.camera.position.distanceTo(worldPos)
+    // the close views draw the ship larger so it reads as an object, not a marker
+    const shipScale = this.managedCamera ? (mode === 'chase' ? 4.5 : 1.6) : 1
+    this.ship.updateScale(dist, h, fov, shipScale)
     this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg },
       this.camera.position, h, fov, (v) => this.inertial.localToWorld(v))
 
     // burns: fire when the clock crosses one while playing, not when scrubbing across it
-    const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
     if (Number.isFinite(this.prevT) && s.playing && s.t > this.prevT && s.t - this.prevT <= maxStep) {
       s.plan.legs.forEach((leg, li) =>
         leg.burns.forEach((b, bi) => {
@@ -342,34 +418,82 @@ export class SceneManager {
     }
     this.prevT = s.t
     this.burnEffect.group.position.copy(pos)
-    this.burnEffect.update(nowMs, dist, h, fov)
+    this.burnEffect.update(nowMs, dist * shipScale, h, fov)
+  }
 
-    // follow camera while coasting: keep the ship at the controls' target and carry the camera along
-    if (s.followShip && st.kind !== 'ride' && !st.outside) {
-      if (this.followLeg !== st.leg) {
-        this.followLeg = st.leg
-        const sphere = this.missionPath.legSphere(st.leg)
-        if (sphere) {
-          const d = Math.max((sphere.radius * 1.2) / Math.sin(fov / 2), kmScalarToScene(getBody(s.scenario.bodyId).radius) * 3)
-          const dir = this.camera.position.clone().sub(this.controls.target).normalize()
-          if (dir.lengthSq() === 0) dir.set(0.5, 0.6, 0.65).normalize()
-          this.controls.target.copy(worldPos)
-          this.camera.position.copy(worldPos).add(dir.multiplyScalar(d))
-          return
-        }
-      }
-      const delta = worldPos.clone().sub(this.controls.target)
-      this.controls.target.copy(worldPos)
-      this.camera.position.add(delta)
-    } else {
+  /** Follow: keep the ship at the controls' target while it coasts and carry the camera along; the user can still orbit and zoom. */
+  private followCamera(s: AppState, st: ShipState, worldPos: THREE.Vector3, fov: number): void {
+    if (st.kind === 'ride' || st.outside) {
       this.followLeg = -1
+      return
     }
+    if (this.followLeg !== st.leg) {
+      this.followLeg = st.leg
+      const sphere = this.missionPath.legSphere(st.leg)
+      if (sphere) {
+        const d = Math.max((sphere.radius * 1.2) / Math.sin(fov / 2), kmScalarToScene(getBody(s.scenario.bodyId).radius) * 3)
+        const dir = this.camera.position.clone().sub(this.controls.target).normalize()
+        if (dir.lengthSq() === 0) dir.set(0.5, 0.6, 0.65).normalize()
+        this.controls.target.copy(worldPos)
+        this.camera.position.copy(worldPos).add(dir.multiplyScalar(d))
+        return
+      }
+    }
+    const delta = worldPos.clone().sub(this.controls.target)
+    this.controls.target.copy(worldPos)
+    this.camera.position.add(delta)
+  }
+
+  /**
+   * Chase: third person, locked to the ship. The camera sits behind it along the velocity and a
+   * little toward "up" (away from the body), so the ship flies into the screen with the body
+   * below. Heading changes are eased over a fraction of a second; position is never eased, so
+   * the ship cannot leave the frame at any playback rate.
+   */
+  private chaseCamera(st: ShipState, worldPos: THREE.Vector3, vel: THREE.Vector3, dtMs: number): void {
+    const f = vel.clone().applyQuaternion(this.inertial.quaternion)
+    if (f.lengthSq() < 1e-12) f.copy(this.chaseReady ? this.chaseF : WORLD_X)
+    f.normalize()
+    const u = chaseUp(worldPos, f, WORLD_POLE)
+    const a = this.chaseReady ? 1 - Math.exp(-dtMs / 180) : 1
+    this.chaseF.lerp(f, a)
+    if (this.chaseF.lengthSq() < 1e-6) this.chaseF.copy(f)
+    this.chaseF.normalize()
+    this.chaseU.copy(perpendicular(this.chaseF, this.chaseU.lerp(u, a), u))
+    this.chaseReady = true
+    const d = kmScalarToScene(chaseDistanceKm(Math.hypot(st.r.x, st.r.y, st.r.z))) * this.viewZoom
+    const pose = chasePose(worldPos, this.chaseF, this.chaseU, d)
+    this.camera.position.copy(pose.position)
+    this.camera.up.copy(pose.up)
+    this.camera.lookAt(pose.target)
+  }
+
+  /**
+   * Bird's-eye: a fixed camera straight above the plane of the route the ship is on (the ascent,
+   * then each leg), far enough to fit all of it. It only moves, with a short ease, when the ship
+   * starts a new stretch or the wheel changes the zoom; otherwise the ship crosses a still frame.
+   */
+  private birdsEyeCamera(st: ShipState, nowMs: number, dtMs: number, fov: number): void {
+    const view = (st.kind === 'ascent' ? this.missionPath.ascentView() : null) ?? this.missionPath.legView(st.leg)
+    if (!view) return
+    const center = this.inertial.localToWorld(view.sphere.center.clone())
+    const normal = view.normal.clone().applyQuaternion(this.inertial.quaternion)
+    const pose = birdsEyePose(center, normal, view.sphere.radius, fov, this.camera.aspect, WORLD_POLE, this.viewZoom, this.bottomInset(nowMs))
+    const a = this.birdReady ? 1 - Math.exp(-dtMs / 260) : 1
+    this.camera.position.lerp(pose.position, a)
+    this.birdTarget.lerp(pose.target, a)
+    this.camera.up.lerp(pose.up, a)
+    if (this.camera.up.lengthSq() < 1e-6) this.camera.up.copy(pose.up)
+    this.camera.up.normalize()
+    this.camera.lookAt(this.birdTarget)
+    this.birdReady = true
   }
 
   dispose(): void {
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.resizeObserver.disconnect()
+    this.renderer.domElement.removeEventListener('wheel', this.onWheel)
     for (const id of [...this.visuals.keys()]) this.removeVisual(id)
     this.bodyMesh.dispose()
     this.missionPath.dispose()
@@ -380,6 +504,10 @@ export class SceneManager {
     this.renderer.domElement.remove()
   }
 }
+
+/** The body's pole and a reference axis in three.js world space (the inertial group turns z up to y). */
+const WORLD_POLE = new THREE.Vector3(0, 1, 0)
+const WORLD_X = new THREE.Vector3(1, 0, 0)
 
 function visualKey(sat: Satellite, bodyId: string): string {
   return sat.kind === 'kepler'

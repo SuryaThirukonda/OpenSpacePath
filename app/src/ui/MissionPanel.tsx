@@ -4,10 +4,17 @@ import { cloneVehicle, defaultLaunch, grossMass, LAUNCH_SITES, LAUNCH_VEHICLES, 
 import { emptyMission, SHIP_PRESETS, shipCapacity } from '../data/ships'
 import type { LaunchReport, LaunchSpec, MissionInput, Ship, Stage, Stop, Strategy } from '../mission/types'
 import { planStart } from '../mission/types'
-import { epochMs, useStore } from '../store/store'
+import { epochMs, useStore, type CameraMode } from '../store/store'
 
 const STRATEGIES: Array<[Strategy, string]> = [
   ['best', 'best of all'], ['lambert2', '2-burn Lambert'], ['phasing3', '3-burn phasing'], ['bielliptic3', '3-burn bi-elliptic'], ['waypoint4', '4-burn waypoints'],
+]
+
+const CAMERAS: Array<[CameraMode, string, string]> = [
+  ['free', 'Free', 'You steer: drag to orbit, wheel to zoom, right-drag to pan.'],
+  ['follow', 'Follow', 'The camera travels with the ship while it coasts; drag to look around it, wheel to zoom.'],
+  ['chase', 'Chase', 'Third person from behind the ship, looking along its flight with the body below. The wheel moves closer or further.'],
+  ['birdseye', "Bird's-eye", "A fixed view straight down on the plane of the current route; it only moves when the ship starts a new leg. The wheel zooms."],
 ]
 
 /** Mission tab: start orbit, ship, ordered stops, plan request, results and view toggles. */
@@ -16,11 +23,11 @@ export function MissionPanel() {
   const plan = useStore((s) => s.plan)
   const planStatus = useStore((s) => s.planStatus)
   const planError = useStore((s) => s.planError)
-  const followShip = useStore((s) => s.followShip)
+  const cameraMode = useStore((s) => s.cameraMode)
   const showRemaining = useStore((s) => s.showRemaining)
   const showBurnLabels = useStore((s) => s.showBurnLabels)
   const selectedLeg = useStore((s) => s.selectedLeg)
-  const { setMission, requestPlan, toggleFollowShip, toggleRemaining, toggleBurnLabels, selectLeg, requestCamera, setSpan, setT } = useStore.getState()
+  const { setMission, requestPlan, setCameraMode, toggleRemaining, toggleBurnLabels, selectLeg, requestCamera, setSpan, setT } = useStore.getState()
   const mission: MissionInput = scenario.mission ?? emptyMission(scenario)
   const [addId, setAddId] = useState(scenario.satellites[0]?.id ?? '')
 
@@ -155,10 +162,18 @@ export function MissionPanel() {
         </div>
       )}
 
-      <div className="section row">
-        <button className={followShip ? 'toggle on' : 'toggle'} onClick={toggleFollowShip}>Follow ship</button>
-        <button className={showRemaining ? 'toggle on' : 'toggle'} onClick={toggleRemaining}>Remaining path</button>
-        <button className={showBurnLabels ? 'toggle on' : 'toggle'} onClick={toggleBurnLabels}>Burn labels</button>
+      <div className="section">
+        <div className="label">Camera</div>
+        <div className="tabs">
+          {CAMERAS.map(([mode, label]) => (
+            <button key={mode} className={cameraMode === mode ? 'tab active' : 'tab'} onClick={() => setCameraMode(mode)}>{label}</button>
+          ))}
+        </div>
+        <p className="hint">{CAMERAS.find(([mode]) => mode === cameraMode)?.[2]}{!plan && cameraMode !== 'free' ? ' Plan a tour to use it.' : ''}</p>
+        <div className="row">
+          <button className={showRemaining ? 'toggle on' : 'toggle'} onClick={toggleRemaining}>Remaining path</button>
+          <button className={showBurnLabels ? 'toggle on' : 'toggle'} onClick={toggleBurnLabels}>Burn labels</button>
+        </div>
       </div>
     </div>
   )

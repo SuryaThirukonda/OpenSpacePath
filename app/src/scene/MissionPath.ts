@@ -11,12 +11,19 @@ import type { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import type { FlatPlan } from '../mission/state'
 import { flownCount } from '../mission/state'
 import type { MissionPlan } from '../mission/types'
+import { pathNormal } from './cameraViews'
 import { kmToScene } from './frame'
 import { makeLineMaterial, segmentCounts } from './lines'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export const LEG_COLORS = ['#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd', '#7cf5ff']
 export const ASCENT_COLOR = '#ffffff'
+
+/** What a fixed camera needs to frame a stretch of the tour: where it is and the plane it lies in. */
+export interface RouteView {
+  sphere: THREE.Sphere
+  normal: THREE.Vector3
+}
 
 interface Marker {
   t: number
@@ -39,6 +46,8 @@ export class MissionPath {
   private markers: Marker[] = []
   private flat: FlatPlan | null = null
   private legSpheres: THREE.Sphere[] = []
+  private legViews: RouteView[] = []
+  private ascent: RouteView | null = null
 
   setPlan(flat: FlatPlan, plan: MissionPlan): void {
     this.clear()
@@ -85,6 +94,23 @@ export class MissionPath {
       for (let i = start; i < end; i += 4) pts.push(new THREE.Vector3(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]))
       return new THREE.Sphere().setFromPoints(pts)
     })
+
+    // route views for the bird's-eye camera: each leg without the ascent, and the ascent on its own
+    const viewOf = (a: number, b: number): RouteView => {
+      const pts: THREE.Vector3[] = []
+      const step = Math.max(1, Math.floor((b - a) / 120))
+      for (let i = a; i < b; i += step) pts.push(new THREE.Vector3(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]))
+      return { sphere: new THREE.Sphere().setFromPoints(pts), normal: pathNormal(pos, a, b) }
+    }
+    this.legViews = flat.legStart.map((start, k) => {
+      const end = k + 1 < flat.legStart.length ? flat.legStart[k + 1] : n
+      let a = start
+      while (a < end && flat.kind[a] === 2) a++
+      return viewOf(a < end - 1 ? a : start, end)
+    })
+    let ascentEnd = 0
+    while (ascentEnd < n && flat.kind[ascentEnd] === 2) ascentEnd++
+    this.ascent = ascentEnd >= 2 ? viewOf(0, ascentEnd) : null
 
     if (plan.launch) {
       const s = plan.launch.samples
@@ -154,6 +180,14 @@ export class MissionPath {
     return this.legSpheres[leg] ?? null
   }
 
+  legView(leg: number): RouteView | null {
+    return this.legViews[leg] ?? null
+  }
+
+  ascentView(): RouteView | null {
+    return this.ascent
+  }
+
   wholeSphere(): THREE.Sphere | null {
     if (!this.legSpheres.length) return null
     const s = this.legSpheres[0].clone()
@@ -176,6 +210,8 @@ export class MissionPath {
     this.markers = []
     this.flat = null
     this.legSpheres = []
+    this.legViews = []
+    this.ascent = null
     this.flown = this.remaining = undefined
   }
 
