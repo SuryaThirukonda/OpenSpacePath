@@ -8,6 +8,7 @@ import { SatelliteForm } from './SatelliteForm'
 import { MissionPanel } from './MissionPanel'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
+import { IconLogo, IconRoute, IconSatellite } from './icons'
 import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
 import { Viewport } from './Viewport'
@@ -49,19 +50,24 @@ function useKeys() {
 
 function LeftTabs() {
   const [tab, setTab] = useState<'satellites' | 'mission'>('satellites')
+  const sats = useStore((s) => s.scenario.satellites.length)
   const stops = useStore((s) => s.scenario.mission?.stops.length ?? 0)
   return (
     <>
-      <div className="tabs">
-        <button className={tab === 'satellites' ? 'tab active' : 'tab'} onClick={() => setTab('satellites')}>Satellites</button>
-        <button className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>Mission{stops ? ` (${stops})` : ''}</button>
+      <div className="tabs main-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'satellites'} className={tab === 'satellites' ? 'tab active' : 'tab'} onClick={() => setTab('satellites')}>
+          <IconSatellite /> Satellites <span className="pill">{sats}</span>
+        </button>
+        <button role="tab" aria-selected={tab === 'mission'} className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>
+          <IconRoute /> Mission {stops > 0 && <span className="pill">{stops}</span>}
+        </button>
       </div>
       {tab === 'satellites' ? (
         <>
-          <div className="hint">Keplerian orbits around any body, SGP4 for Earth. Drag to orbit, wheel to zoom, right-drag to pan.</div>
           <BodySelector />
           <SatelliteList />
           <SatelliteForm />
+          <p className="hint tip">Drag to orbit the view, wheel to zoom, right-drag to pan. Space plays and pauses.</p>
         </>
       ) : (
         <MissionPanel />
@@ -76,7 +82,8 @@ export function App() {
   return (
     <div className="app">
       <Viewport />
-      <Panel position="left" title="Orbit Lab" defaultOpen={!isNarrowScreen()}>
+      <div className="vignette" aria-hidden="true" />
+      <Panel position="left" title="Orbit Lab" icon={<IconLogo />} defaultOpen={!isNarrowScreen()}>
         <LeftTabs />
       </Panel>
       <ElementsPanel />

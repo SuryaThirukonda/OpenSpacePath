@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import type { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
+import { ASCENT_COLOR, LEG_COLORS } from '../data/legColors'
 import type { FlatPlan } from '../mission/state'
 import { flownCount } from '../mission/state'
 import type { MissionPlan } from '../mission/types'
@@ -16,8 +17,7 @@ import { kmToScene } from './frame'
 import { makeLineMaterial, segmentCounts } from './lines'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
-export const LEG_COLORS = ['#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd', '#7cf5ff']
-export const ASCENT_COLOR = '#ffffff'
+export { ASCENT_COLOR, LEG_COLORS }
 
 /** What a fixed camera needs to frame a stretch of the tour: where it is and the plane it lies in. */
 export interface RouteView {

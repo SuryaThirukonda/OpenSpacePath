@@ -13,6 +13,23 @@ interface Row {
   v: string
 }
 
+/** A headline number shown above the table. */
+interface Tile {
+  k: string
+  v: string
+  unit: string
+}
+
+function durationTile(seconds: number): Tile {
+  return seconds >= 2 * 86400 ? { k: 'period', v: (seconds / 86400).toFixed(2), unit: 'd' }
+    : seconds >= 2 * 3600 ? { k: 'period', v: (seconds / 3600).toFixed(2), unit: 'h' }
+    : { k: 'period', v: (seconds / 60).toFixed(1), unit: 'min' }
+}
+
+function altitudeTile(km: number): Tile {
+  return Math.abs(km) >= 100000 ? { k: 'altitude', v: (km / 1000).toFixed(0), unit: 'Mm' } : { k: 'altitude', v: km.toFixed(km >= 10000 ? 0 : 1), unit: 'km' }
+}
+
 export function ElementsPanel() {
   const sat = useStore(selectedSatellite)
   const bodyId = useStore((s) => s.scenario.bodyId)
@@ -21,12 +38,13 @@ export function ElementsPanel() {
   if (!sat) {
     return (
       <Panel position="right" title="Elements" defaultOpen={!isNarrowScreen()}>
-        <p className="hint">Select a satellite to see its elements and live state.</p>
+        <p className="hint empty">Select a satellite in the list, or click one in the scene, to see its elements and live state.</p>
       </Panel>
     )
   }
   const body = getBody(bodyId)
   const rows: Row[] = []
+  const tiles: Tile[] = []
   const deg = (x: number) => `${(wrapTwoPi(x) * RAD).toFixed(3)} deg`
 
   if (sat.kind === 'kepler') {
@@ -34,6 +52,7 @@ export function ElementsPanel() {
     const st = elementsToState(el, body.mu, t)
     const r = norm(st.r)
     const nu = trueAnomalyAt(el, body.mu, t)
+    tiles.push(altitudeTile(r - body.radius), { k: 'speed', v: norm(st.v).toFixed(3), unit: 'km/s' }, durationTile(period(el.a, body.mu)))
     rows.push(
       { k: 'Model', v: 'two-body Keplerian' },
       { k: 'a', v: `${el.a.toFixed(1)} km` },
@@ -75,6 +94,7 @@ export function ElementsPanel() {
       )
       if (st) {
         const r = norm(st.r)
+        tiles.push(altitudeTile(r - body.radius), { k: 'speed', v: norm(st.v).toFixed(3), unit: 'km/s' }, durationTile(T))
         rows.push(
           { k: '|r|', v: `${r.toFixed(1)} km (alt ${(r - body.radius).toFixed(1)} km)` },
           { k: 'speed', v: `${norm(st.v).toFixed(4)} km/s` },
@@ -87,9 +107,20 @@ export function ElementsPanel() {
 
   return (
     <Panel position="right" title="Elements" defaultOpen={!isNarrowScreen()}>
-      <div className="label">
-        <span className="swatch" style={{ background: sat.color }} /> {sat.name}
+      <div className="sat-heading">
+        <span className="swatch" style={{ background: sat.color, color: sat.color }} />
+        <span className="satname">{sat.name}</span>
       </div>
+      {tiles.length > 0 && (
+        <div className="tiles">
+          {tiles.map((x) => (
+            <div className="tile" key={x.k}>
+              <span className="tile-k">{x.k}</span>
+              <span className="tile-v">{x.v}<small>{x.unit}</small></span>
+            </div>
+          ))}
+        </div>
+      )}
       <table className="kv">
         <tbody>
           {rows.map((r) => (

@@ -7,6 +7,7 @@ import { ISS_TLE, newId, PRESETS, presetElements, satelliteFromPreset, type Pres
 import { parseTle } from '../propagation/sgp4Propagator'
 import { selectedSatellite, useStore } from '../store/store'
 import type { KeplerSatellite, OrbitalElements } from '../types'
+import { Section } from './Section'
 
 type Mode = 'preset' | 'elements' | 'tle'
 
@@ -143,8 +144,7 @@ export function SatelliteForm() {
   )
 
   return (
-    <div className="section">
-      <div className="label">Add satellite</div>
+    <Section title={selected?.kind === 'kepler' ? 'Edit or add satellite' : 'Add satellite'}>
       <div className="tabs">
         {(['preset', 'elements', 'tle'] as Mode[]).map((m) => (
           <button key={m} className={mode === m ? 'tab active' : 'tab'} onClick={() => setMode(m)}>
@@ -229,6 +229,6 @@ export function SatelliteForm() {
       )}
 
       {error && <p className="error">{error}</p>}
-    </div>
+    </Section>
   )
 }

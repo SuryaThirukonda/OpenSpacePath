@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/store'
+import { IconAxes, IconBird, IconChase, IconGlobe, IconLink, IconOrbit, IconReset, IconTag } from './icons'
 
 export function CameraButtons() {
   const requestCamera = useStore((s) => s.requestCamera)
@@ -11,6 +12,7 @@ export function CameraButtons() {
   const hasPlan = useStore((s) => s.plan !== null)
   const cameraMode = useStore((s) => s.cameraMode)
   const setCameraMode = useStore((s) => s.setCameraMode)
+  const [copied, setCopied] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   // On narrow screens this row sits above the timeline and the Elements sheet stacks on top of it,
@@ -27,30 +29,40 @@ export function CameraButtons() {
   }, [])
 
   return (
-    <div ref={ref} className="panel topright">
-      <button onClick={() => requestCamera('body')}>Frame body</button>
-      <button onClick={() => requestCamera('orbit')} disabled={!hasSelection}>Frame orbit</button>
-      <button onClick={() => requestCamera('reset')}>Reset view</button>
-      <button className={showAxes ? 'toggle on' : 'toggle'} onClick={toggleAxes}>Axes</button>
-      <button className={showLabels ? 'toggle on' : 'toggle'} onClick={toggleLabels}>Labels</button>
+    <div ref={ref} className="panel topright toolbar" role="toolbar" aria-label="view">
+      <div className="tool-group">
+        <button className="tool" onClick={() => requestCamera('body')} title="Frame the central body"><IconGlobe /><span>Frame body</span></button>
+        <button className="tool" onClick={() => requestCamera('orbit')} disabled={!hasSelection} title="Frame the selected orbit"><IconOrbit /><span>Frame orbit</span></button>
+        <button className="tool" onClick={() => requestCamera('reset')} title="Back to the default view"><IconReset /><span>Reset view</span></button>
+      </div>
+      <div className="tool-group">
+        <button className={showAxes ? 'tool toggle on' : 'tool toggle'} onClick={toggleAxes} aria-pressed={showAxes} title="Inertial axes"><IconAxes /><span>Axes</span></button>
+        <button className={showLabels ? 'tool toggle on' : 'tool toggle'} onClick={toggleLabels} aria-pressed={showLabels} title="Satellite and ship labels"><IconTag /><span>Labels</span></button>
+      </div>
       {hasPlan && (
-        <button className={cameraMode === 'chase' ? 'toggle on' : 'toggle'} onClick={() => setCameraMode(cameraMode === 'chase' ? 'follow' : 'chase')} title="Third-person view from behind the ship">
-          Chase view
-        </button>
+        <div className="tool-group">
+          <button className={cameraMode === 'chase' ? 'tool toggle on' : 'tool toggle'} aria-pressed={cameraMode === 'chase'} onClick={() => setCameraMode(cameraMode === 'chase' ? 'follow' : 'chase')} title="Third-person view from behind the ship">
+            <IconChase /><span>Chase view</span>
+          </button>
+          <button className={cameraMode === 'birdseye' ? 'tool toggle on' : 'tool toggle'} aria-pressed={cameraMode === 'birdseye'} onClick={() => setCameraMode(cameraMode === 'birdseye' ? 'follow' : 'birdseye')} title="Fixed view straight down on the current route">
+            <IconBird /><span>Bird's-eye</span>
+          </button>
+        </div>
       )}
-      {hasPlan && (
-        <button className={cameraMode === 'birdseye' ? 'toggle on' : 'toggle'} onClick={() => setCameraMode(cameraMode === 'birdseye' ? 'follow' : 'birdseye')} title="Fixed view straight down on the current route">
-          Bird's-eye
+      <div className="tool-group">
+        <button
+          className="tool"
+          onClick={() => {
+            navigator.clipboard?.writeText(location.href).then(() => {
+              setCopied(true)
+              window.setTimeout(() => setCopied(false), 1400)
+            }).catch(() => undefined)
+          }}
+          title="Copy a shareable link to this scenario"
+        >
+          <IconLink /><span>{copied ? 'Copied' : 'Copy link'}</span>
         </button>
-      )}
-      <button
-        onClick={() => {
-          navigator.clipboard?.writeText(location.href).catch(() => undefined)
-        }}
-        title="Copy a shareable link to this scenario"
-      >
-        Copy link
-      </button>
+      </div>
     </div>
   )
 }

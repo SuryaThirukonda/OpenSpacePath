@@ -1,4 +1,7 @@
-import { isRenderable, useStore } from '../store/store'
+import { formatDuration } from '../core/time'
+import { isRenderable, satellitePeriod, useStore } from '../store/store'
+import { IconX } from './icons'
+import { Section } from './Section'
 
 export function SatelliteList() {
   const sats = useStore((s) => s.scenario.satellites)
@@ -12,38 +15,46 @@ export function SatelliteList() {
   const stops = useStore((s) => s.scenario.mission?.stops)
   const stopIndex = (id: string) => (stops ?? []).map((st, i) => (st.satelliteId === id ? i + 1 : 0)).filter(Boolean)
   return (
-    <div className="section">
-      <div className="label">Satellites ({sats.length})</div>
+    <Section title="Satellites" count={sats.length}>
       {sats.length === 0 && <p className="hint">No satellites yet. Add one below.</p>}
       <ul className="satlist">
-        {sats.map((s) => (
-          <li
-            key={s.id}
-            className={s.id === selectedId ? 'selected' : ''}
-            onClick={() => select(s.id === selectedId ? null : s.id)}
-            onDoubleClick={() => {
-              select(s.id)
-              requestCamera('orbit')
-            }}
-            title="Click to select, double-click to frame"
-          >
-            <span className="swatch" style={{ background: s.color }} />
-            <span className="satname">{s.name}</span>
-            {stopIndex(s.id).length > 0 && <span className="badge" title="stop in the mission tour">stop {stopIndex(s.id).join(', ')}</span>}
-            <span className="kind">{s.kind === 'tle' ? 'SGP4' : 'Kepler'}{!isRenderable(s, bodyId) ? ' (hidden)' : ''}</span>
-            <button
-              className="icon"
-              onClick={(e) => {
-                e.stopPropagation()
-                remove(s.id)
+        {sats.map((s) => {
+          const T = isRenderable(s, bodyId) ? satellitePeriod(s, bodyId) : null
+          return (
+            <li
+              key={s.id}
+              className={s.id === selectedId ? 'selected' : ''}
+              onClick={() => select(s.id === selectedId ? null : s.id)}
+              onDoubleClick={() => {
+                select(s.id)
+                requestCamera('orbit')
               }}
-              aria-label={`remove ${s.name}`}
+              title="Click to select, double-click to frame"
             >
-              x
-            </button>
-          </li>
-        ))}
+              <span className="swatch" style={{ background: s.color, color: s.color }} />
+              <span className="sat-main">
+                <span className="satname">{s.name}</span>
+                <span className="sat-meta">
+                  {s.kind === 'tle' ? 'SGP4' : 'Kepler'}
+                  {T ? ` · ${formatDuration(T)}` : ''}
+                  {!isRenderable(s, bodyId) ? ' · hidden' : ''}
+                </span>
+              </span>
+              {stopIndex(s.id).length > 0 && <span className="badge" title="stop in the mission tour">stop {stopIndex(s.id).join(', ')}</span>}
+              <button
+                className="icon remove"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  remove(s.id)
+                }}
+                aria-label={`remove ${s.name}`}
+              >
+                <IconX />
+              </button>
+            </li>
+          )
+        })}
       </ul>
-    </div>
+    </Section>
   )
 }

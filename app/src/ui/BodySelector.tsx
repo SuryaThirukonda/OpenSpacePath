@@ -1,5 +1,6 @@
 import { BODIES } from '../data/bodies'
 import { useStore } from '../store/store'
+import { IconGlobe } from './icons'
 
 export function BodySelector() {
   const bodyId = useStore((s) => s.scenario.bodyId)
@@ -7,8 +8,8 @@ export function BodySelector() {
   const requestCamera = useStore((s) => s.requestCamera)
   const hasTle = useStore((s) => s.scenario.satellites.some((x) => x.kind === 'tle'))
   return (
-    <div className="section">
-      <label className="label" htmlFor="body">Central body</label>
+    <div className="body-row">
+      <label className="body-label" htmlFor="body"><IconGlobe /> Central body</label>
       <select
         id="body"
         value={bodyId}

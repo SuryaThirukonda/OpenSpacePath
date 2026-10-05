@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { absoluteDate, formatDuration, formatUtc } from '../core/time'
 import { cloneVehicle, defaultLaunch, grossMass, LAUNCH_SITES, LAUNCH_VEHICLES, vehicleCapacity } from '../data/launch'
+import { LEG_COLORS } from '../data/legColors'
 import { emptyMission, SHIP_PRESETS, shipCapacity } from '../data/ships'
 import type { LaunchReport, LaunchSpec, MissionInput, Ship, Stage, Stop, Strategy } from '../mission/types'
 import { planStart } from '../mission/types'
 import { epochMs, useStore, type CameraMode } from '../store/store'
+import { IconDown, IconPlus, IconUp, IconX } from './icons'
+import { Section } from './Section'
 
 const STRATEGIES: Array<[Strategy, string]> = [
   ['best', 'best of all'], ['lambert2', '2-burn Lambert'], ['phasing3', '3-burn phasing'], ['bielliptic3', '3-burn bi-elliptic'], ['waypoint4', '4-burn waypoints'],
@@ -44,95 +47,102 @@ export function MissionPanel() {
   const nameOf = (id: string) => scenario.satellites.find((s) => s.id === id)?.name ?? id
   const num = (v: string, fallback: number) => (Number.isFinite(Number(v)) && v !== '' ? Number(v) : fallback)
 
+  const startSummary = mission.start.kind === 'launch' ? `launch from ${mission.start.launch.site.name}`
+    : mission.start.kind === 'satellite' ? `ride with ${nameOf(mission.start.id)}` : 'ISS-class parking orbit'
+  const dv = shipCapacity(mission.ship)
+
   return (
     <div className="form mission">
-      <div className="label">Start</div>
-      <select
-        value={mission.start.kind === 'satellite' ? mission.start.id : mission.start.kind === 'launch' ? 'launch' : 'parking'}
-        onChange={(e) => update({
-          start: e.target.value === 'parking' ? emptyMission(scenario).start
-            : e.target.value === 'launch' ? { kind: 'launch', launch: defaultLaunch() }
-            : { kind: 'satellite', id: e.target.value },
-        })}
-      >
-        <option value="parking">ISS-class parking orbit</option>
-        <option value="launch">launch from the ground</option>
-        {scenario.satellites.map((s) => (
-          <option key={s.id} value={s.id}>ride with {s.name}</option>
-        ))}
-      </select>
-      {mission.start.kind === 'launch' && (
-        <LaunchForm spec={mission.start.launch} payload={mission.ship.dryMass + mission.ship.propellantMass} onChange={(launch) => update({ start: { kind: 'launch', launch } })} />
-      )}
-
-      <div className="label">Ship</div>
-      <select
-        value={SHIP_PRESETS.find((p) => p.ship.name === mission.ship.name)?.id ?? 'custom'}
-        onChange={(e) => {
-          const p = SHIP_PRESETS.find((x) => x.id === e.target.value)
-          if (p) update({ ship: { ...p.ship } })
-        }}
-      >
-        {SHIP_PRESETS.map((p) => (
-          <option key={p.id} value={p.id}>{p.name}</option>
-        ))}
-        <option value="custom">custom</option>
-      </select>
-      <div className="grid2">
-        <label className="field"><span>dry mass, kg</span><input type="number" min={1} value={mission.ship.dryMass} onChange={(e) => updateShip({ name: 'custom', dryMass: num(e.target.value, mission.ship.dryMass) })} /></label>
-        <label className="field"><span>propellant, kg</span><input type="number" min={0} value={mission.ship.propellantMass} onChange={(e) => updateShip({ name: 'custom', propellantMass: num(e.target.value, mission.ship.propellantMass) })} /></label>
-        <label className="field"><span>Isp, s</span><input type="number" min={1} value={mission.ship.isp} onChange={(e) => updateShip({ name: 'custom', isp: num(e.target.value, mission.ship.isp) })} /></label>
-        <label className="field"><span>max thrust, N</span><input type="number" min={1} value={mission.ship.maxThrust} onChange={(e) => updateShip({ name: 'custom', maxThrust: num(e.target.value, mission.ship.maxThrust) })} /></label>
-        <label className="field"><span>max speed, km/s (blank = none)</span><input type="number" min={0} step="any" value={mission.ship.maxSpeed ?? ''} onChange={(e) => updateShip({ name: 'custom', maxSpeed: e.target.value === '' ? undefined : num(e.target.value, 0) || undefined })} /></label>
-        <label className="field"><span>min burn spacing, s</span><input type="number" min={0} value={mission.ship.minBurnSpacing} onChange={(e) => updateShip({ minBurnSpacing: num(e.target.value, mission.ship.minBurnSpacing) })} /></label>
-      </div>
-      <p className="hint">Capacity {shipCapacity(mission.ship).toFixed(2)} km/s of delta-v from the rocket equation. Burns are impulsive in the path; the duration shown is what full thrust would take.</p>
-
-      <div className="label">Stops, in order</div>
-      {mission.stops.length === 0 && <p className="hint">No stops yet. Add satellites below; the ship visits them in this order and waits the dwell time at each.</p>}
-      <ol className="stops">
-        {mission.stops.map((st, i) => (
-          <li key={i} className={selectedLeg === i ? 'selected' : ''}>
-            <div className="row">
-              <span className="stop-index">{i + 1}</span>
-              <select value={st.satelliteId} onChange={(e) => updateStop(i, { satelliteId: e.target.value })}>
-                {scenario.satellites.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-              <button className="icon" onClick={() => moveStop(i, -1)} aria-label="move up" disabled={i === 0}>↑</button>
-              <button className="icon" onClick={() => moveStop(i, 1)} aria-label="move down" disabled={i === mission.stops.length - 1}>↓</button>
-              <button className="icon" onClick={() => update({ stops: mission.stops.filter((_, k) => k !== i) })} aria-label="remove stop">x</button>
-            </div>
-            <div className="grid2">
-              <label className="field"><span>dwell, minutes</span><input type="number" min={0} value={st.dwellSeconds / 60} onChange={(e) => updateStop(i, { dwellSeconds: Math.max(0, num(e.target.value, st.dwellSeconds / 60)) * 60 })} /></label>
-              <label className="field"><span>strategy</span>
-                <select value={st.strategy} onChange={(e) => updateStop(i, { strategy: e.target.value as Strategy })}>
-                  {STRATEGIES.map(([v, l]) => (
-                    <option key={v} value={v}>{l}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </li>
-        ))}
-      </ol>
-      <div className="row">
-        <select value={addId} onChange={(e) => setAddId(e.target.value)}>
+      <Section title="Start" summary={startSummary}>
+        <select
+          value={mission.start.kind === 'satellite' ? mission.start.id : mission.start.kind === 'launch' ? 'launch' : 'parking'}
+          onChange={(e) => update({
+            start: e.target.value === 'parking' ? emptyMission(scenario).start
+              : e.target.value === 'launch' ? { kind: 'launch', launch: defaultLaunch() }
+              : { kind: 'satellite', id: e.target.value },
+          })}
+        >
+          <option value="parking">ISS-class parking orbit</option>
+          <option value="launch">launch from the ground</option>
           {scenario.satellites.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
+            <option key={s.id} value={s.id}>ride with {s.name}</option>
           ))}
         </select>
-        <button disabled={!addId} onClick={() => update({ stops: [...mission.stops, { satelliteId: addId, dwellSeconds: 1800, strategy: 'best' }] })}>Add stop</button>
-      </div>
-      <div className="grid2">
-        <label className="field"><span>start at t, minutes</span><input type="number" value={mission.startT / 60} onChange={(e) => update({ startT: num(e.target.value, mission.startT / 60) * 60 })} /></label>
-        <label className="field"><span>departure window, hours</span><input type="number" min={0} step="any" value={mission.departureWindow / 3600} onChange={(e) => update({ departureWindow: Math.max(0, num(e.target.value, 0)) * 3600 })} /></label>
-      </div>
+        {mission.start.kind === 'launch' && (
+          <LaunchForm spec={mission.start.launch} payload={mission.ship.dryMass + mission.ship.propellantMass} onChange={(launch) => update({ start: { kind: 'launch', launch } })} />
+        )}
+      </Section>
 
-      <div className="row">
-        <button className="primary" disabled={mission.stops.length === 0 || planStatus === 'loading'} onClick={() => void requestPlan()}>
-          {planStatus === 'loading' ? 'Planning…' : 'Plan'}
+      <Section title="Ship" defaultOpen={false} summary={`${mission.ship.name} · ${dv.toFixed(1)} km/s`}>
+        <select
+          value={SHIP_PRESETS.find((p) => p.ship.name === mission.ship.name)?.id ?? 'custom'}
+          onChange={(e) => {
+            const p = SHIP_PRESETS.find((x) => x.id === e.target.value)
+            if (p) update({ ship: { ...p.ship } })
+          }}
+        >
+          {SHIP_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+          <option value="custom">custom</option>
+        </select>
+        <div className="grid2">
+          <label className="field"><span>dry mass, kg</span><input type="number" min={1} value={mission.ship.dryMass} onChange={(e) => updateShip({ name: 'custom', dryMass: num(e.target.value, mission.ship.dryMass) })} /></label>
+          <label className="field"><span>propellant, kg</span><input type="number" min={0} value={mission.ship.propellantMass} onChange={(e) => updateShip({ name: 'custom', propellantMass: num(e.target.value, mission.ship.propellantMass) })} /></label>
+          <label className="field"><span>Isp, s</span><input type="number" min={1} value={mission.ship.isp} onChange={(e) => updateShip({ name: 'custom', isp: num(e.target.value, mission.ship.isp) })} /></label>
+          <label className="field"><span>max thrust, N</span><input type="number" min={1} value={mission.ship.maxThrust} onChange={(e) => updateShip({ name: 'custom', maxThrust: num(e.target.value, mission.ship.maxThrust) })} /></label>
+          <label className="field"><span>max speed, km/s (blank = none)</span><input type="number" min={0} step="any" value={mission.ship.maxSpeed ?? ''} onChange={(e) => updateShip({ name: 'custom', maxSpeed: e.target.value === '' ? undefined : num(e.target.value, 0) || undefined })} /></label>
+          <label className="field"><span>min burn spacing, s</span><input type="number" min={0} value={mission.ship.minBurnSpacing} onChange={(e) => updateShip({ minBurnSpacing: num(e.target.value, mission.ship.minBurnSpacing) })} /></label>
+        </div>
+        <p className="hint">Capacity {dv.toFixed(2)} km/s of delta-v from the rocket equation. Burns are impulsive in the path; the duration shown is what full thrust would take.</p>
+      </Section>
+
+      <Section title="Stops" count={mission.stops.length}>
+        {mission.stops.length === 0 && <p className="hint">No stops yet. Add satellites below; the ship visits them in this order and waits the dwell time at each.</p>}
+        <ol className="stops">
+          {mission.stops.map((st, i) => (
+            <li key={i} className={selectedLeg === i ? 'selected' : ''} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
+              <div className="row">
+                <span className="stop-index">{i + 1}</span>
+                <select value={st.satelliteId} onChange={(e) => updateStop(i, { satelliteId: e.target.value })}>
+                  {scenario.satellites.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <button className="icon" onClick={() => moveStop(i, -1)} aria-label="move up" disabled={i === 0}><IconUp /></button>
+                <button className="icon" onClick={() => moveStop(i, 1)} aria-label="move down" disabled={i === mission.stops.length - 1}><IconDown /></button>
+                <button className="icon remove" onClick={() => update({ stops: mission.stops.filter((_, k) => k !== i) })} aria-label="remove stop"><IconX /></button>
+              </div>
+              <div className="grid2">
+                <label className="field"><span>dwell, minutes</span><input type="number" min={0} value={st.dwellSeconds / 60} onChange={(e) => updateStop(i, { dwellSeconds: Math.max(0, num(e.target.value, st.dwellSeconds / 60)) * 60 })} /></label>
+                <label className="field"><span>strategy</span>
+                  <select value={st.strategy} onChange={(e) => updateStop(i, { strategy: e.target.value as Strategy })}>
+                    {STRATEGIES.map(([v, l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="row add-stop">
+          <select value={addId} onChange={(e) => setAddId(e.target.value)} aria-label="satellite to add as a stop">
+            {scenario.satellites.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <button disabled={!addId} onClick={() => update({ stops: [...mission.stops, { satelliteId: addId, dwellSeconds: 1800, strategy: 'best' }] })}><IconPlus /> Add stop</button>
+        </div>
+        <div className="grid2">
+          <label className="field"><span>start at t, minutes</span><input type="number" value={mission.startT / 60} onChange={(e) => update({ startT: num(e.target.value, mission.startT / 60) * 60 })} /></label>
+          <label className="field"><span>departure window, hours</span><input type="number" min={0} step="any" value={mission.departureWindow / 3600} onChange={(e) => update({ departureWindow: Math.max(0, num(e.target.value, 0)) * 3600 })} /></label>
+        </div>
+      </Section>
+
+      <div className="plan-bar">
+        <button className="primary big" disabled={mission.stops.length === 0 || planStatus === 'loading'} onClick={() => void requestPlan()}>
+          {planStatus === 'loading' ? <><span className="spinner" aria-hidden="true" /> Planning…</> : 'Plan'}
         </button>
         {plan && <button onClick={() => { const start = planStart(plan, mission.startT); setSpan(start + plan.totalTime); setT(start); }}>Fit timeline</button>}
         {plan && <button onClick={() => requestCamera('ship')}>Frame tour</button>}
@@ -142,28 +152,31 @@ export function MissionPanel() {
       {planStatus === 'idle' && scenario.mission && scenario.mission.stops.length > 0 && !plan && <p className="hint">Inputs changed. Press Plan to recompute.</p>}
 
       {plan && (
-        <div className="section">
-          <div className="label">Plan {plan.feasible ? '' : '(not feasible with this ship)'}</div>
-          <table className="kv"><tbody>
-            <tr><td>total delta-v</td><td>{plan.totalDv.toFixed(3)} km/s</td></tr>
-            <tr><td>total time</td><td>{formatDuration(plan.totalTime)}</td></tr>
-            <tr><td>propellant left</td><td>{plan.propellantLeft.toFixed(0)} kg</td></tr>
-          </tbody></table>
+        <Section title={plan.feasible ? 'Plan' : 'Plan (not feasible with this ship)'}>
+          <div className="tiles">
+            <div className="tile"><span className="tile-k">delta-v</span><span className="tile-v">{plan.totalDv.toFixed(2)}<small>km/s</small></span></div>
+            <div className="tile"><span className="tile-k">time</span><span className="tile-v">{plan.totalTime >= 172800 ? (plan.totalTime / 86400).toFixed(1) : (plan.totalTime / 3600).toFixed(1)}<small>{plan.totalTime >= 172800 ? 'd' : 'h'}</small></span></div>
+            <div className={plan.feasible ? 'tile' : 'tile bad'}><span className="tile-k">fuel left</span><span className="tile-v">{plan.propellantLeft >= 10000 ? (plan.propellantLeft / 1000).toFixed(1) : plan.propellantLeft.toFixed(0)}<small>{plan.propellantLeft >= 10000 ? 't' : 'kg'}</small></span></div>
+          </div>
           {plan.launch && <LaunchResults report={plan.launch} epoch={epochMs(useStore.getState())} />}
           <ol className="legs">
             {plan.legs.map((l) => (
-              <li key={l.toStop} className={selectedLeg === l.toStop ? 'selected' : ''} onClick={() => { selectLeg(selectedLeg === l.toStop ? null : l.toStop); requestCamera('ship') }}>
-                <div><b>Leg {l.toStop + 1}</b> to {nameOf(mission.stops[l.toStop]?.satelliteId ?? '')} · {l.strategy} · {l.burns.length} burns</div>
-                <div className="hint">TOF {formatDuration(l.tof)} · {l.totalDv.toFixed(3)} km/s · depart at t = {formatDuration(l.burns[0]?.t ?? 0)}</div>
+              <li
+                key={l.toStop}
+                className={selectedLeg === l.toStop ? 'selected' : ''}
+                style={{ '--leg': LEG_COLORS[l.toStop % LEG_COLORS.length] } as CSSProperties}
+                onClick={() => { selectLeg(selectedLeg === l.toStop ? null : l.toStop); requestCamera('ship') }}
+              >
+                <div className="leg-head"><b>Leg {l.toStop + 1}</b><span className="leg-to">to {nameOf(mission.stops[l.toStop]?.satelliteId ?? '')}</span><span className="leg-dv">{l.totalDv.toFixed(3)} km/s</span></div>
+                <div className="hint">{l.strategy} · {l.burns.length} burns · TOF {formatDuration(l.tof)} · departs t = {formatDuration(l.burns[0]?.t ?? 0)}</div>
                 {l.warnings.map((w, k) => <div key={k} className="error">{w}</div>)}
               </li>
             ))}
           </ol>
-        </div>
+        </Section>
       )}
 
-      <div className="section">
-        <div className="label">Camera</div>
+      <Section title="Camera" summary={CAMERAS.find(([mode]) => mode === cameraMode)?.[1]}>
         <div className="tabs">
           {CAMERAS.map(([mode, label]) => (
             <button key={mode} className={cameraMode === mode ? 'tab active' : 'tab'} onClick={() => setCameraMode(mode)}>{label}</button>
@@ -174,7 +187,7 @@ export function MissionPanel() {
           <button className={showRemaining ? 'toggle on' : 'toggle'} onClick={toggleRemaining}>Remaining path</button>
           <button className={showBurnLabels ? 'toggle on' : 'toggle'} onClick={toggleBurnLabels}>Burn labels</button>
         </div>
-      </div>
+      </Section>
     </div>
   )
 }
@@ -236,8 +249,8 @@ function LaunchResults({ report, epoch }: { report: LaunchReport; epoch: number 
   const losses = b.gravityLoss + b.dragLoss + b.steeringLoss
   const when = (t: number) => `t = ${formatDuration(t)} (${formatUtc(absoluteDate(epoch, t))})`
   return (
-    <div className="section">
-      <div className="label">Launch {report.feasible ? '' : '(does not reach orbit)'}</div>
+    <div className="subblock">
+      <div className="subhead">Launch {report.feasible ? '' : '(does not reach orbit)'}</div>
       <table className="kv"><tbody>
         <tr><td>liftoff</td><td>{report.siteName}, {when(report.liftoffT)}</td></tr>
         <tr><td>azimuth</td><td>{report.azimuthDeg.toFixed(1)}° from north, into {report.inclinationDeg.toFixed(2)}° (plane match {(100 * report.planeAlignment).toFixed(1)}%)</td></tr>
