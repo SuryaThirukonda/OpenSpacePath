@@ -89,6 +89,8 @@ export interface ArpState {
 
 const runner = new AlgorithmRunner()
 let showSeq = 0
+/** Counts runs, so a result that arrives after the next run began is dropped. */
+let runSeq = 0
 let startedAt = 0
 
 /** The inputs the scene needs to draw a route as a tour: Earth's orbit, then each asteroid in turn. */
@@ -141,6 +143,7 @@ export const useArp = create<ArpState>((set, get) => ({
   setInstanceSeed: (instanceSeed) => { set({ instanceSeed: Math.round(instanceSeed) || 0 }); save(get()) },
   generate: () => {
     get().stop()
+    runSeq += 1
     const inst = generateInstance(get().n, get().instanceSeed)
     set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null })
     save(get())
@@ -150,6 +153,7 @@ export const useArp = create<ArpState>((set, get) => ({
     const inst = parseInstance(text)
     if (typeof inst === 'string') return inst
     get().stop()
+    runSeq += 1
     set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null })
     save(get())
     ensureScene(inst, true)
@@ -178,10 +182,12 @@ export const useArp = create<ArpState>((set, get) => ({
     }
     ensureScene(instance)
     const solver = useStore.getState().scenario.solver ?? DEFAULT_SOLVER
+    const id = ++runSeq
     startedAt = performance.now()
     set({ status: 'running', message: `Running ${header.name}`, error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null, elapsedMs: 0 })
 
     const onEvents = (events: RunEvent[]) => {
+      if (id !== runSeq) return
       const rows = [...get().evaluations]
       let transfers = get().transfers
       let best = rows.length ? rows[rows.length - 1].best : null
@@ -201,6 +207,7 @@ export const useArp = create<ArpState>((set, get) => ({
     }
 
     const onDone = (result: WorkerResult) => {
+      if (id !== runSeq) return
       const elapsedMs = performance.now() - startedAt
       if (!result.ok || !result.order) {
         set({ status: 'error', error: result.error ?? 'the algorithm failed', message: 'The run stopped with an error.', elapsedMs })
@@ -208,18 +215,19 @@ export const useArp = create<ArpState>((set, get) => ({
       }
       set({ status: 'done', message: 'Finished. Drawing the route.', resultNote: result.note, transfers: Math.max(get().transfers, result.transfers), elapsedMs })
       void get().showRoute(result.order, result.times, `${header.name}: final route`, true).then((ev) => {
+        if (id !== runSeq) return
         if (ev) set({ result: ev, message: 'Finished.' })
         else if (get().status === 'done') set({ status: 'error', error: 'the final route could not be drawn', message: 'The run finished but its route could not be evaluated.' })
       })
     }
 
     runner.start(source, { instance, solver, budget, seed }, {
-      onLoading: () => set({ status: 'loading', message: 'Loading Python (about 8 MB, once per visit)…' }),
-      onStarted: () => { startedAt = performance.now(); set({ status: 'running', message: `Running ${header.name}` }) },
+      onLoading: () => { if (id === runSeq) set({ status: 'loading', message: 'Loading Python (about 8 MB, once per visit)…' }) },
+      onStarted: () => { if (id === runSeq) { startedAt = performance.now(); set({ status: 'running', message: `Running ${header.name}` }) } },
       onEvents,
-      onLog: (lines) => set({ log: [...get().log, ...lines].slice(-400) }),
+      onLog: (lines) => { if (id === runSeq) set({ log: [...get().log, ...lines].slice(-400) }) },
       onDone,
-      onFailed: (message) => set({ status: 'error', error: message, message: 'The runner failed.', elapsedMs: performance.now() - startedAt }),
+      onFailed: (message) => { if (id === runSeq) set({ status: 'error', error: message, message: 'The runner failed.', elapsedMs: performance.now() - startedAt }) },
     })
   },
 
