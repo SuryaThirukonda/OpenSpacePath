@@ -13,7 +13,7 @@ import { planMission } from '../mission/api'
 import type { MissionInput, MissionPlan } from '../mission/types'
 import type { Satellite, Scenario } from '../types'
 
-export type CameraRequestKind = 'body' | 'orbit' | 'reset' | 'ship'
+export type CameraRequestKind = 'body' | 'orbit' | 'reset' | 'ship' | 'all'
 
 /** free: the user steers. follow: the camera travels with the ship. chase: third person behind it. birdseye: fixed, above the current route. */
 export type CameraMode = 'free' | 'follow' | 'chase' | 'birdseye'
@@ -56,6 +56,10 @@ export interface AppState {
   toggleLabels: () => void
 
   setMission: (mission: MissionInput | null) => void
+  /** The Lambert solver for every transfer; changing it drops the current plan. */
+  setSolver: (solver: string) => void
+  /** Show a route computed elsewhere (the Routing tab): its mission inputs and its plan together. */
+  loadRoute: (mission: MissionInput, plan: MissionPlan) => void
   requestPlan: () => Promise<void>
   clearPlan: () => void
   setCameraMode: (mode: CameraMode) => void
@@ -153,6 +157,11 @@ export const useStore = create<AppState>((set) => ({
   toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
 
   setMission: (mission) => set((s) => ({ scenario: { ...s.scenario, mission: mission ?? undefined }, ...invalidPlan })),
+  setSolver: (solver) => set((s) => ({ scenario: { ...s.scenario, solver }, ...invalidPlan })),
+  loadRoute: (mission, plan) => {
+    planSeq++ // a planner request still in flight must not overwrite this
+    set((s) => ({ scenario: { ...s.scenario, mission }, plan, planStatus: 'ready', planError: null, selectedLeg: null }))
+  },
   requestPlan: async () => {
     const s = useStore.getState()
     const mission = s.scenario.mission

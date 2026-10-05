@@ -48,6 +48,7 @@ function cleanSatellite(s: unknown, bodyRadius: number): Satellite | null {
     const elements = { a: el.a as number, e: el.e as number, i: el.i as number, raan: el.raan as number, argp: el.argp as number, M0: el.M0 as number }
     if (!validateElements(elements, bodyRadius).ok) return null
     const sat: KeplerSatellite = { id: o.id, kind: 'kepler', name: o.name, color: o.color, elements }
+    if (o.shape === 'asteroid' || o.shape === 'planet') sat.shape = o.shape
     return sat
   }
   if (o.kind === 'tle') {
@@ -162,6 +163,7 @@ export function decodeScenario(encoded: string): Scenario | null {
     const scenario: Scenario = { bodyId: o.bodyId, epoch: o.epoch, satellites, spanSeconds: o.spanSeconds, rate: snapRate(o.rate) }
     const mission = cleanMission(o.mission, satellites, radius)
     if (mission) scenario.mission = mission
+    if (typeof o.solver === 'string' && /^[a-z0-9]{3,24}$/.test(o.solver)) scenario.solver = o.solver
     return scenario
   } catch {
     return null

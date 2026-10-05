@@ -38,4 +38,5 @@ export const IconX = (p: P) => <Icon size={12} {...p}><path d="M6 6l12 12M18 6L6
 export const IconUp = (p: P) => <Icon size={12} {...p}><path d="M12 19V5M6 11l6-6 6 6" /></Icon>
 export const IconDown = (p: P) => <Icon size={12} {...p}><path d="M12 5v14M6 13l6 6 6-6" /></Icon>
 export const IconSatellite = (p: P) => <Icon {...p}><rect x="9" y="9" width="6" height="6" rx="1" transform="rotate(45 12 12)" /><path d="M5.5 5.5l3 3M15.5 15.5l3 3M4 9l5-5M15 20l5-5" /></Icon>
+export const IconCode = (p: P) => <Icon {...p}><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14" /></Icon>
 export const IconRoute = (p: P) => <Icon {...p}><circle cx="5" cy="18" r="2" /><circle cx="19" cy="6" r="2" /><path d="M7 18h6a4 4 0 0 0 0-8h-2a4 4 0 0 1 0-8" transform="translate(0 2)" /></Icon>

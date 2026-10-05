@@ -3,7 +3,7 @@
  * antennas toward the body), a soft glow point in the satellite's colour, and a text label.
  */
 import * as THREE from 'three'
-import { buildComsat, buildStation, SATELLITE_COMPANION_UNITS, SATELLITE_UNITS, satelliteKind, type Model, type SatelliteKind } from './models'
+import { buildAsteroid, buildComsat, buildPlanet, buildStation, SATELLITE_COMPANION_UNITS, SATELLITE_UNITS, satelliteKind, type Model, type SatelliteKind } from './models'
 import { getGlowTexture, makeLabelTexture } from './textures'
 
 export class SatelliteMarker {
@@ -19,9 +19,9 @@ export class SatelliteMarker {
   private readonly y = new THREE.Vector3()
   private readonly z = new THREE.Vector3()
 
-  constructor(name: string, color: string) {
-    this.kind = satelliteKind(name)
-    this.model = this.kind === 'station' ? buildStation() : buildComsat()
+  constructor(name: string, color: string, shape?: 'asteroid' | 'planet') {
+    this.kind = satelliteKind(name, shape)
+    this.model = this.kind === 'station' ? buildStation() : this.kind === 'asteroid' ? buildAsteroid(name) : this.kind === 'planet' ? buildPlanet(color) : buildComsat()
     this.group.add(this.model.group)
 
     const geo = new THREE.BufferGeometry()
@@ -48,7 +48,7 @@ export class SatelliteMarker {
    */
   setState(position: THREE.Vector3, velocity?: THREE.Vector3): void {
     this.group.position.copy(position)
-    if (!velocity || position.lengthSq() === 0) return
+    if (!velocity || position.lengthSq() === 0 || this.kind === 'asteroid' || this.kind === 'planet') return // rocks have no attitude to hold
     this.z.copy(position).normalize().negate()
     this.y.copy(velocity).cross(position)
     if (this.y.lengthSq() < 1e-18) return

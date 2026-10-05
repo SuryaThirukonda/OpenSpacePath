@@ -27,6 +27,7 @@ export interface FlatPlan {
 export function flattenPlan(plan: MissionPlan): FlatPlan {
   const parts: Array<{ t: number[]; r: number[][]; v: number[][]; leg: number; kind: 0 | 1 | 2 }> = []
   if (plan.launch && plan.launch.samples.t.length > 0) parts.push({ ...plan.launch.samples, leg: 0, kind: 2 })
+  if (plan.prelude && plan.prelude.samples.t.length > 0) parts.push({ ...plan.prelude.samples, leg: 0, kind: 1 })
   plan.legs.forEach((leg, k) => {
     for (const arc of leg.arcs) parts.push({ ...arc.samples, leg: k, kind: 0 })
     if (leg.ride && leg.ride.samples.t.length > 0) parts.push({ ...leg.ride.samples, leg: k, kind: 1 })

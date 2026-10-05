@@ -13,6 +13,7 @@ Date: 2026-09-01. These files answer the three asks from the August 31 meeting: 
 | `03_tech_stack.md` | First tech stack recommendation (2026-09-07), superseded by 04. |
 | `04_system_design.md` | System design: decisions, game-engine evaluation, architecture, full stack, the mathematics reference with a verification ledger. |
 | `05_mission_path_plan.md` | Implementation plan for the satellite-tour visualization: Lambert rendezvous with moving targets, 2- to 4-burn strategies, ship model, path and burn animation, camera follow; §13 adds the launch-from-the-ground model. Implemented; this is the design record. |
+| `06_routing_algorithm_format.md` | The standard format for asteroid routing algorithms (ARP-ALGORITHM 1) used by the Routing tab: the problem as implemented, the `solve(problem, tools)` interface, run rules, where the code runs, the Lambert solver comparison, and the differences from the two papers. |
 
 ## Track study documents (Part II, Tracks 1 to 6)
 

@@ -6,10 +6,10 @@ import { IconPause, IconPlay, IconReset } from './icons'
 import { Panel } from './Panel'
 
 /** Short labels for the rate buttons. */
-const RATE_LABELS: Record<number, string> = { 1: '1×', 10: '10×', 60: '60×', 600: '600×', 3600: '1 h/s', 86400: '1 d/s' }
+const RATE_LABELS: Record<number, string> = { 1: '1×', 10: '10×', 60: '60×', 600: '600×', 3600: '1 h/s', 86400: '1 d/s', 864000: '10 d/s', 2592000: '30 d/s' }
 
 const SPANS: Array<[string, number]> = [
-  ['1 hour', 3600], ['6 hours', 21600], ['1 day', 86400], ['1 week', 604800], ['30 days', 2592000],
+  ['1 hour', 3600], ['6 hours', 21600], ['1 day', 86400], ['1 week', 604800], ['30 days', 2592000], ['1 year', 31557600], ['10 years', 315576000],
 ]
 
 export function TimelinePanel() {

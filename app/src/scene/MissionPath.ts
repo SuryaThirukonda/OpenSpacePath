@@ -125,8 +125,10 @@ export class MissionPath {
     plan.legs.forEach((leg, k) => {
       const color = LEG_COLORS[k % LEG_COLORS.length]
       for (const b of leg.burns) {
-        const dur = b.duration >= 60 ? `${(b.duration / 60).toFixed(1)} min` : `${b.duration.toFixed(0)} s`
-        this.addMarker(b.t, k, kmToScene({ x: b.r[0], y: b.r[1], z: b.r[2] }), `${b.label} ${(b.magnitude * 1000).toFixed(0)} m/s, ${dur}`, color)
+        // a route without a ship model has impulsive burns of no duration; say only how big they are
+        const dur = b.duration <= 0 ? '' : b.duration >= 60 ? `, ${(b.duration / 60).toFixed(1)} min` : `, ${b.duration.toFixed(0)} s`
+        const size = b.magnitude >= 10 ? `${b.magnitude.toFixed(2)} km/s` : `${(b.magnitude * 1000).toFixed(0)} m/s`
+        this.addMarker(b.t, k, kmToScene({ x: b.r[0], y: b.r[1], z: b.r[2] }), `${b.label} ${size}${dur}`, color)
       }
       if (leg.ride && leg.ride.t1 > leg.ride.t0) {
         const s = leg.ride.samples

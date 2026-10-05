@@ -3,6 +3,7 @@
 /** Playback rates offered by the timeline and accepted from URLs, simulated seconds per real second. */
 export const PLAYBACK_RATES: Array<[number, string]> = [
   [1, '1x (real time)'], [10, '10x'], [60, '60x'], [600, '600x'], [3600, '3600x'], [86400, '1 day/s'],
+  [864000, '10 days/s'], [2592000, '30 days/s'],
 ]
 
 /** Nearest offered playback rate, so a hand-edited URL cannot run time backwards or at an absurd speed. */

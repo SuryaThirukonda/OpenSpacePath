@@ -110,6 +110,7 @@ class MissionInput(BaseModel):
     start: StartOrbit
     stops: list[Stop] = Field(min_length=1, max_length=12)
     departureWindow: float = Field(default=0.0, ge=0)
+    solver: str = Field(default="izzo2015", description="a lamberthub solver; see GET /api/lambert/solvers")
 
 
 class PlanRequest(BaseModel):
@@ -223,3 +224,69 @@ class MissionPlan(BaseModel):
     propellantLeft: float
     feasible: bool
     launch: Optional[LaunchReport] = None
+    prelude: Optional[Ride] = Field(default=None, description="a wait with the start body before the first departure")
+
+
+# ---------------------------------------------------------------- asteroid routing problem
+
+class ArpBody(BaseModel):
+    id: str
+    name: str = ""
+    elements: Elements
+
+
+class ArpInstance(BaseModel):
+    """An instance of the Asteroid Routing Problem: Earth, the asteroids, and the constants of the cost."""
+    mu: float = Field(default=132712440041.9, gt=0, description="km^3/s^2, the Sun")
+    epoch: str = Field(description="ISO date of the mission start; times are days after it")
+    earth: ArpBody
+    asteroids: list[ArpBody] = Field(min_length=1, max_length=40)
+    tauMax: float = Field(default=730.0, gt=0, description="longest wait before a transfer, days")
+    tMax: float = Field(default=730.0, gt=1, description="longest transfer, days")
+    timeWeight: float = Field(default=2.0 / 30.0, ge=0, description="km/s charged per day of mission")
+
+
+class ArpTransferRequest(BaseModel):
+    instance: ArpInstance
+    origin: int = Field(ge=0, description="0 is Earth, 1..n the asteroids")
+    target: int = Field(ge=1)
+    eta: float = Field(ge=0, description="earliest departure, days after the epoch")
+    solver: str = "izzo2015"
+    relaxed: bool = Field(default=False, description="do not charge the wait (the relaxation used for bounds)")
+    tauF: Optional[float] = Field(default=None, gt=0, description="upper bound on the wait when relaxed, days")
+
+
+class ArpTransfer(BaseModel):
+    origin: int
+    target: int
+    eta: float
+    tau: float
+    t: float
+    z: float
+    dv: float
+    dv1: float
+    dv2: float
+    evals: int
+    miss: float = Field(default=0.0, description="how far the arc ends from the target, as a fraction of its distance; -1 if unknown")
+
+
+class ArpEvaluateRequest(BaseModel):
+    instance: ArpInstance
+    order: list[int] = Field(min_length=1, max_length=40, description="asteroid indices 1..n in visiting order")
+    solver: str = "izzo2015"
+    times: Optional[list[Annotated[list[float], Field(min_length=2, max_length=2)]]] = Field(
+        default=None, description="[wait, transfer] in days for each leg; omit to let the inner optimizer choose")
+
+
+class ArpEvaluation(BaseModel):
+    order: list[int]
+    solver: str
+    legs: list[ArpTransfer]
+    cost: float
+    dv: float
+    time: float
+
+
+class ArpPlanResponse(BaseModel):
+    evaluation: ArpEvaluation
+    plan: MissionPlan

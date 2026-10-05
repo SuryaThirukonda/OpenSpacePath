@@ -4,10 +4,13 @@ import { cloneVehicle, defaultLaunch, grossMass, LAUNCH_SITES, LAUNCH_VEHICLES, 
 import { LEG_COLORS } from '../data/legColors'
 import { emptyMission, SHIP_PRESETS, shipCapacity } from '../data/ships'
 import type { LaunchReport, LaunchSpec, MissionInput, Ship, Stage, Stop, Strategy } from '../mission/types'
+import { DEFAULT_SOLVER } from '../mission/api'
 import { planStart } from '../mission/types'
 import { epochMs, useStore, type CameraMode } from '../store/store'
 import { IconDown, IconPlus, IconUp, IconX } from './icons'
 import { Section } from './Section'
+import { SolverSelect } from './SolverSelect'
+import { useSolvers } from './useSolvers'
 
 const STRATEGIES: Array<[Strategy, string]> = [
   ['best', 'best of all'], ['lambert2', '2-burn Lambert'], ['phasing3', '3-burn phasing'], ['bielliptic3', '3-burn bi-elliptic'], ['waypoint4', '4-burn waypoints'],
@@ -33,6 +36,8 @@ export function MissionPanel() {
   const { setMission, requestPlan, setCameraMode, toggleRemaining, toggleBurnLabels, selectLeg, requestCamera, setSpan, setT } = useStore.getState()
   const mission: MissionInput = scenario.mission ?? emptyMission(scenario)
   const [addId, setAddId] = useState(scenario.satellites[0]?.id ?? '')
+  const solvers = useSolvers()
+  const solverId = scenario.solver ?? DEFAULT_SOLVER
 
   const update = (partial: Partial<MissionInput>) => setMission({ ...mission, ...partial })
   const updateShip = (partial: Partial<Ship>) => update({ ship: { ...mission.ship, ...partial } })
@@ -140,6 +145,10 @@ export function MissionPanel() {
         </div>
       </Section>
 
+      <Section title="Lambert solver" defaultOpen={false} summary={solvers.find((s) => s.id === solverId)?.name ?? solverId}>
+        <SolverSelect />
+      </Section>
+
       <div className="plan-bar">
         <button className="primary big" disabled={mission.stops.length === 0 || planStatus === 'loading'} onClick={() => void requestPlan()}>
           {planStatus === 'loading' ? <><span className="spinner" aria-hidden="true" /> Planning…</> : 'Plan'}
@@ -156,7 +165,9 @@ export function MissionPanel() {
           <div className="tiles">
             <div className="tile"><span className="tile-k">delta-v</span><span className="tile-v">{plan.totalDv.toFixed(2)}<small>km/s</small></span></div>
             <div className="tile"><span className="tile-k">time</span><span className="tile-v">{plan.totalTime >= 172800 ? (plan.totalTime / 86400).toFixed(1) : (plan.totalTime / 3600).toFixed(1)}<small>{plan.totalTime >= 172800 ? 'd' : 'h'}</small></span></div>
-            <div className={plan.feasible ? 'tile' : 'tile bad'}><span className="tile-k">fuel left</span><span className="tile-v">{plan.propellantLeft >= 10000 ? (plan.propellantLeft / 1000).toFixed(1) : plan.propellantLeft.toFixed(0)}<small>{plan.propellantLeft >= 10000 ? 't' : 'kg'}</small></span></div>
+            {plan.propellantLeft < 0
+              ? <div className="tile"><span className="tile-k">fuel</span><span className="tile-v"><small>not modelled</small></span></div>
+              : <div className={plan.feasible ? 'tile' : 'tile bad'}><span className="tile-k">fuel left</span><span className="tile-v">{plan.propellantLeft >= 10000 ? (plan.propellantLeft / 1000).toFixed(1) : plan.propellantLeft.toFixed(0)}<small>{plan.propellantLeft >= 10000 ? 't' : 'kg'}</small></span></div>}
           </div>
           {plan.launch && <LaunchResults report={plan.launch} epoch={epochMs(useStore.getState())} />}
           <ol className="legs">

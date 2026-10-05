@@ -191,6 +191,8 @@ export interface MissionPlan {
   propellantLeft: number
   feasible: boolean
   launch?: LaunchReport | null
+  /** A wait alongside the start body before the first departure (asteroid routes begin with one). */
+  prelude?: Ride | null
 }
 
 /** Simulated time the tour starts: liftoff when launching, else the mission's startT. */

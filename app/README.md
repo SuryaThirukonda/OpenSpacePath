@@ -28,6 +28,8 @@ Then open the printed URL. `npm test` runs the known-answer tests, `npm run buil
 - Dashboard: glass panels over the scene; the side panels scroll inside a custom scroll area (a slim draggable thumb that takes no width, with the content fading where it continues); sections fold away and show a one-line summary while closed; headline numbers are tiles; the timeline is one row with a styled scrubber and burn ticks. Below 860 px the view controls become a strip above the timeline, and below 680 px the panels are sheets that start collapsed.
 - Shareable URLs: the whole scenario, mission inputs included, is encoded in the `?s=` query parameter (Copy link).
 - Mission tab: a spaceship tours the satellites you order. Each leg is a Lambert rendezvous to where the target will be, with a braking burn to match it; three- and four-burn strategies (phasing loops, bi-elliptic, node plane change) are tried by the planner and the cheapest kept. The tour draws as one line, flown part solid and remainder dashed, with burn markers, dwell badges, an engine flare at each burn, and a camera that follows the ship. Ship mass, propellant, Isp and thrust give burn durations and a delta-v budget. The tour can also start on a launch pad: pick a site and a staged vehicle, and the planner finds the launch window, flies the ascent with drag, gravity and steering losses, and reports the propellant, losses, max-Q and the parking orbit before the first Lambert leg.
+- Lambert solver menu (Mission and Routing tabs): every transfer is computed by one solver from `lamberthub`. Izzo (2015) is the default; Gooding, Avanzini, Arora, Vallado, Battin and Gauss can be chosen, each with a note on what to expect of it. The choice is saved in the link.
+- Routing tab: write an algorithm for the Asteroid Routing Problem (leave Earth's orbit, visit every asteroid once) in the standard format `ARP-ALGORITHM 1`, one Python file with a header docstring and `solve(problem, tools)`, and watch it work on a Sun-centred instance. Every route the algorithm evaluates is charted and listed, the best so far is drawn as it improves, and the final route is flown on the timeline. Five examples are included (greedy nearest neighbour and random search from the paper, greedy by cost, swap local search, exhaustive). Algorithms and instances can be saved to and opened from files, and a whole run exported as JSON. The specification is `../research/06_routing_algorithm_format.md`.
 
 ## Fidelity, stated honestly
 
@@ -36,6 +38,8 @@ Then open the printed URL. `npm test` runs the known-answer tests, `npm run buil
 - The other bodies are procedural drawings, not photographs. Named features are placed from the IAU gazetteer (`src/data/surfaceFeatures.ts`); everything between them is noise. Vehicles are generic designs in realistic proportions, drawn at a constant size on screen rather than to the scale of the scene.
 - A launch is a planar integrated ascent with an exponential atmosphere and a simple guidance law; it gives the right order of losses and propellant, not a flight-ready trajectory.
 - Mission legs are impulsive-burn, two-body coasts: no finite burns, drag, or perturbations on the ship. Each leg's endpoint is taken from the target's own propagator at the arrival time, so the ship arrives exactly where that model puts the target.
+- Routing instances are synthetic main-belt-like orbits drawn from a seed, not the GTOC11 catalogue the papers sample, so costs are not comparable with the papers' tables. A route's cost follows the papers' definition (delta-v plus 2 km/s per 30 days, times chosen by SLSQP from a fixed start) and is only comparable with them under the Izzo or Gooding solver.
+- A routing algorithm runs in your own browser (Python through Pyodide, fetched from the jsDelivr CDN the first time, about 8 MB); only its transfer questions go to the planner. It is kept in the browser's local storage and is never put in a link.
 - TLE satellites use SGP4 through satellite.js. SGP4 outputs the TEME frame; the scene treats TEME as its Earth-centred inertial frame, which differs from J2000 by about 0.37 degrees in 2026. Earth's rotation is applied from Greenwich mean sidereal time, so the grid turns correctly under the satellites.
 - Keplerian and TLE satellites share one inertial frame in the scene; for non-Earth bodies the frame is the body's equatorial frame by definition.
 - Elements are only valid for closed orbits; the form limits eccentricity to 0.95 and rejects orbits whose periapsis is below the surface.
@@ -50,6 +54,8 @@ src/data/         central bodies, presets, bundled ISS TLE
 src/store/        zustand store shared by the panels and the scene
 src/url/          scenario <-> URL codec
 src/mission/      mission types, planner client, ship state by Hermite interpolation of the planner's samples
+src/arp/          routing: the algorithm format and examples, instances, the runner client and the tab's state
+public/arp-worker.js  the Web Worker that runs an algorithm with Pyodide
 src/scene/        Three.js scene: inertial frame group, body mesh, orbit paths, markers, camera
 src/ui/           React panels
 tests/            Vitest known-answer tests (Curtis Example 4.7, circular hand cases, ISS, GEO, SGP4 cross-check)

@@ -8,9 +8,10 @@ import { SatelliteForm } from './SatelliteForm'
 import { MissionPanel } from './MissionPanel'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
-import { IconLogo, IconRoute, IconSatellite } from './icons'
+import { IconCode, IconLogo, IconRoute, IconSatellite } from './icons'
 import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
+import { RoutingPanel } from './RoutingPanel'
 import { Viewport } from './Viewport'
 
 /** Keep the URL in sync with the scenario (debounced), and bind the space bar to play/pause. */
@@ -49,7 +50,7 @@ function useKeys() {
 }
 
 function LeftTabs() {
-  const [tab, setTab] = useState<'satellites' | 'mission'>('satellites')
+  const [tab, setTab] = useState<'satellites' | 'mission' | 'routing'>('satellites')
   const sats = useStore((s) => s.scenario.satellites.length)
   const stops = useStore((s) => s.scenario.mission?.stops.length ?? 0)
   return (
@@ -61,8 +62,13 @@ function LeftTabs() {
         <button role="tab" aria-selected={tab === 'mission'} className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>
           <IconRoute /> Mission {stops > 0 && <span className="pill">{stops}</span>}
         </button>
+        <button role="tab" aria-selected={tab === 'routing'} className={tab === 'routing' ? 'tab active' : 'tab'} onClick={() => setTab('routing')}>
+          <IconCode /> Routing
+        </button>
       </div>
-      {tab === 'satellites' ? (
+      {tab === 'routing' ? (
+        <RoutingPanel />
+      ) : tab === 'satellites' ? (
         <>
           <BodySelector />
           <SatelliteList />

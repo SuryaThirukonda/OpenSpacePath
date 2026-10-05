@@ -218,7 +218,7 @@ export class SceneManager {
         v = undefined
       }
       if (!v) {
-        v = { key, path: new OrbitPath(sat.color), marker: new SatelliteMarker(sat.name, sat.color), pathT0: s.t }
+        v = { key, path: new OrbitPath(sat.color), marker: new SatelliteMarker(sat.name, sat.color, sat.kind === 'kepler' ? sat.shape : undefined), pathT0: s.t }
         this.inertial.add(v.path.line)
         this.inertial.add(v.marker.group)
         this.visuals.set(sat.id, v)
@@ -285,6 +285,16 @@ export class SceneManager {
     const body = getBody(s.scenario.bodyId)
     if (req.kind === 'body' || req.kind === 'reset') {
       this.frameBody(body)
+    } else if (req.kind === 'all') {
+      // every orbit and the tour, for a scene whose orbits dwarf the body (a heliocentric one)
+      let all: THREE.Sphere | null = null
+      for (const sp of [...[...this.visuals.values()].map((v) => v.path.boundingSphere()), this.missionPath.wholeSphere()]) {
+        if (!sp) continue
+        if (all) all.union(sp)
+        else all = sp.clone()
+      }
+      if (all) this.frameSphere(all)
+      else this.frameBody(body)
     } else if (req.kind === 'ship') {
       const sphere = s.selectedLeg !== null ? this.missionPath.legSphere(s.selectedLeg) : this.missionPath.wholeSphere()
       if (sphere) this.frameSphere(sphere)
@@ -321,6 +331,8 @@ export class SceneManager {
       const h = new THREE.Vector3(Math.sin(raan) * Math.sin(i), -Math.cos(raan) * Math.sin(i), Math.cos(i))
       dir = h.applyQuaternion(this.inertial.quaternion).add(new THREE.Vector3(0.35, 0.15, 0.3)).normalize()
     }
+    // orbits can be far larger than the body the zoom limit was set for (asteroids around the Sun)
+    this.controls.maxDistance = Math.max(this.controls.maxDistance, dist * 6)
     this.controls.target.copy(center)
     this.camera.position.copy(center).add(dir.multiplyScalar(dist))
     this.camera.lookAt(center)
@@ -527,7 +539,7 @@ const WORLD_X = new THREE.Vector3(1, 0, 0)
 
 function visualKey(sat: Satellite, bodyId: string): string {
   return sat.kind === 'kepler'
-    ? `${bodyId}|${sat.color}|${sat.name}|${JSON.stringify(sat.elements)}`
+    ? `${bodyId}|${sat.color}|${sat.name}|${sat.shape ?? ''}|${JSON.stringify(sat.elements)}`
     : `${bodyId}|${sat.color}|${sat.name}|${sat.line1}|${sat.line2}`
 }
 

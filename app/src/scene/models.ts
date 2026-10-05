@@ -221,15 +221,20 @@ export function buildStack(vehicle: LaunchVehicle): StackModel {
 
 // ---------------------------------------------------------------- satellites
 
-export type SatelliteKind = 'comsat' | 'station'
+export type SatelliteKind = 'comsat' | 'station' | 'asteroid' | 'planet'
 
-/** A satellite named as a space station is drawn as one; everything else as a communications satellite. */
-export function satelliteKind(name: string): SatelliteKind {
+/**
+ * What to draw for an orbiting object. A stated shape wins (the bodies of a routing instance are
+ * asteroids and a planet); otherwise a satellite named as a space station is drawn as one and
+ * everything else as a communications satellite.
+ */
+export function satelliteKind(name: string, shape?: 'asteroid' | 'planet'): SatelliteKind {
+  if (shape) return shape
   return /\biss\b|station|zarya|tiangong|\bmir\b|skylab/i.test(name) ? 'station' : 'comsat'
 }
 
 /** Span of each satellite model in model units. */
-export const SATELLITE_UNITS: Record<SatelliteKind, number> = { comsat: 1.5, station: 2.4 }
+export const SATELLITE_UNITS: Record<SatelliteKind, number> = { comsat: 1.5, station: 2.4, asteroid: 1.0, planet: 1.0 }
 
 /**
  * Span of each satellite next to the spacecraft, in the spacecraft's model units, for the close
@@ -237,7 +242,7 @@ export const SATELLITE_UNITS: Record<SatelliteKind, number> = { comsat: 1.5, sta
  * across the arrays). A station would be 109 m, eighteen units and wider than the screen, so it
  * is held to seven: still plainly larger than the ship that visits it.
  */
-export const SATELLITE_COMPANION_UNITS: Record<SatelliteKind, number> = { comsat: 20.8 / SPACECRAFT_METRES_PER_UNIT, station: 7 }
+export const SATELLITE_COMPANION_UNITS: Record<SatelliteKind, number> = { comsat: 20.8 / SPACECRAFT_METRES_PER_UNIT, station: 7, asteroid: 6, planet: 8 }
 
 /** Box bus in gold foil, two solar wings along +-y (the orbit normal), reflectors and a horn toward +z (the body). */
 export function buildComsat(): Model {
@@ -286,4 +291,48 @@ export function buildStation(): Model {
   g.scale.setScalar(SATELLITE_UNITS.station / 109)
   b.group.add(g)
   return b.finish()
+}
+
+/** A small deterministic hash of a string to [0, 1), so each asteroid keeps its own shape. */
+function hash01(text: string, salt: number): number {
+  let h = 2166136261 ^ salt
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619)
+  return ((h >>> 0) % 100000) / 100000
+}
+
+/**
+ * An asteroid: a lumpy, faceted rock about one model unit across, elongated like most small
+ * bodies. The lumps come from the name, so the same asteroid always looks the same. Real
+ * asteroids are far too small to see at the scale of their orbits; this is a marker.
+ */
+export function buildAsteroid(name: string): Model {
+  const geo = new THREE.IcosahedronGeometry(0.5, 2)
+  const pos = geo.getAttribute('position')
+  const v = new THREE.Vector3()
+  const lobes = [0, 1, 2, 3, 4].map((k) => ({
+    dir: new THREE.Vector3(hash01(name, 11 * k + 1) - 0.5, hash01(name, 11 * k + 2) - 0.5, hash01(name, 11 * k + 3) - 0.5).normalize(),
+    amp: 0.1 + 0.16 * hash01(name, 11 * k + 4),
+  }))
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i)
+    const d = v.clone().normalize()
+    let r = 1
+    for (const l of lobes) r += l.amp * (d.dot(l.dir) > 0.25 ? d.dot(l.dir) : -0.35 * Math.abs(d.dot(l.dir)))
+    pos.setXYZ(i, v.x * r * 1.25, v.y * r * 0.9, v.z * r * 0.8)
+  }
+  geo.computeVertexNormals()
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8c8277, emissive: 0x2a2520, emissiveIntensity: 0.6, roughness: 0.95, metalness: 0, flatShading: true })
+  const group = new THREE.Group()
+  group.add(new THREE.Mesh(geo, mat))
+  return { group, dispose: () => { geo.dispose(); mat.dispose() } }
+}
+
+/** A planet as a marker: a small sphere in the object's own colour. */
+export function buildPlanet(color: string): Model {
+  const geo = new THREE.SphereGeometry(0.5, 24, 16)
+  const c = new THREE.Color(color)
+  const mat = new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.35, roughness: 0.7, metalness: 0 })
+  const group = new THREE.Group()
+  group.add(new THREE.Mesh(geo, mat))
+  return { group, dispose: () => { geo.dispose(); mat.dispose() } }
 }

@@ -59,12 +59,16 @@ export interface OrbitalElements {
   M0: number
 }
 
+/** What the marker of an orbiting object is drawn as; a spacecraft unless said otherwise. */
+export type SatelliteShape = 'asteroid' | 'planet'
+
 export interface KeplerSatellite {
   id: string
   kind: 'kepler'
   name: string
   color: string
   elements: OrbitalElements
+  shape?: SatelliteShape
 }
 
 export interface TleSatellite {
@@ -90,6 +94,8 @@ export interface Scenario {
   rate: number
   /** Mission inputs (ship, start orbit, stops); the planner's answer is never stored here. */
   mission?: MissionInput
+  /** The lamberthub solver every transfer is computed with; Izzo (2015) when absent. */
+  solver?: string
 }
 
 export interface TimeState {

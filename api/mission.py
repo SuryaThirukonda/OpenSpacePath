@@ -13,6 +13,7 @@ import numpy as np
 
 from . import ship as shipmodel
 from .strategies import plan_leg
+from . import lambert
 from . import launch as L
 from .models import (Arc, Burn, BurnInterval, LaunchBudget, LaunchEvent, LaunchReport, Leg, MissionPlan, PlanRequest, Ride, Samples, StageReport)
 from .propagation import elements_state, period, propagate_universal, target_period, target_state_fn
@@ -46,6 +47,12 @@ def _sample_ride(target_fn, t0: float, t1: float, n: int = ARC_SAMPLES) -> Sampl
 
 
 def plan_mission(req: PlanRequest) -> MissionPlan:
+    """Plan the tour with the mission's Lambert solver (Izzo 2015 unless it names another)."""
+    with lambert.use_solver(req.mission.solver):
+        return _plan_mission(req)
+
+
+def _plan_mission(req: PlanRequest) -> MissionPlan:
     mu, radius = req.body.mu, req.body.radius
     epoch_ms = epoch_ms_of(req.epoch)
     sats = {s.id: s.model_dump() for s in req.satellites}
@@ -87,8 +94,11 @@ def plan_mission(req: PlanRequest) -> MissionPlan:
         warnings: list[str] = []
         sol = plan_leg(stop.strategy, r_s, v_s, t, target_fn, T_t, mu, radius, bounds=stop.tofBounds, window=m.departureWindow)
         if sol is None:
+            none = "no transfer found for this leg"
+            if lambert.current_solver() not in lambert.ROBUST:
+                none += f"; the {lambert.current_solver()} solver is not robust, Izzo (2015) and Gooding (1990) are"
             legs.append(Leg(toStop=k, strategy=stop.strategy, tof=0.0, totalDv=0.0,
-                            warnings=warnings + ["no transfer found for this leg"], burns=[], arcs=[], ride=None))
+                            warnings=warnings + [none], burns=[], arcs=[], ride=None))
             feasible = False
             break
         strategy = sol.strategy
