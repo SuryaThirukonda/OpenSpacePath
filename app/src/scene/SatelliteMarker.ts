@@ -1,20 +1,34 @@
-/** Satellite marker: a soft point sprite with a glow halo, plus a text label sprite. */
+/**
+ * A satellite: a small model held in its orbital attitude (solar wings along the orbit normal,
+ * antennas toward the body), a soft glow point in the satellite's colour, and a text label.
+ */
 import * as THREE from 'three'
+import { buildComsat, buildStation, SATELLITE_COMPANION_UNITS, SATELLITE_UNITS, satelliteKind, type Model, type SatelliteKind } from './models'
 import { getGlowTexture, makeLabelTexture } from './textures'
 
 export class SatelliteMarker {
   readonly group = new THREE.Group()
+  private readonly model: Model
+  private readonly kind: SatelliteKind
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
   private labelAspect = 1
+  private readonly basis = new THREE.Matrix4()
+  private readonly x = new THREE.Vector3()
+  private readonly y = new THREE.Vector3()
+  private readonly z = new THREE.Vector3()
 
   constructor(name: string, color: string) {
+    this.kind = satelliteKind(name)
+    this.model = this.kind === 'station' ? buildStation() : buildComsat()
+    this.group.add(this.model.group)
+
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3))
     this.pointMat = new THREE.PointsMaterial({
       size: 14, sizeAttenuation: false, map: getGlowTexture(), color: new THREE.Color(color),
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.75,
     })
     this.points = new THREE.Points(geo, this.pointMat)
     this.points.frustumCulled = false
@@ -23,17 +37,37 @@ export class SatelliteMarker {
     const { tex, aspect } = makeLabelTexture(name, color)
     this.labelAspect = aspect
     this.label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))
-    this.label.center.set(-0.08, 0.5)
+    this.label.center.set(-0.2, 0.5)
     this.group.add(this.label)
   }
 
-  setPosition(v: THREE.Vector3): void {
-    this.group.position.copy(v)
+  /**
+   * Position and attitude from the orbital state (parent's inertial frame). The model's axes are
+   * the local orbital frame: +z toward the body, +x along the direction of travel, +y opposite
+   * the orbit normal.
+   */
+  setState(position: THREE.Vector3, velocity?: THREE.Vector3): void {
+    this.group.position.copy(position)
+    if (!velocity || position.lengthSq() === 0) return
+    this.z.copy(position).normalize().negate()
+    this.y.copy(velocity).cross(position)
+    if (this.y.lengthSq() < 1e-18) return
+    this.y.normalize()
+    this.x.copy(this.y).cross(this.z)
+    this.basis.makeBasis(this.x, this.y, this.z)
+    this.model.group.quaternion.setFromRotationMatrix(this.basis)
   }
 
-  /** Keep the label a constant on-screen size: scale by distance to the camera. */
-  updateLabelScale(cameraDistance: number, viewportHeight: number, fovRad: number): void {
+  /**
+   * Keep the model and the label a constant on-screen size: scale by distance to the camera.
+   * `shipPixelsPerUnit` is set for the satellite the ship is visiting in a close view: it is then
+   * drawn at its size next to the ship instead of as a small icon.
+   */
+  updateScale(cameraDistance: number, viewportHeight: number, fovRad: number, shipPixelsPerUnit = 0): void {
     const worldPerPixel = (2 * cameraDistance * Math.tan(fovRad / 2)) / viewportHeight
+    const pixelsPerUnit = shipPixelsPerUnit > 0 ? (SATELLITE_COMPANION_UNITS[this.kind] * shipPixelsPerUnit) / SATELLITE_UNITS[this.kind] : 14
+    this.model.group.scale.setScalar(worldPerPixel * pixelsPerUnit)
+    this.points.visible = shipPixelsPerUnit === 0
     const h = 18 * worldPerPixel
     this.label.scale.set(h * this.labelAspect, h, 1)
   }
@@ -44,10 +78,11 @@ export class SatelliteMarker {
 
   setEmphasis(selected: boolean, anySelected: boolean): void {
     this.pointMat.size = selected ? 18 : 12
-    this.pointMat.opacity = selected || !anySelected ? 1 : 0.55
+    this.pointMat.opacity = selected ? 0.9 : anySelected ? 0.4 : 0.7
   }
 
   dispose(): void {
+    this.model.dispose()
     this.points.geometry.dispose()
     this.pointMat.dispose()
     ;(this.label.material as THREE.SpriteMaterial).map?.dispose()

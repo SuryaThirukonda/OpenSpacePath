@@ -1,13 +1,16 @@
 /**
- * A real map for Earth. Natural Earth 1:110m country polygons (public domain) come from the
- * world-atlas package and are decoded with topojson-client on first use. Land is painted into an
- * equirectangular canvas texture; coastlines and borders are also built as line segments on the
- * sphere so they stay crisp when zoomed in.
+ * A real map for Earth. Natural Earth country polygons (public domain) come from the world-atlas
+ * package and are decoded with topojson-client on first use: the 1:50m set on larger screens,
+ * 1:110m on small ones. Land is painted into an equirectangular canvas texture, with a second
+ * texture marking the oceans as glossy; coastlines and borders are also built as line segments
+ * on the globe so they stay crisp when zoomed in.
  *
  * Coordinates: longitude east of Greenwich, geodetic latitude, in the body-fixed frame with +x
  * through the prime meridian, +y through 90 E and +z the north pole. three.js's SphereGeometry,
  * once its poles are turned onto z, maps texture u = (lon + 180) / 360 and v = (lat + 90) / 180,
  * which is exactly the layout of an equirectangular image with north at the top (see the test).
+ * The globe is the sphere squashed along z by the flattening, so a geodetic latitude is first
+ * turned into the reduced latitude that lands on the right point of the ellipsoid.
  * CentralBodyMesh spins the sphere by sidereal time, so the map sits where the real Earth is.
  */
 import type { FeatureCollection, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson'
@@ -26,22 +29,41 @@ export interface EarthMap {
   borders: MultiLineString
 }
 
-let mapPromise: Promise<EarthMap> | null = null
+/** 1:50m is about five times finer than 1:110m and about six times the download (236 KB against 40 KB compressed). */
+export type MapDetail = '50m' | '110m'
 
-/** Fetches and decodes the map once; later calls share the same promise. */
-export function loadEarthMap(): Promise<EarthMap> {
-  mapPromise ??= (async () => {
-    const url = (await import('world-atlas/countries-110m.json?url')).default
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`map data: HTTP ${res.status}`)
-    const topo = (await res.json()) as CountryTopology
-    return {
-      countries: feature(topo, topo.objects.countries) as EarthMap['countries'],
-      coast: mesh(topo, topo.objects.countries, (a, b) => a === b),
-      borders: mesh(topo, topo.objects.countries, (a, b) => a !== b),
-    }
-  })()
-  return mapPromise
+const mapPromises = new Map<MapDetail, Promise<EarthMap>>()
+
+/** Fetches and decodes the map once per level of detail; later calls share the same promise. */
+export function loadEarthMap(detail: MapDetail = '110m'): Promise<EarthMap> {
+  let p = mapPromises.get(detail)
+  if (!p) {
+    p = (async () => {
+      const url = detail === '50m'
+        ? (await import('world-atlas/countries-50m.json?url')).default
+        : (await import('world-atlas/countries-110m.json?url')).default
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`map data: HTTP ${res.status}`)
+      const topo = (await res.json()) as CountryTopology
+      return {
+        countries: feature(topo, topo.objects.countries) as EarthMap['countries'],
+        coast: mesh(topo, topo.objects.countries, (a, b) => a === b),
+        borders: mesh(topo, topo.objects.countries, (a, b) => a !== b),
+      }
+    })()
+    mapPromises.set(detail, p)
+  }
+  return p
+}
+
+/**
+ * Reduced (parametric) latitude, degrees, of a geodetic latitude on an ellipsoid of the given
+ * flattening: the latitude on the unsquashed sphere of the point that the squash carries onto
+ * the ellipsoid. tan(beta) = (1 - f) tan(phi).
+ */
+export function reducedLatitude(lat: number, flattening: number): number {
+  if (flattening === 0 || Math.abs(lat) >= 90) return lat
+  return Math.atan((1 - flattening) * Math.tan(lat * DEG)) / DEG
 }
 
 /** Pixel on an equirectangular canvas: x grows east from 180 W, y grows south from the north pole. */
@@ -60,14 +82,53 @@ const LAND = '#3b5c44'
 const ICE = '#d6e1e8'
 const ICE_NAMES = new Set(['Antarctica', 'Greenland'])
 
-/** Paint the map into a texture: ocean, a faint 15-degree graticule, land, ice, coasts and borders. */
-export function makeEarthTexture(map: EarthMap, width = 2048): THREE.CanvasTexture {
+/** Path of every country polygon on an equirectangular canvas, one filled path per country. */
+function fillCountries(ctx: CanvasRenderingContext2D, map: EarthMap, width: number, height: number, flattening: number,
+                       styleOf: (name: string) => string): void {
+  const ring = (coords: Position[]) => {
+    coords.forEach(([lon, lat], i) => {
+      const [x, y] = lonLatToPixel(lon, reducedLatitude(lat, flattening), width, height)
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.closePath()
+  }
+  for (const f of map.countries.features) {
+    ctx.fillStyle = styleOf(f.properties.name)
+    ctx.beginPath()
+    const polygons = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates
+    for (const polygon of polygons) for (const r of polygon) ring(r)
+    ctx.fill('evenodd')
+  }
+}
+
+function makeCanvas(width: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; height: number } {
   const height = width / 2
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('2d canvas unavailable')
+  return { canvas, ctx, height }
+}
+
+/**
+ * Roughness for the standard material (it reads the green channel): open water is smooth enough
+ * to glint in sunlight, land and ice are matt.
+ */
+export function makeEarthRoughness(map: EarthMap, width = 2048, flattening = 0): THREE.CanvasTexture {
+  const { canvas, ctx, height } = makeCanvas(width)
+  ctx.fillStyle = 'rgb(125, 125, 125)' // ocean: roughness about 0.49
+  ctx.fillRect(0, 0, width, height)
+  fillCountries(ctx, map, width, height, flattening, () => 'rgb(245, 245, 245)')
+  ctx.fillStyle = 'rgb(245, 245, 245)'
+  ctx.fillRect(0, lonLatToPixel(0, -85.5, width, height)[1], width, height)
+  return new THREE.CanvasTexture(canvas)
+}
+
+/** Paint the map into a texture: ocean, a faint 15-degree graticule, land, ice, coasts and borders. */
+export function makeEarthTexture(map: EarthMap, width = 2048, flattening = 0): THREE.CanvasTexture {
+  const { canvas, ctx, height } = makeCanvas(width)
   ctx.fillStyle = OCEAN
   ctx.fillRect(0, 0, width, height)
 
@@ -78,25 +139,11 @@ export function makeEarthTexture(map: EarthMap, width = 2048): THREE.CanvasTextu
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke()
   }
   for (let lat = -75; lat <= 75; lat += 15) {
-    const [, y] = lonLatToPixel(0, lat, width, height)
+    const [, y] = lonLatToPixel(0, reducedLatitude(lat, flattening), width, height)
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke()
   }
 
-  const ring = (coords: Position[]) => {
-    coords.forEach(([lon, lat], i) => {
-      const [x, y] = lonLatToPixel(lon, lat, width, height)
-      if (i === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
-    ctx.closePath()
-  }
-  for (const f of map.countries.features) {
-    ctx.fillStyle = ICE_NAMES.has(f.properties.name) ? ICE : LAND
-    ctx.beginPath()
-    const polygons = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates
-    for (const polygon of polygons) for (const r of polygon) ring(r)
-    ctx.fill('evenodd')
-  }
+  fillCountries(ctx, map, width, height, flattening, (name) => (ICE_NAMES.has(name) ? ICE : LAND))
   // The 110m Antarctica polygon stops at 85.6 S; the pole itself is ice.
   ctx.fillStyle = ICE
   ctx.fillRect(0, lonLatToPixel(0, -85.5, width, height)[1], width, height)
@@ -108,15 +155,16 @@ export function makeEarthTexture(map: EarthMap, width = 2048): THREE.CanvasTextu
     ctx.beginPath()
     for (const line of lines.coordinates) {
       line.forEach(([lon, lat], i) => {
-        const [x, y] = lonLatToPixel(lon, lat, width, height)
+        const [x, y] = lonLatToPixel(lon, reducedLatitude(lat, flattening), width, height)
         if (i === 0) ctx.moveTo(x, y)
         else ctx.lineTo(x, y)
       })
     }
     ctx.stroke()
   }
-  strokes(map.coast, 'rgba(225, 240, 255, 0.5)', 1.4)
-  strokes(map.borders, 'rgba(225, 240, 255, 0.22)', 1)
+  const k = width / 2048
+  strokes(map.coast, 'rgba(225, 240, 255, 0.5)', 1.4 * k)
+  strokes(map.borders, 'rgba(225, 240, 255, 0.22)', k)
 
   const tex = new THREE.CanvasTexture(canvas)
   tex.colorSpace = THREE.SRGBColorSpace
@@ -124,15 +172,15 @@ export function makeEarthTexture(map: EarthMap, width = 2048): THREE.CanvasTextu
   return tex
 }
 
-/** Line segments on a sphere of the given radius for a set of polylines. */
-export function makeOutlineGeometry(lines: MultiLineString, radius: number): THREE.BufferGeometry {
+/** Line segments on a sphere of the given radius for a set of polylines (squashed with the sphere they sit on). */
+export function makeOutlineGeometry(lines: MultiLineString, radius: number, flattening = 0): THREE.BufferGeometry {
   const pts: number[] = []
   const a = new THREE.Vector3()
   const b = new THREE.Vector3()
   for (const line of lines.coordinates) {
     for (let i = 1; i < line.length; i++) {
-      lonLatToVector3(line[i - 1][0], line[i - 1][1], radius, a)
-      lonLatToVector3(line[i][0], line[i][1], radius, b)
+      lonLatToVector3(line[i - 1][0], reducedLatitude(line[i - 1][1], flattening), radius, a)
+      lonLatToVector3(line[i][0], reducedLatitude(line[i][1], flattening), radius, b)
       pts.push(a.x, a.y, a.z, b.x, b.y, b.z)
     }
   }
@@ -143,22 +191,30 @@ export function makeOutlineGeometry(lines: MultiLineString, radius: number): THR
 
 export interface EarthAssets {
   texture: THREE.CanvasTexture
+  roughness: THREE.CanvasTexture
   coast: THREE.BufferGeometry
   borders: THREE.BufferGeometry
 }
 
-const assets = new Map<number, Promise<EarthAssets>>()
+const assets = new Map<string, Promise<EarthAssets>>()
 
-/** Texture and outline geometries for a sphere of radius `radius` (scene units), built once and shared. */
-export function getEarthAssets(radius: number): Promise<EarthAssets> {
-  let p = assets.get(radius)
+/** The finer map where there is the screen (and usually the connection) for it. */
+export function preferredDetail(): MapDetail {
+  return typeof window !== 'undefined' && window.innerWidth >= 900 ? '50m' : '110m'
+}
+
+/** Textures and outline geometries for a globe of radius `radius` (scene units), built once and shared. */
+export function getEarthAssets(radius: number, flattening = 0, detail: MapDetail = preferredDetail()): Promise<EarthAssets> {
+  const key = `${radius}|${flattening}|${detail}`
+  let p = assets.get(key)
   if (!p) {
-    p = loadEarthMap().then((map) => ({
-      texture: makeEarthTexture(map),
-      coast: makeOutlineGeometry(map.coast, radius * 1.002),
-      borders: makeOutlineGeometry(map.borders, radius * 1.002),
+    p = loadEarthMap(detail).then((map) => ({
+      texture: makeEarthTexture(map, detail === '50m' ? 4096 : 2048, flattening),
+      roughness: makeEarthRoughness(map, detail === '50m' ? 2048 : 1024, flattening),
+      coast: makeOutlineGeometry(map.coast, radius * 1.002, flattening),
+      borders: makeOutlineGeometry(map.borders, radius * 1.002, flattening),
     }))
-    assets.set(radius, p)
+    assets.set(key, p)
   }
   return p
 }

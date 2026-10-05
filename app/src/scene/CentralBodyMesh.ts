@@ -9,7 +9,7 @@ import { DEG, TWO_PI } from '../core/constants'
 import type { CentralBody } from '../types'
 import { kmScalarToScene } from './frame'
 import { makeGlow, makeSurfaceMaterial } from './surfaces'
-import { getEarthAssets, GRATICULE_LABELS, lonLatToVector3 } from './earthMap'
+import { getEarthAssets, GRATICULE_LABELS, lonLatToVector3, reducedLatitude } from './earthMap'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export class CentralBodyMesh {
@@ -35,22 +35,28 @@ export class CentralBodyMesh {
     this.body = body
     const R = kmScalarToScene(body.radius)
 
-    const geo = new THREE.SphereGeometry(R, 128, 96)
+    // The body is an oblate spheroid: a sphere squashed along the pole by its real flattening.
+    // Everything on the surface is squashed with it, and latitudes on it are geodetic.
+    const f = body.flattening ?? 0
+    const geo = new THREE.SphereGeometry(R, 160, 112)
     geo.rotateX(Math.PI / 2) // sphere poles along local z
     this.sphere = new THREE.Mesh(geo, makeSurfaceMaterial(body.surface, body.color))
+    this.sphere.scale.z = 1 - f
     this.group.add(this.sphere)
 
     this.grid = new THREE.LineSegments(
-      latLonGrid(R * 1.003, 30, 30, 72),
+      latLonGrid(R * 1.003, 30, 30, 72, f),
       new THREE.LineBasicMaterial({ color: new THREE.Color(body.gridColor), transparent: true, opacity: 0.16 }),
     )
+    this.grid.scale.z = 1 - f
     this.group.add(this.grid)
     this.principal = new THREE.LineSegments(
       principalLines(R * 1.004, 144),
       new THREE.LineBasicMaterial({ color: new THREE.Color(body.gridColor), transparent: true, opacity: 0.45 }),
     )
+    this.principal.scale.z = 1 - f
     this.group.add(this.principal)
-    if (body.surface === 'earth') void this.loadEarth(R)
+    if (body.surface === 'earth') void this.loadEarth(R, f)
 
     const ringGeo = new THREE.RingGeometry(R * 1.0, R * 1.6, 128)
     const ringMat = new THREE.MeshBasicMaterial({
@@ -64,30 +70,33 @@ export class CentralBodyMesh {
       this.glows = star
         ? [makeGlow(R * 1.02, body.atmosphere, 0.9), makeGlow(R * 1.45, body.atmosphere, 0.8, true)]
         : [makeGlow(R * 1.015, body.atmosphere, 0.6)]
-      for (const g of this.glows) this.group.add(g)
+      for (const g of this.glows) {
+        g.scale.z = 1 - f
+        this.group.add(g)
+      }
     }
   }
 
   /** Swap in the real map once its data has loaded, unless the body changed meanwhile. */
-  private async loadEarth(R: number): Promise<void> {
+  private async loadEarth(R: number, flattening: number): Promise<void> {
     const token = ++this.loadToken
     let assets
     try {
-      assets = await getEarthAssets(R)
+      assets = await getEarthAssets(R, flattening)
     } catch (e) {
       console.warn('Earth map unavailable, keeping the procedural surface', e)
       return
     }
     if (token !== this.loadToken || !this.sphere) return
     const old = this.sphere.material as THREE.Material
-    this.mapMaterial = new THREE.MeshStandardMaterial({ map: assets.texture, roughness: 0.9, metalness: 0 })
+    this.mapMaterial = new THREE.MeshStandardMaterial({ map: assets.texture, roughnessMap: assets.roughness, roughness: 1, metalness: 0 })
     this.sphere.material = this.mapMaterial
     old.dispose()
     const coast = new THREE.LineSegments(assets.coast, new THREE.LineBasicMaterial({ color: 0xe6f2ff, transparent: true, opacity: 0.55, depthWrite: false }))
     const borders = new THREE.LineSegments(assets.borders, new THREE.LineBasicMaterial({ color: 0xe6f2ff, transparent: true, opacity: 0.25, depthWrite: false }))
     for (const [text, lon, lat] of GRATICULE_LABELS) {
       const { sprite, aspect } = makeLabelSprite(text, '#9fd0ff')
-      lonLatToVector3(lon, lat, R * 1.012, sprite.position)
+      lonLatToVector3(lon, reducedLatitude(lat, flattening), R * 1.012, sprite.position)
       this.sphere.add(sprite)
       this.mapObjects.push(sprite)
       this.labels.push({ sprite, aspect })
@@ -105,7 +114,7 @@ export class CentralBodyMesh {
     if (!site || !this.sphere || !this.body) return
     const R = kmScalarToScene(this.body.radius) * 1.004
     const g = new THREE.Group()
-    lonLatToVector3(site.longitude, site.latitude, R, g.position)
+    lonLatToVector3(site.longitude, reducedLatitude(site.latitude, this.body.flattening ?? 0), R, g.position)
     const pg = new THREE.BufferGeometry()
     pg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3))
     const pm = new THREE.PointsMaterial({
@@ -194,15 +203,20 @@ function principalLines(R: number, segs: number): THREE.BufferGeometry {
   return g
 }
 
-/** Meridians and parallels as a LineSegments geometry, poles along z. */
-function latLonGrid(R: number, latStepDeg: number, lonStepDeg: number, segs: number): THREE.BufferGeometry {
+/**
+ * Meridians and parallels as a LineSegments geometry, poles along z. The parallels are drawn at
+ * geodetic latitudes of an ellipsoid with the given flattening (the geometry is then squashed
+ * along z with the body), so "30 degrees" is where a map of the body puts it.
+ */
+function latLonGrid(R: number, latStepDeg: number, lonStepDeg: number, segs: number, flattening = 0): THREE.BufferGeometry {
   const pts: number[] = []
   const push = (a: THREE.Vector3, b: THREE.Vector3) => pts.push(a.x, a.y, a.z, b.x, b.y, b.z)
   const p = (lat: number, lon: number) =>
     new THREE.Vector3(R * Math.cos(lat) * Math.cos(lon), R * Math.cos(lat) * Math.sin(lon), R * Math.sin(lat))
-  for (let lat = -90 + latStepDeg; lat < 90; lat += latStepDeg) {
+  for (let latDeg = -90 + latStepDeg; latDeg < 90; latDeg += latStepDeg) {
+    const lat = reducedLatitude(latDeg, flattening) * DEG
     for (let k = 0; k < segs; k++) {
-      push(p(lat * DEG, (k / segs) * TWO_PI), p(lat * DEG, ((k + 1) / segs) * TWO_PI))
+      push(p(lat, (k / segs) * TWO_PI), p(lat, ((k + 1) / segs) * TWO_PI))
     }
   }
   for (let lon = 0; lon < 360; lon += lonStepDeg) {

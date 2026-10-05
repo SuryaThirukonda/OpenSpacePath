@@ -25,6 +25,8 @@ export interface CentralBody {
   mu: number
   /** Equatorial radius, km. */
   radius: number
+  /** Flattening (equatorial minus polar radius, over equatorial); omitted for bodies that are round to a part in 10^4. */
+  flattening?: number
   /** Sidereal rotation period, seconds (negative for retrograde rotation). */
   rotationPeriod: number
   /** Base colour for the stylised sphere. */

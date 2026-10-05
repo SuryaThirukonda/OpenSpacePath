@@ -12,7 +12,7 @@ import { gmst, satrecFor, sgp4PathSamples, sgp4Period, sgp4StateAt } from '../pr
 import { flattenPlan, shipStateAt, type FlatPlan, type ShipState } from '../mission/state'
 import type { MissionPlan } from '../mission/types'
 import { epochMs, isRenderable, useStore, type AppState, type CameraMode } from '../store/store'
-import type { CentralBody, Satellite, Vec3 } from '../types'
+import type { CentralBody, Satellite, StateVector } from '../types'
 import { InertialAxes } from './AxesHelper'
 import { BurnEffect } from './BurnEffect'
 import { birdsEyePose, chaseDistanceKm, chasePose, chaseUp, perpendicular } from './cameraViews'
@@ -70,6 +70,10 @@ export class SceneManager {
   private birdReady = false
   private insetValue = 0
   private insetAt = -Infinity
+  /** In a close view, the satellite the ship is heading for and the ship's size on screen. */
+  private companionId: string | null = null
+  private shipPixelsPerUnit = 0
+  private readonly scratch = new THREE.Vector3()
 
   constructor(container: HTMLElement) {
     this.container = container
@@ -164,8 +168,16 @@ export class SceneManager {
 
     this.axes.group.visible = state.showAxes
     if (!this.managedCamera) this.controls.update()
-    // surface labels are sized last, once the camera for this frame is final
-    this.bodyMesh.updateLabels(this.camera.position, this.container.clientHeight || 1, (this.camera.fov * Math.PI) / 180)
+    // everything held at a constant size on screen is sized last, once the camera for this frame is final
+    const viewH = this.container.clientHeight || 1
+    const fovRad = (this.camera.fov * Math.PI) / 180
+    this.bodyMesh.updateLabels(this.camera.position, viewH, fovRad)
+    for (const [id, v] of this.visuals) {
+      if (!v.marker.group.visible) continue
+      v.marker.group.getWorldPosition(this.scratch)
+      const companion = state.plan !== null && id === this.companionId
+      v.marker.updateScale(this.camera.position.distanceTo(this.scratch), viewH, fovRad, companion ? this.shipPixelsPerUnit : 0)
+    }
     this.renderer.render(this.scene, this.camera)
     this.raf = requestAnimationFrame(this.tick)
   }
@@ -216,10 +228,10 @@ export class SceneManager {
         this.rebuildPath(v, sat, body, s.t, date)
       }
 
-      const pos = this.positionOf(sat, body, s.t, date)
-      if (pos) {
+      const state = this.stateOf(sat, body, s.t, date)
+      if (state) {
         v.marker.group.visible = true
-        v.marker.setPosition(kmToScene(pos))
+        v.marker.setState(kmToScene(state.r), new THREE.Vector3(state.v.x, state.v.y, state.v.z))
       } else {
         v.marker.group.visible = false
       }
@@ -234,20 +246,15 @@ export class SceneManager {
       v.path.setEmphasis(selected, anySelected)
       v.marker.setEmphasis(selected, anySelected)
       v.marker.setLabelVisible(s.showLabels)
-      const worldPos = v.marker.group.getWorldPosition(new THREE.Vector3())
-      v.marker.updateLabelScale(
-        this.camera.position.distanceTo(worldPos), this.container.clientHeight || 1,
-        (this.camera.fov * Math.PI) / 180,
-      )
     }
     for (const id of [...this.visuals.keys()]) if (!live.has(id)) this.removeVisual(id)
   }
 
-  private positionOf(sat: Satellite, body: CentralBody, t: number, date: Date): Vec3 | null {
-    if (sat.kind === 'kepler') return keplerStateAt(sat, body, t).r
+  private stateOf(sat: Satellite, body: CentralBody, t: number, date: Date): StateVector | null {
+    if (sat.kind === 'kepler') return keplerStateAt(sat, body, t)
     const rec = satrecFor(sat)
     if (!rec) return null
-    return sgp4StateAt(rec, date)?.r ?? null
+    return sgp4StateAt(rec, date)
   }
 
   private rebuildPath(v: SatVisual, sat: Satellite, body: CentralBody, t: number, date: Date): void {
@@ -333,6 +340,8 @@ export class SceneManager {
           this.ship = new ShipMarker(s.scenario.mission?.ship.name ?? 'Ship', '#ffffff')
           this.inertial.add(this.ship.group)
         }
+        const start = s.scenario.mission?.start
+        this.ship.setVehicle(start?.kind === 'launch' ? start.launch.vehicle : null)
       } else {
         this.flat = null
         this.missionPath.clear()
@@ -371,6 +380,7 @@ export class SceneManager {
     }
     if (!s.plan || !this.flat || !this.ship) {
       this.prevT = s.t
+      this.companionId = null
       return
     }
     const st = shipStateAt(this.flat, s.t)
@@ -379,6 +389,10 @@ export class SceneManager {
     const vel = new THREE.Vector3(st.v.x, st.v.y, st.v.z)
     this.ship.setState(pos, vel)
     this.ship.setLabelVisible(s.showLabels)
+    // the launch vehicle sheds a stage at each separation; once in orbit the spacecraft flies on
+    const dropped = s.plan.launch ? s.plan.launch.events.filter((e) => e.label.includes('separation') && e.t <= s.t).length : 0
+    this.ship.setPhase(st.kind === 'ascent', dropped)
+    this.ship.setRiding(st.kind === 'ride')
     const worldPos = this.inertial.localToWorld(pos.clone())
     const fov = (this.camera.fov * Math.PI) / 180
     const h = this.container.clientHeight || 1
@@ -392,8 +406,10 @@ export class SceneManager {
     else this.followLeg = -1
     const dist = this.camera.position.distanceTo(worldPos)
     // the close views draw the ship larger so it reads as an object, not a marker
-    const shipScale = this.managedCamera ? (mode === 'chase' ? 4.5 : 1.6) : 1
+    const shipScale = this.managedCamera ? (mode === 'chase' ? 3.5 : 1.5) : 1
     this.ship.updateScale(dist, h, fov, shipScale)
+    this.companionId = this.managedCamera && st.kind !== 'ascent' ? (s.scenario.mission?.stops[st.leg]?.satelliteId ?? null) : null
+    this.shipPixelsPerUnit = 15 * shipScale
     this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg },
       this.camera.position, h, fov, (v) => this.inertial.localToWorld(v))
 
@@ -417,7 +433,7 @@ export class SceneManager {
       this.burnEffect.sustain(vel.clone().negate(), nowMs)
     }
     this.prevT = s.t
-    this.burnEffect.group.position.copy(pos)
+    this.ship.exhaustPosition(this.burnEffect.group.position)
     this.burnEffect.update(nowMs, dist * shipScale, h, fov)
   }
 

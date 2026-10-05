@@ -1,48 +1,41 @@
-/** The spaceship: a small rocket pointed along its velocity, a glow point and a label. */
+/**
+ * The ship on the tour: the launch vehicle while it climbs to orbit, shedding stages as they
+ * separate, then the spacecraft. A glow point and a label mark it at any distance.
+ */
 import * as THREE from 'three'
+import type { LaunchVehicle } from '../mission/types'
+import { buildSpacecraft, buildStack, SPACECRAFT_TAIL, type Model, type StackModel } from './models'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
-const UP = new THREE.Vector3(0, 0, 1)
+const FORWARD = new THREE.Vector3(0, 0, 1)
 
 export class ShipMarker {
   readonly group = new THREE.Group()
+  /** Carries the heading and the on-screen scale; the two vehicle models hang off it. */
   private readonly model = new THREE.Group()
-  private readonly geometries: THREE.BufferGeometry[] = []
-  private readonly bodyMat: THREE.MeshStandardMaterial
-  private readonly darkMat: THREE.MeshStandardMaterial
+  private readonly spacecraft: Model
+  private stack: StackModel | null = null
+  private stackKey = ''
+  private dropped = 0
+  private ascent = false
+  private riding = false
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
   private readonly labelAspect: number
   private readonly q = new THREE.Quaternion()
+  private readonly heading = new THREE.Vector3(0, 0, 1)
 
   constructor(name: string, color: string) {
-    this.bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(color), emissive: new THREE.Color(color), emissiveIntensity: 0.3, roughness: 0.45, metalness: 0.1 })
-    this.darkMat = new THREE.MeshStandardMaterial({ color: 0x55616d, emissive: 0x1c232a, roughness: 0.6, side: THREE.DoubleSide })
-    // Built along +z (nose forward), which setState turns toward the velocity. About 1.6 units long.
-    const along = (g: THREE.BufferGeometry, z: number, mat: THREE.Material) => {
-      g.rotateX(Math.PI / 2) // cylinder axis y -> z
-      g.translate(0, 0, z)
-      this.geometries.push(g)
-      this.model.add(new THREE.Mesh(g, mat))
-    }
-    along(new THREE.CylinderGeometry(0.2, 0.2, 0.9, 16), 0, this.bodyMat)
-    along(new THREE.ConeGeometry(0.2, 0.45, 16), 0.675, this.bodyMat)
-    along(new THREE.CylinderGeometry(0.11, 0.19, 0.24, 14, 1, true), -0.57, this.darkMat)
-    for (let k = 0; k < 4; k++) {
-      const fin = new THREE.BoxGeometry(0.28, 0.02, 0.34)
-      fin.translate(0.32, 0, -0.3)
-      fin.rotateZ((k * Math.PI) / 2)
-      this.geometries.push(fin)
-      this.model.add(new THREE.Mesh(fin, this.darkMat))
-    }
+    this.spacecraft = buildSpacecraft()
+    this.model.add(this.spacecraft.group)
     this.group.add(this.model)
 
     const pg = new THREE.BufferGeometry()
     pg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3))
     this.pointMat = new THREE.PointsMaterial({
-      size: 16, sizeAttenuation: false, map: getGlowTexture(), color: new THREE.Color(color),
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.9,
+      size: 14, sizeAttenuation: false, map: getGlowTexture(), color: new THREE.Color(color),
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.7,
     })
     this.points = new THREE.Points(pg, this.pointMat)
     this.points.frustumCulled = false
@@ -50,30 +43,87 @@ export class ShipMarker {
 
     const { sprite, aspect } = makeLabelSprite(name, color)
     this.label = sprite
+    this.label.center.set(-0.25, 0.5)
     this.labelAspect = aspect
     this.group.add(this.label)
+  }
+
+  /** The launch vehicle to show during an ascent, or null when the tour does not start on the ground. */
+  setVehicle(vehicle: LaunchVehicle | null): void {
+    const key = vehicle ? JSON.stringify(vehicle) : ''
+    if (key === this.stackKey) return
+    this.stackKey = key
+    if (this.stack) {
+      this.model.remove(this.stack.group)
+      this.stack.dispose()
+      this.stack = null
+    }
+    if (vehicle) {
+      this.stack = buildStack(vehicle)
+      this.model.add(this.stack.group)
+    }
+    this.applyPhase()
+  }
+
+  /** Which vehicle is flying: the stack with `dropped` lower stages gone during the ascent, the spacecraft afterwards. */
+  setPhase(ascent: boolean, dropped: number): void {
+    if (ascent === this.ascent && dropped === this.dropped) return
+    this.ascent = ascent
+    this.dropped = dropped
+    this.applyPhase()
+  }
+
+  /** While the ship keeps station with a satellite it is drawn just behind it, not inside it. */
+  setRiding(riding: boolean): void {
+    if (riding === this.riding) return
+    this.riding = riding
+    this.label.center.set(-0.25, riding ? 1.7 : 0.5) // drop the label below the satellite's
+  }
+
+  private applyPhase(): void {
+    const stacked = this.ascent && this.stack !== null
+    this.spacecraft.group.visible = !stacked
+    if (this.stack) {
+      this.stack.group.visible = stacked
+      // never drop the last stage: it carries the payload to orbit
+      const gone = Math.min(this.dropped, this.stack.stageGroups.length - 1)
+      this.stack.stageGroups.forEach((g, i) => { g.visible = i >= gone })
+    }
   }
 
   /** Position and heading in the parent's (inertial) local frame. */
   setState(position: THREE.Vector3, velocity: THREE.Vector3): void {
     this.group.position.copy(position)
     if (velocity.lengthSq() > 0) {
-      this.q.setFromUnitVectors(UP, velocity.clone().normalize())
+      this.heading.copy(velocity).normalize()
+      this.q.setFromUnitVectors(FORWARD, this.heading)
       this.model.quaternion.copy(this.q)
     }
   }
 
   /**
-   * Keep the rocket about 24 px long times `factor` and the label a constant size. The close
-   * views pass a larger factor so the ship reads as an object rather than a marker, and drop the
-   * glow point that would hide it.
+   * Keep the vehicle a constant size on screen (15 px per model unit, times `factor`) and the
+   * label constant. The close views pass a larger factor so the ship reads as an object, and
+   * drop the glow point that would hide it.
    */
   updateScale(cameraDistance: number, viewportHeight: number, fovRad: number, factor = 1): void {
     const wpp = worldPerPixel(cameraDistance, viewportHeight, fovRad)
-    this.model.scale.setScalar(wpp * 15 * factor)
+    const scale = wpp * 15 * factor
+    this.model.scale.setScalar(scale)
+    this.model.position.copy(this.heading).multiplyScalar(this.riding ? -3.2 * scale : 0)
     this.points.visible = factor < 2
     const h = 18 * wpp
     this.label.scale.set(h * this.labelAspect, h, 1)
+  }
+
+  /** Where the working engine's exhaust leaves the vehicle, in the parent's frame. */
+  exhaustPosition(out: THREE.Vector3): THREE.Vector3 {
+    let tail = SPACECRAFT_TAIL
+    if (this.ascent && this.stack) {
+      const lowest = Math.min(this.dropped, this.stack.tails.length - 1)
+      tail = this.stack.tails[lowest]
+    }
+    return out.copy(this.group.position).add(this.model.position).addScaledVector(this.heading, -tail * this.model.scale.x)
   }
 
   setLabelVisible(v: boolean): void {
@@ -81,9 +131,8 @@ export class ShipMarker {
   }
 
   dispose(): void {
-    for (const g of this.geometries) g.dispose()
-    this.bodyMat.dispose()
-    this.darkMat.dispose()
+    this.spacecraft.dispose()
+    this.stack?.dispose()
     this.points.geometry.dispose()
     this.pointMat.dispose()
     disposeSprite(this.label)

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { lonLatToPixel, lonLatToVector3 } from '../../src/scene/earthMap'
+import { lonLatToPixel, lonLatToVector3, reducedLatitude } from '../../src/scene/earthMap'
 
 describe('earth map coordinates', () => {
   it('maps the prime meridian to +x, 90 E to +y and the north pole to +z', () => {
@@ -37,5 +37,19 @@ describe('earth map coordinates', () => {
       expect(Math.abs(uv.getX(best) - x)).toBeLessThan(1 / 128 + 1e-9)
       expect(Math.abs(uv.getY(best) - (1 - y))).toBeLessThan(1 / 64 + 1e-9)
     }
+  })
+
+  it('puts a geodetic latitude on the right point of the squashed globe', () => {
+    // WGS-84: geodetic 45 N is at radius 6367.49 km, z = 4487.35 km
+    const f = 1 / 298.257223563
+    const p = lonLatToVector3(0, reducedLatitude(45, f), 6378.137)
+    p.z *= 1 - f
+    expect(p.z).toBeCloseTo(4487.35, 1)
+    expect(p.length()).toBeCloseTo(6367.49, 1)
+    expect(reducedLatitude(0, f)).toBe(0)
+    expect(reducedLatitude(90, f)).toBe(90)
+    expect(reducedLatitude(-30, 0)).toBe(-30)
+    // Jupiter: 6.5% flattening moves mid-latitudes by almost two degrees
+    expect(45 - reducedLatitude(45, 0.06487)).toBeGreaterThan(1.8)
   })
 })
