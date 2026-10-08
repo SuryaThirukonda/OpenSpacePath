@@ -103,7 +103,7 @@ def test_launch_then_tour_is_consistent():
         "satellites": [ISS_LIKE, GEO],
         "mission": {"ship": {"dryMass": 2000, "propellantMass": 12000, "isp": 320, "maxThrust": 40000},
                     "startT": 0, "start": {"kind": "launch", "launch": {"site": CAPE, "vehicle": F9, "parkingAltitude": 200}},
-                    "stops": [{"satelliteId": "leo", "dwellSeconds": 600, "strategy": "lambert2"}]},
+                    "transfer": "lambert2", "stops": [{"satelliteId": "leo", "dwellSeconds": 600}]},
     })
     plan = plan_mission(req)
     rep = plan.launch

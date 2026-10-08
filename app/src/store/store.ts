@@ -10,7 +10,7 @@ import { DEFAULT_EPOCH, PRESETS, satelliteFromPreset } from '../data/presets'
 import { emptyMission } from '../data/ships'
 import { satrecFor, sgp4Period } from '../propagation/sgp4Propagator'
 import { planMission } from '../mission/api'
-import type { MissionInput, MissionPlan } from '../mission/types'
+import type { MissionInput, MissionPlan, TransferMode } from '../mission/types'
 import type { Satellite, Scenario } from '../types'
 
 export type CameraRequestKind = 'body' | 'orbit' | 'reset' | 'ship' | 'all'
@@ -58,6 +58,8 @@ export interface AppState {
   setMission: (mission: MissionInput | null) => void
   /** The Lambert solver for every transfer; changing it drops the current plan. */
   setSolver: (solver: string) => void
+  /** Two or three burns per transfer; changing it drops the current plan. */
+  setTransfer: (transfer: TransferMode) => void
   /** Show a route computed elsewhere (the Routing tab): its mission inputs and its plan together. */
   loadRoute: (mission: MissionInput, plan: MissionPlan) => void
   requestPlan: () => Promise<void>
@@ -158,6 +160,7 @@ export const useStore = create<AppState>((set) => ({
 
   setMission: (mission) => set((s) => ({ scenario: { ...s.scenario, mission: mission ?? undefined }, ...invalidPlan })),
   setSolver: (solver) => set((s) => ({ scenario: { ...s.scenario, solver }, ...invalidPlan })),
+  setTransfer: (transfer) => set((s) => ({ scenario: { ...s.scenario, transfer }, ...invalidPlan })),
   loadRoute: (mission, plan) => {
     planSeq++ // a planner request still in flight must not overwrite this
     set((s) => ({ scenario: { ...s.scenario, mission }, plan, planStatus: 'ready', planError: null, selectedLeg: null }))

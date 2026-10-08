@@ -1,12 +1,17 @@
-import { useRef, type ChangeEvent, type KeyboardEvent } from 'react'
+import { useRef, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import { FORMAT_NAME, FORMAT_REFERENCE, FORMAT_VERSION, parseAlgorithm, PRESETS } from '../arp/format'
+import { pathFile, pathProblems } from '../arp/path'
 import { useArp } from '../arp/store'
 import type { ArpEvaluation, ArpInstance, EvaluationRow } from '../arp/types'
+import { LEG_COLORS } from '../data/legColors'
 import { DEFAULT_SOLVER } from '../mission/api'
+import { DEFAULT_TRANSFER, transferName } from '../mission/types'
 import { useStore } from '../store/store'
 import { ConvergenceChart } from './ConvergenceChart'
+import { IconDown, IconPlus, IconUp, IconX } from './icons'
 import { Section } from './Section'
 import { SolverSelect } from './SolverSelect'
+import { TransferSelect } from './TransferSelect'
 import { useSolvers } from './useSolvers'
 
 const num = (v: string, fallback: number) => (Number.isFinite(Number(v)) && v !== '' ? Number(v) : fallback)
@@ -46,11 +51,20 @@ export function RoutingPanel() {
   const resultNote = useArp((s) => s.resultNote)
   const shown = useArp((s) => s.shown)
   const elapsedMs = useArp((s) => s.elapsedMs)
+  const path = useArp((s) => s.path)
+  const pathStatus = useArp((s) => s.pathStatus)
+  const pathError = useArp((s) => s.pathError)
+  const pathResult = useArp((s) => s.pathResult)
+  const pathInst = useArp((s) => s.pathInstance)
   const actions = useArp.getState()
   const solver = useStore((s) => s.scenario.solver ?? DEFAULT_SOLVER)
+  const transfer = useStore((s) => s.scenario.transfer ?? DEFAULT_TRANSFER)
   const solvers = useSolvers()
   const instanceFile = useRef<HTMLInputElement>(null)
   const sourceFile = useRef<HTMLInputElement>(null)
+  const pathFileInput = useRef<HTMLInputElement>(null)
+  const problems = instance ? pathProblems(path) : []
+  const flying = pathStatus === 'loading'
 
   const header = parseAlgorithm(source)
   const busy = status === 'running' || status === 'loading'
@@ -95,7 +109,54 @@ export function RoutingPanel() {
         </div>
       </Section>
 
-      <Section title="Lambert solver" defaultOpen={false} summary={solvers.find((s) => s.id === solver)?.name ?? solver}>
+      <Section title="Path" summary={path.entries.length ? `${path.entries.length} asteroid${path.entries.length === 1 ? '' : 's'}${pathResult && pathStatus === 'done' ? `, delta-v ${pathResult.dv.toFixed(1)} km/s` : ''}` : 'none yet'}>
+        <p className="hint">The route, written by hand: each asteroid with its orbit, the day to arrive there and how long to stay. From those the planner knows every departure and flight time and flies the path exactly, with the transfer chosen below.</p>
+        {instance ? (
+          <>
+            <label className="field"><span>leave Earth on day</span><input type="number" min={0} step="any" value={path.departure} disabled={flying} onChange={(e) => actions.setPath({ ...path, departure: num(e.target.value, path.departure) })} /></label>
+            <ol className="stops path-list">
+              {path.entries.map((en, i) => (
+                <li key={i} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
+                  <div className="row">
+                    <span className="stop-index">{i + 1}</span>
+                    <select value={en.asteroid.id} disabled={flying} aria-label={`asteroid ${i + 1}`} onChange={(e) => { const a = instance.asteroids.find((x) => x.id === e.target.value); if (a) actions.updateEntry(i, { asteroid: a }) }}>
+                      {instance.asteroids.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
+                      {!instance.asteroids.some((a) => a.id === en.asteroid.id) && <option value={en.asteroid.id}>{en.asteroid.name || en.asteroid.id} (imported)</option>}
+                    </select>
+                    <button className="icon" onClick={() => actions.moveEntry(i, -1)} aria-label="move up" disabled={i === 0 || flying}><IconUp /></button>
+                    <button className="icon" onClick={() => actions.moveEntry(i, 1)} aria-label="move down" disabled={i === path.entries.length - 1 || flying}><IconDown /></button>
+                    <button className="icon remove" onClick={() => actions.removeEntry(i)} aria-label="remove" disabled={flying}><IconX /></button>
+                  </div>
+                  <div className="grid2">
+                    <label className="field"><span>arrive on day</span><input type="number" min={0} step="any" value={en.arrival} disabled={flying} onChange={(e) => actions.updateEntry(i, { arrival: num(e.target.value, en.arrival) })} /></label>
+                    <label className="field"><span>stay, days</span><input type="number" min={0} step="any" value={en.delay} disabled={flying} onChange={(e) => actions.updateEntry(i, { delay: num(e.target.value, en.delay) })} /></label>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <div className="row">
+              <button onClick={actions.addEntry} disabled={flying || path.entries.length >= instance.asteroids.length}><IconPlus /> Add asteroid</button>
+              {result && <button onClick={actions.pathFromResult} disabled={flying} title="Copy the last run's route, with its arrival days and waits, into the path">From last run</button>}
+              <button onClick={() => pathFileInput.current?.click()} disabled={flying}>Import</button>
+              {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.json`, JSON.stringify(pathFile(instance, path), null, 2), 'application/json')}>Export</button>}
+              <input ref={pathFileInput} type="file" accept=".json,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importPath(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Import failed: ${bad}` }) })} />
+            </div>
+            {problems.length > 0 && path.entries.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
+            <div className="plan-bar">
+              <button className="primary big" onClick={() => void actions.flyPath()} disabled={flying || problems.length > 0}>
+                {flying ? <><span className="spinner" aria-hidden="true" /> Flying…</> : `Fly path, ${transferName(transfer)}`}
+              </button>
+            </div>
+            {pathStatus === 'error' && pathError && <pre className="trace" role="alert">{pathError}</pre>}
+            {pathStatus === 'done' && pathResult && pathInst && <RouteSummary instance={pathInst} ev={pathResult} />}
+          </>
+        ) : (
+          <p className="hint">Generate or import an instance first; its asteroids are what a path can visit.</p>
+        )}
+      </Section>
+
+      <Section title="Transfer" defaultOpen={false} summary={`${transferName(transfer)} · ${solvers.find((s) => s.id === solver)?.name ?? solver}`}>
+        <TransferSelect />
         <SolverSelect />
       </Section>
 
@@ -180,9 +241,14 @@ export function RoutingPanel() {
   )
 }
 
-/** The final route: its cost split as the papers define it, and each leg. */
+/** A route: its cost split as the papers define it, and each leg with its burns. */
 function RouteSummary({ instance, ev }: { instance: ArpInstance; ev: ArpEvaluation }) {
   const miss = Math.max(...ev.legs.map((l) => l.miss))
+  const three = ev.transfer === 'threeburn'
+  const lambert = three ? ev.legs.reduce((sum, l) => (l.lambertDv != null ? sum + l.lambertDv : sum), 0) : 0
+  const compare = three && ev.legs.every((l) => l.lambertDv != null)
+  const burnsOf = (l: ArpEvaluation['legs'][number]) => (l.burns === 3 ? [l.dv1, l.dv2, l.dv3] : l.burns === 2 && three ? [l.dv1, l.dv3] : [l.dv1, l.dv2]).map((b) => b.toFixed(1)).join(' + ')
+  const notes = ev.legs.filter((l) => l.note).map((l, k) => `${bodyName(instance, l.origin)} to ${bodyName(instance, l.target)}: ${l.note}${k < ev.legs.length - 1 ? '' : ''}`)
   return (
     <>
       <div className="tiles">
@@ -190,15 +256,18 @@ function RouteSummary({ instance, ev }: { instance: ArpInstance; ev: ArpEvaluati
         <div className="tile"><span className="tile-k">delta-v</span><span className="tile-v">{ev.dv.toFixed(1)}<small>km/s</small></span></div>
         <div className="tile"><span className="tile-k">time</span><span className="tile-v">{ev.time >= 730 ? (ev.time / 365.25).toFixed(2) : ev.time.toFixed(0)}<small>{ev.time >= 730 ? 'y' : 'd'}</small></span></div>
       </div>
-      <p className="hint">f = delta-v + {(instance.timeWeight * 30).toFixed(1)} km/s per 30 days. Order: Earth, {ev.order.join(', ')}. Solver: {ev.solver}.</p>
+      <p className="hint">f = delta-v + {(instance.timeWeight * 30).toFixed(1)} km/s per 30 days. Order: Earth, {ev.order.join(', ')}. {three ? 'Three burns per transfer' : 'Two burns per transfer'}, solver {ev.solver}.{compare ? ` The two-burn Lambert transfers at the same times would total ${lambert.toFixed(1)} km/s.` : ''}</p>
       {miss > 1e-4 && <p className="hint caution">With this solver the transfers miss their targets by up to {(100 * miss).toFixed(2)}% of the distance. Izzo (2015) and Gooding (1990) are exact.</p>}
+      {notes.map((n, k) => <p key={k} className="hint caution">{n}</p>)}
       <table className="kv legs-table">
-        <thead><tr><th>leg</th><th>wait</th><th>flight</th><th>delta-v</th><th>cost</th></tr></thead>
+        <thead><tr><th>leg</th><th>wait</th><th>flight</th><th>burns</th><th>delta-v</th>{compare && <th>2-burn</th>}<th>cost</th></tr></thead>
         <tbody>
           {ev.legs.map((l, k) => (
             <tr key={k}>
               <td>{bodyName(instance, l.origin)} to {bodyName(instance, l.target)}</td>
-              <td>{years(l.tau)}</td><td>{years(l.t)}</td><td>{l.dv.toFixed(2)}</td><td>{l.z.toFixed(2)}</td>
+              <td>{years(l.tau)}</td><td>{years(l.t)}</td><td className="burns">{burnsOf(l)}</td><td>{l.dv.toFixed(2)}</td>
+              {compare && <td>{(l.lambertDv ?? 0).toFixed(2)}</td>}
+              <td>{l.z.toFixed(2)}</td>
             </tr>
           ))}
         </tbody>

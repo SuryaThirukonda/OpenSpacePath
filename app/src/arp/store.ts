@@ -6,14 +6,16 @@
  */
 import { create } from 'zustand'
 import { DEFAULT_SOLVER } from '../mission/api'
-import type { MissionInput, MissionPlan } from '../mission/types'
+import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from '../mission/types'
 import { useStore } from '../store/store'
 import { parseAlgorithm, PRESETS } from './format'
 import { generateInstance, instanceToScenario, parseInstance } from './instance'
+import { emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, type PathEntry, type PathPlan } from './path'
 import { AlgorithmRunner } from './runner'
 import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, WorkerResult } from './types'
 
 export type RunStatus = 'idle' | 'loading' | 'running' | 'done' | 'error' | 'stopped'
+export type PathStatus = 'idle' | 'loading' | 'done' | 'error'
 
 const DAY = 86400
 const KEY = 'orbitlab.routing.v1'
@@ -26,6 +28,7 @@ interface Saved {
   n: number
   instanceSeed: number
   instance: ArpInstance | null
+  path: PathPlan
 }
 
 function load(): Partial<Saved> {
@@ -39,7 +42,7 @@ function load(): Partial<Saved> {
 
 function save(s: ArpState): void {
   try {
-    const v: Saved = { source: s.source, presetId: s.presetId, budget: s.budget, seed: s.seed, n: s.n, instanceSeed: s.instanceSeed, instance: s.instance }
+    const v: Saved = { source: s.source, presetId: s.presetId, budget: s.budget, seed: s.seed, n: s.n, instanceSeed: s.instanceSeed, instance: s.instance, path: s.path }
     localStorage.setItem(KEY, JSON.stringify(v))
   } catch {
     // storage may be unavailable (private window); the tab works without it
@@ -71,6 +74,13 @@ export interface ArpState {
   /** the route the scene is showing */
   shown: ShownRoute | null
   elapsedMs: number
+  /** the path written by hand, and what flying it gave */
+  path: PathPlan
+  pathStatus: PathStatus
+  pathError: string | null
+  pathResult: ArpEvaluation | null
+  /** Earth and the path's asteroids in visiting order, the instance the path result refers to */
+  pathInstance: ArpInstance | null
 
   setN: (n: number) => void
   setInstanceSeed: (seed: number) => void
@@ -85,12 +95,24 @@ export interface ArpState {
   stop: () => void
   showRoute: (order: number[], times: Array<[number, number]> | null, label: string, play?: boolean) => Promise<ArpEvaluation | null>
   record: () => RunRecord | null
+
+  setPath: (path: PathPlan) => void
+  addEntry: () => void
+  updateEntry: (k: number, partial: Partial<PathEntry>) => void
+  removeEntry: (k: number) => void
+  moveEntry: (k: number, d: number) => void
+  /** fill the path from the last algorithm result */
+  pathFromResult: () => void
+  importPath: (text: string) => string | null
+  /** fly the path exactly as written and draw it */
+  flyPath: () => Promise<void>
 }
 
 const runner = new AlgorithmRunner()
 let showSeq = 0
 /** Counts runs, so a result that arrives after the next run began is dropped. */
 let runSeq = 0
+let pathSeq = 0
 let startedAt = 0
 
 /** The inputs the scene needs to draw a route as a tour: Earth's orbit, then each asteroid in turn. */
@@ -99,7 +121,7 @@ export function routeMission(inst: ArpInstance, ev: ArpEvaluation): MissionInput
     ship: { name: 'Spacecraft', dryMass: 1000, propellantMass: 0, isp: 300, maxThrust: 1000, minBurnSpacing: 0 },
     startT: 0,
     start: { kind: 'satellite', id: inst.earth.id },
-    stops: ev.order.map((k, i) => ({ satelliteId: inst.asteroids[k - 1].id, dwellSeconds: Math.round((ev.legs[i + 1]?.tau ?? 0) * DAY), strategy: 'lambert2' })),
+    stops: ev.order.map((k, i) => ({ satelliteId: inst.asteroids[k - 1].id, dwellSeconds: Math.round((ev.legs[i + 1]?.tau ?? 0) * DAY) })),
     departureWindow: 0,
   }
 }
@@ -138,6 +160,11 @@ export const useArp = create<ArpState>((set, get) => ({
   resultNote: '',
   shown: null,
   elapsedMs: 0,
+  path: saved.path && Array.isArray(saved.path.entries) ? saved.path : emptyPath(),
+  pathStatus: 'idle',
+  pathError: null,
+  pathResult: null,
+  pathInstance: null,
 
   setN: (n) => { set({ n: Math.min(30, Math.max(2, Math.round(n) || 2)) }); save(get()) },
   setInstanceSeed: (instanceSeed) => { set({ instanceSeed: Math.round(instanceSeed) || 0 }); save(get()) },
@@ -145,7 +172,8 @@ export const useArp = create<ArpState>((set, get) => ({
     get().stop()
     runSeq += 1
     const inst = generateInstance(get().n, get().instanceSeed)
-    set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null })
+    set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
+          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null })
     save(get())
     ensureScene(inst, true)
   },
@@ -154,7 +182,8 @@ export const useArp = create<ArpState>((set, get) => ({
     if (typeof inst === 'string') return inst
     get().stop()
     runSeq += 1
-    set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null })
+    set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
+          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null })
     save(get())
     ensureScene(inst, true)
     return null
@@ -182,6 +211,7 @@ export const useArp = create<ArpState>((set, get) => ({
     }
     ensureScene(instance)
     const solver = useStore.getState().scenario.solver ?? DEFAULT_SOLVER
+    const transfer = useStore.getState().scenario.transfer ?? DEFAULT_TRANSFER
     const id = ++runSeq
     startedAt = performance.now()
     set({ status: 'running', message: `Running ${header.name}`, error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null, elapsedMs: 0 })
@@ -221,7 +251,7 @@ export const useArp = create<ArpState>((set, get) => ({
       })
     }
 
-    runner.start(source, { instance, solver, budget, seed }, {
+    runner.start(source, { instance, solver, transfer, budget, seed }, {
       onLoading: () => { if (id === runSeq) set({ status: 'loading', message: 'Loading Python (about 8 MB, once per visit)…' }) },
       onStarted: () => { if (id === runSeq) { startedAt = performance.now(); set({ status: 'running', message: `Running ${header.name}` }) } },
       onEvents,
@@ -246,7 +276,7 @@ export const useArp = create<ArpState>((set, get) => ({
       const res = await fetch('/api/arp/plan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ instance: inst, order, solver: main.scenario.solver ?? DEFAULT_SOLVER, ...(times ? { times } : {}) }),
+        body: JSON.stringify({ instance: inst, order, solver: main.scenario.solver ?? DEFAULT_SOLVER, transfer: main.scenario.transfer ?? DEFAULT_TRANSFER, ...(times ? { times } : {}) }),
       })
       if (!res.ok) {
         const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
@@ -275,11 +305,90 @@ export const useArp = create<ArpState>((set, get) => ({
     return {
       format: 'arp-run', version: 1, created: new Date().toISOString(), instance: s.instance,
       solver: useStore.getState().scenario.solver ?? DEFAULT_SOLVER,
+      transfer: useStore.getState().scenario.transfer ?? DEFAULT_TRANSFER,
       algorithm: { name: parseAlgorithm(s.source).name, source: s.source },
       budget: s.budget, seed: s.seed, transfers: s.transfers, evaluations: s.evaluations, result: s.result,
     }
   },
+
+  setPath: (path) => { set({ path, pathStatus: 'idle', pathError: null }); save(get()) },
+  addEntry: () => {
+    const { instance, path } = get()
+    if (!instance) return
+    const entry = nextEntry(instance, path)
+    if (entry) get().setPath({ ...path, entries: [...path.entries, entry] })
+  },
+  updateEntry: (k, partial) => {
+    const path = get().path
+    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? { ...e, ...partial } : e)) })
+  },
+  removeEntry: (k) => {
+    const path = get().path
+    get().setPath({ ...path, entries: path.entries.filter((_, i) => i !== k) })
+  },
+  moveEntry: (k, d) => {
+    const path = get().path
+    const j = k + d
+    if (j < 0 || j >= path.entries.length) return
+    const entries = [...path.entries]
+    ;[entries[k], entries[j]] = [entries[j], entries[k]]
+    get().setPath({ ...path, entries })
+  },
+  pathFromResult: () => {
+    const { instance, result } = get()
+    if (instance && result) get().setPath(pathFromEvaluation(instance, result))
+  },
+  importPath: (text) => {
+    const path = parsePath(text)
+    if (typeof path === 'string') return path
+    get().setPath(path)
+    return null
+  },
+
+  flyPath: async () => {
+    const { instance, path } = get()
+    if (!instance) return
+    const problems = pathProblems(path)
+    if (problems.length) {
+      set({ pathStatus: 'error', pathError: problems.join('\n') })
+      return
+    }
+    const main = useStore.getState()
+    const seq = ++pathSeq
+    set({ pathStatus: 'loading', pathError: null })
+    try {
+      const res = await fetch('/api/arp/path', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(pathRequest(instance, path, main.scenario.solver ?? DEFAULT_SOLVER, main.scenario.transfer ?? DEFAULT_TRANSFER)),
+      })
+      if (!res.ok) {
+        const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
+        throw new Error(typeof detail === 'string' ? detail : `the planner answered HTTP ${res.status}`)
+      }
+      const { evaluation, plan } = (await res.json()) as { evaluation: ArpEvaluation; plan: MissionPlan }
+      if (seq !== pathSeq) return
+      const pinst = pathInstance(instance, path)
+      ensureScene(pinst)
+      const now = useStore.getState()
+      now.loadRoute(routeMission(pinst, evaluation), plan)
+      now.setSpan(plan.totalTime)
+      now.setT(0)
+      now.setPlaying(true)
+      now.setRate(2592000)
+      set({ pathStatus: 'done', pathResult: evaluation, pathInstance: pinst, shown: { order: evaluation.order, label: 'your path', cost: evaluation.cost } })
+    } catch (e) {
+      if (seq === pathSeq) set({ pathStatus: 'error', pathError: (e as Error).message })
+    }
+  },
 }))
+
+/** A path result belongs to the transfer mode and solver it was flown with; a change puts it out of date. */
+useStore.subscribe((now, before) => {
+  if ((now.scenario.transfer !== before.scenario.transfer || now.scenario.solver !== before.scenario.solver) && useArp.getState().pathStatus === 'done') {
+    useArp.setState({ pathStatus: 'idle' })
+  }
+})
 
 /** Load Python while the visitor is still reading the tab. */
 export function prepareRunner(): void {

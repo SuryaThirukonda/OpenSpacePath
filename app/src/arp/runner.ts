@@ -3,11 +3,13 @@
  * worker is kept warm between runs, since starting Python takes a few seconds; stopping a run
  * kills it, which is the only way to interrupt Python that is busy.
  */
+import type { TransferMode } from '../mission/types'
 import type { ArpInstance, RunEvent, WorkerResult } from './types'
 
 export interface RunJob {
   instance: ArpInstance
   solver: string
+  transfer: TransferMode
   budget: number
   seed: number
 }

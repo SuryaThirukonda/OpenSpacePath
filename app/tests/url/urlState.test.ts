@@ -50,7 +50,7 @@ describe('url state', () => {
     }
     const mission = {
       ship: { name: 'x', dryMass: 1000, propellantMass: 5000, isp: 350, maxThrust: 1e5, minBurnSpacing: 60 },
-      startT: 0, start: { kind: 'launch' as const, launch }, stops: [{ satelliteId: sc.satellites[0].id, dwellSeconds: 0, strategy: 'best' as const }], departureWindow: 0,
+      startT: 0, start: { kind: 'launch' as const, launch }, stops: [{ satelliteId: sc.satellites[0].id, dwellSeconds: 0 }], departureWindow: 0,
     }
     const out = decodeScenario(encodeScenario({ ...sc, mission }))
     expect(out?.mission?.start).toEqual({ kind: 'launch', launch })
@@ -62,13 +62,22 @@ describe('url state', () => {
     const mission = {
       ship: { name: 'S', dryMass: 5000, propellantMass: 60000, isp: 350, maxThrust: 100000, minBurnSpacing: 60 },
       startT: 0, start: { kind: 'satellite' as const, id: sc.satellites[0].id },
-      stops: [{ satelliteId: sc.satellites[1].id, dwellSeconds: 600, strategy: 'best' as const }, { satelliteId: 'ghost', dwellSeconds: 0, strategy: 'best' as const }],
+      stops: [{ satelliteId: sc.satellites[1].id, dwellSeconds: 600 }, { satelliteId: 'ghost', dwellSeconds: 0 }],
       departureWindow: 0,
     }
     const out = decodeScenario(encodeScenario({ ...sc, mission }))
     expect(out?.mission?.stops.map((s) => s.satelliteId)).toEqual([sc.satellites[1].id])
     expect(out?.mission?.ship.isp).toBe(350)
     expect(decodeScenario(encodeScenario({ ...sc, mission: { ...mission, ship: { ...mission.ship, dryMass: -1 } } }))?.mission).toBeUndefined()
+  })
+
+  it('keeps the transfer mode when it is a known one and drops anything else', () => {
+    expect(decodeScenario(encodeScenario({ ...sc, transfer: 'lambert2' }))?.transfer).toBe('lambert2')
+    expect(decodeScenario(encodeScenario({ ...sc, transfer: 'threeburn' }))?.transfer).toBe('threeburn')
+    expect(decodeScenario(encodeScenario({ ...sc, transfer: 'fourburn' as unknown as 'lambert2' }))?.transfer).toBeUndefined()
+    // an old link's per-stop strategy is simply ignored
+    const old = { ...sc, mission: { ship: { name: 'S', dryMass: 1, propellantMass: 1, isp: 300, maxThrust: 1, minBurnSpacing: 0 }, startT: 0, start: { kind: 'satellite' as const, id: sc.satellites[0].id }, stops: [{ satelliteId: sc.satellites[1].id, dwellSeconds: 0, strategy: 'best' }], departureWindow: 0 } }
+    expect(decodeScenario(encodeScenario(old as never))?.mission?.stops).toEqual([{ satelliteId: sc.satellites[1].id, dwellSeconds: 0 }])
   })
   it('reads version 1 links that have no v field', () => {
     const { v: _v, ...rest } = JSON.parse(JSON.stringify({ v: 2, ...sc })) as { v: number } & Scenario

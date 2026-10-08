@@ -17,17 +17,25 @@ papers, so one ordering of the asteroids always gives the same cost. The relaxed
 
 Times here are days after the instance epoch; the Lambert solve and the states use seconds.
 Bodies are indexed as in the second paper: 0 is Earth, 1..n the asteroids.
+
+Transfer modes. The papers' black box is the two-burn Lambert rendezvous ("lambert2"). In the
+"threeburn" mode the same wait and flight time are flown with the three-burn rendezvous of the
+derivation sheet (threeburn.py) and its delta-v is the one charged. The times are still chosen by
+the papers' inner optimizer on the two-burn cost, so a route keeps one deterministic cost and an
+evaluation stays affordable; with explicit times the three-burn transfer is solved directly.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from scipy.optimize import minimize
 
-from . import lambert
-from .models import Arc, ArpEvaluation, ArpInstance, ArpTransfer, Burn, Leg, MissionPlan, Ride, Samples
+from . import lambert, threeburn
+from .mission import burn_labels
+from .models import (Arc, ArpEvaluation, ArpInstance, ArpPathRequest, ArpTransfer, Burn, DEFAULT_TRANSFER, Leg, MissionPlan,
+                     Ride, Samples)
 from .propagation import elements_state, propagate_universal
 
 DAY = 86400.0
@@ -53,6 +61,18 @@ class Transfer:
     r1: np.ndarray
     v1: np.ndarray
     r2: np.ndarray
+    mode: str = "lambert2"
+    burns: list = field(default_factory=list)      # (t_s, r, dv) in seconds after the epoch
+    arcs: list = field(default_factory=list)       # (t0_s, t1_s, r0, v0)
+    dv3: float = 0.0
+    lambert_dv: float | None = None                # the two-burn cost at the same times, when flown with three burns
+    note: str = ""
+
+    def to_model(self, origin: int, target: int, eta: float) -> ArpTransfer:
+        return ArpTransfer(origin=origin, target=target, eta=eta, tau=self.tau, t=self.t, z=self.z, dv=self.dv,
+                           dv1=float(np.linalg.norm(self.dv1)), dv2=float(np.linalg.norm(self.dv2)), dv3=self.dv3, evals=self.evals,
+                           miss=self.miss if math.isfinite(self.miss) else -1.0, transfer=self.mode, burns=len(self.burns),
+                           lambertDv=self.lambert_dv, note=self.note)
 
 
 def body_elements(inst: ArpInstance, index: int) -> dict:
@@ -79,10 +99,14 @@ def _impulses(mu: float, origin: dict, target: dict, t_dep: float, tof: float, s
 
 
 def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: str | None = None,
-             relaxed: bool = False, tau_f: float | None = None, fixed: tuple[float, float] | None = None) -> Transfer:
-    """B(a, a', eta), or B' when `relaxed`. With `fixed` = (tau, t) the times are taken as given."""
+             relaxed: bool = False, tau_f: float | None = None, fixed: tuple[float, float] | None = None,
+             mode: str = DEFAULT_TRANSFER, dv_max: float | None = None) -> Transfer:
+    """B(a, a', eta), or B' when `relaxed`. With `fixed` = (tau, t) the times are taken as given.
+    `mode` says how the chosen times are flown: "lambert2" or "threeburn"."""
     if origin == target:
         raise ValueError("a transfer needs two different bodies")
+    if mode not in ("lambert2", "threeburn"):
+        raise ValueError(f"unknown transfer mode {mode!r}: use lambert2 or threeburn")
     mu = inst.mu
     a, b = body_elements(inst, origin), body_elements(inst, target)
     tau_hi = float(tau_f) if (relaxed and tau_f) else inst.tauMax
@@ -103,7 +127,9 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
         return dv + w * (float(x[1]) + (0.0 if relaxed else float(x[0])))
 
     if fixed is not None:
-        x = np.array([min(max(fixed[0], 0.0), tau_hi), min(max(fixed[1], 1e-3), inst.tMax)])
+        if not (math.isfinite(fixed[0]) and math.isfinite(fixed[1])) or fixed[0] < 0 or fixed[1] <= 0:
+            raise ValueError("a wait must be zero or more days and a transfer longer than zero days")
+        x = np.array([float(fixed[0]), float(fixed[1])])
     else:
         start = np.array(X0)
         if cost(start) >= PENALTY:
@@ -126,8 +152,29 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
         raise ValueError(f"no Lambert solution from body {origin} to body {target} at day {eta + x[0]:.1f} for a {x[1]:.1f}-day transfer")
     r1, v1, r2, dv1, dv2 = got
     dv = float(np.linalg.norm(dv1) + np.linalg.norm(dv2))
-    z = dv + w * (float(x[1]) + (0.0 if relaxed else float(x[0])))
-    return Transfer(float(x[0]), float(x[1]), z, dv, dv1, dv2, evals, lambert.miss(mu, r1, v1, r2, x[1] * DAY), r1, v1, r2)
+    t_dep, t_arr = (eta + float(x[0])) * DAY, (eta + float(x[0]) + float(x[1])) * DAY
+    out = Transfer(float(x[0]), float(x[1]), dv + w * (float(x[1]) + (0.0 if relaxed else float(x[0]))), dv, dv1, dv2, evals,
+                   lambert.miss(mu, r1, v1, r2, x[1] * DAY), r1, v1, r2,
+                   burns=[(t_dep, r1, dv1), (t_arr, r2, dv2)], arcs=[(t_dep, t_arr, r1, v1)])
+    if mode == "threeburn":
+        va = v1 - dv1
+        vb = elements_state(b, mu, t_arr)[1]
+        tb = threeburn.solve(mu, r1, va, t_dep, r2, vb, t_arr, dv_max=dv_max if dv_max else math.inf)
+        if tb is None:
+            if fixed is not None:
+                raise ValueError(f"no three-burn transfer from body {origin} to body {target} arrives on day {eta + x[0] + x[1]:.1f} "
+                                 f"after a {x[1]:.1f}-day flight; the two-burn transfer may")
+            out.note = "no three-burn transfer at these times; flown with two burns"
+            return out
+        out.mode, out.lambert_dv = "threeburn", dv
+        out.burns, out.arcs = list(tb.burns), list(tb.arcs)
+        out.dv1, out.dv2 = tb.burns[0][2], (tb.burns[1][2] if len(tb.burns) == 3 else np.zeros(3))
+        out.dv3, out.dv = tb.dv[2], tb.cost
+        out.z = tb.cost + w * (float(x[1]) + (0.0 if relaxed else float(x[0])))
+        last = tb.arcs[-1]
+        out.v1 = last[3]
+        out.miss = lambert.miss(mu, last[2], last[3], r2, last[1] - last[0])
+    return out
 
 
 def check_order(inst: ArpInstance, order: list[int], complete: bool = False) -> None:
@@ -140,7 +187,8 @@ def check_order(inst: ArpInstance, order: list[int], complete: bool = False) -> 
         raise ValueError(f"the order visits {len(order)} of the {n} asteroids; a solution visits each exactly once")
 
 
-def evaluate(inst: ArpInstance, order: list[int], solver: str | None = None, times=None) -> tuple[ArpEvaluation, list[Transfer]]:
+def evaluate(inst: ArpInstance, order: list[int], solver: str | None = None, times=None,
+             mode: str = DEFAULT_TRANSFER, dv_max: float | None = None) -> tuple[ArpEvaluation, list[Transfer]]:
     """f(pi): the transfers of a route in turn, each starting when the previous one arrives."""
     check_order(inst, order)
     if times is not None and len(times) != len(order):
@@ -150,15 +198,36 @@ def evaluate(inst: ArpInstance, order: list[int], solver: str | None = None, tim
     raw: list[Transfer] = []
     eta, here = 0.0, 0
     for k, there in enumerate(order):
-        tr = transfer(inst, here, there, eta, solver=name, fixed=tuple(times[k]) if times is not None else None)
-        legs.append(ArpTransfer(origin=here, target=there, eta=eta, tau=tr.tau, t=tr.t, z=tr.z, dv=tr.dv,
-                                dv1=float(np.linalg.norm(tr.dv1)), dv2=float(np.linalg.norm(tr.dv2)), evals=tr.evals,
-                                miss=tr.miss if math.isfinite(tr.miss) else -1.0))
+        tr = transfer(inst, here, there, eta, solver=name, fixed=tuple(times[k]) if times is not None else None, mode=mode, dv_max=dv_max)
+        legs.append(tr.to_model(here, there, eta))
         raw.append(tr)
         eta += tr.tau + tr.t
         here = there
-    return ArpEvaluation(order=list(order), solver=name, legs=legs, cost=sum(l.z for l in legs),
+    return ArpEvaluation(order=list(order), solver=name, transfer=mode, legs=legs, cost=sum(l.z for l in legs),
                          dv=sum(l.dv for l in legs), time=eta), raw
+
+
+def path_route(req: ArpPathRequest) -> tuple[ArpInstance, list[int], list[list[float]]]:
+    """A user-written path (arrival day and stay per asteroid) as an instance, an order and leg times.
+
+    The asteroids' elements travel inside the entries, so the path is planned from exactly what
+    the user wrote. Leg k waits `delay` days at its origin and flies until the next arrival."""
+    arrivals = [e.arrival for e in req.entries]
+    for k in range(1, len(arrivals)):
+        if arrivals[k] <= arrivals[k - 1] + req.entries[k - 1].delay:
+            raise ValueError(f"entry {k + 1} arrives on day {arrivals[k]:g}, before the spacecraft leaves entry {k} "
+                             f"on day {arrivals[k - 1] + req.entries[k - 1].delay:g}")
+    if arrivals[0] <= req.departure:
+        raise ValueError(f"the first arrival (day {arrivals[0]:g}) must come after the departure from Earth (day {req.departure:g})")
+    ids = [e.asteroid.id for e in req.entries]
+    if len(set(ids)) != len(ids):
+        raise ValueError("an asteroid appears twice in the path; the problem visits each once")
+    longest_wait = max([req.departure] + [e.delay for e in req.entries])
+    flights = [arrivals[0] - req.departure] + [arrivals[k] - arrivals[k - 1] - req.entries[k - 1].delay for k in range(1, len(arrivals))]
+    inst = ArpInstance(mu=req.mu, epoch=req.epoch, earth=req.earth, asteroids=[e.asteroid for e in req.entries],
+                       tauMax=max(730.0, longest_wait), tMax=max(730.0, max(flights)), timeWeight=req.timeWeight)
+    times = [[req.departure, flights[0]]] + [[req.entries[k - 1].delay, flights[k]] for k in range(1, len(arrivals))]
+    return inst, list(range(1, len(req.entries) + 1)), times
 
 
 def _ride(inst: ArpInstance, index: int, d0: float, d1: float) -> Ride:
@@ -194,12 +263,12 @@ def build_plan(inst: ArpInstance, ev: ArpEvaluation, raw: list[Transfer]) -> Mis
                 prelude = wait
             else:
                 legs[-1].ride = wait
-        burns = [
-            Burn(t=d_dep * DAY, r=tr.r1.tolist(), dv=tr.dv1.tolist(), magnitude=float(np.linalg.norm(tr.dv1)), duration=0.0, propellant=0.0, label="depart"),
-            Burn(t=d_arr * DAY, r=tr.r2.tolist(), dv=tr.dv2.tolist(), magnitude=float(np.linalg.norm(tr.dv2)), duration=0.0, propellant=0.0, label="arrive"),
-        ]
-        legs.append(Leg(toStop=k, strategy=f"lambert2 ({ev.solver})", tof=leg.t * DAY, totalDv=leg.dv, warnings=[],
-                        burns=burns, arcs=[_arc(tr.r1, tr.v1, d_dep * DAY, d_arr * DAY, inst.mu)], ride=None))
+        labels = burn_labels(tr.mode, len(tr.burns))
+        burns = [Burn(t=tb, r=np.asarray(rb).tolist(), dv=np.asarray(dvb).tolist(), magnitude=float(np.linalg.norm(dvb)), duration=0.0,
+                      propellant=0.0, label=label) for label, (tb, rb, dvb) in zip(labels, tr.burns)]
+        arcs = [_arc(r0, v0, t0, t1, inst.mu) for (t0, t1, r0, v0) in tr.arcs if t1 - t0 > 1e-6]
+        legs.append(Leg(toStop=k, strategy=f"{tr.mode} ({ev.solver})", tof=leg.t * DAY, totalDv=leg.dv, warnings=[tr.note] if tr.note else [],
+                        burns=burns, arcs=arcs, ride=None))
     end = ev.time
     if legs:
         legs[-1].ride = _ride(inst, ev.legs[-1].target, end, end + FINAL_RIDE_DAYS)

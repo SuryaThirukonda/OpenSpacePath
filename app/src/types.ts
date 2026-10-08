@@ -3,7 +3,7 @@
  * kilometres, seconds, radians. Degrees exist only at the UI boundary.
  */
 
-import type { MissionInput } from './mission/types'
+import type { MissionInput, TransferMode } from './mission/types'
 
 export interface Vec3 {
   x: number
@@ -96,6 +96,8 @@ export interface Scenario {
   mission?: MissionInput
   /** The lamberthub solver every transfer is computed with; Izzo (2015) when absent. */
   solver?: string
+  /** How every transfer is flown; the three-burn rendezvous when absent. */
+  transfer?: TransferMode
 }
 
 export interface TimeState {

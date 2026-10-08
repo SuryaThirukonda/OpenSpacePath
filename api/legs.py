@@ -1,9 +1,11 @@
-"""One two-burn rendezvous leg to a moving target.
+"""One rendezvous leg to a moving target, with the time of flight chosen to minimise delta-v.
 
-Given the ship's state at departure and the target's state as a function of time, choose the
-time of flight, solve Lambert to the target's *future* position, and return the two burns:
-depart (v1 - v_ship) and brake (v_target - v2). The braking burn is what stops the ship flying
-past the target. Times are simulated seconds since the scenario epoch.
+Two ways to fly a leg, the app's transfer modes:
+  lambert2   solve Lambert to the target's *future* position and brake there: depart (v1 - v_ship)
+             and arrive (v_target - v2). The braking burn is what stops the ship flying past.
+  threeburn  the three-burn rendezvous of the derivation sheet (threeburn.py) to the same point.
+Either way the arrival time is scanned and refined. Times are simulated seconds since the
+scenario epoch.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import lambert
+from . import lambert, threeburn
 from .propagation import min_radius_on_conic_arc, propagate_universal
 
 GOLDEN = (math.sqrt(5) - 1) / 2
@@ -115,6 +117,83 @@ class _Inf:
 
 
 _INF = _Inf()
+
+
+@dataclass
+class LegPlan:
+    """A planned leg in the shape the tour assembler and the scene use: impulses and coasts."""
+    t_d: float
+    t_a: float
+    strategy: str
+    burns: list[tuple[float, np.ndarray, np.ndarray]]           # (t, r, dv)
+    arcs: list[tuple[float, float, np.ndarray, np.ndarray]]      # (t0, t1, r0, v0)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def tof(self) -> float:
+        return self.t_a - self.t_d
+
+    @property
+    def cost(self) -> float:
+        return float(sum(np.linalg.norm(dv) for _, _, dv in self.burns))
+
+
+def leg_from_two_burn(sol: LegSolution, r_s, target_fn) -> LegPlan:
+    r_s = np.asarray(r_s, float)
+    r_a = np.asarray(target_fn(sol.t_a)[0], float)
+    plan = LegPlan(sol.t_d, sol.t_a, "lambert2",
+                   [(sol.t_d, r_s, sol.dv1), (sol.t_a, r_a, sol.dv2)],
+                   [(sol.t_d, sol.t_a, r_s, sol.v1)], list(sol.warnings))
+    if sol.M > 0:
+        plan.warnings.append(f"{sol.M}-revolution transfer ({'low' if sol.low_path else 'high'} path)")
+    return plan
+
+
+def leg_from_three_burn(tb: threeburn.ThreeBurn) -> LegPlan:
+    return LegPlan(tb.t_d, tb.t_a, "threeburn", list(tb.burns), list(tb.arcs), list(tb.warnings))
+
+
+def plan_three_burn(r_s, v_s, t_d: float, target_fn, T_target: float, mu: float, radius: float,
+                    bounds=None, dv_max: float = math.inf, grid: int = 24):
+    """Three-burn rendezvous with the arrival time scanned and refined to minimise total delta-v."""
+    r_s = np.asarray(r_s, float)
+    v_s = np.asarray(v_s, float)
+    lo, hi = bounds if bounds else (0.05 * T_target, 3.0 * T_target)
+    lo = max(lo, 60.0)
+    if hi <= lo:
+        return None
+
+    def at(tof: float, quality: str):
+        target = target_fn(t_d + tof)
+        if target is None:
+            return None
+        return threeburn.solve(mu, r_s, v_s, t_d, target[0], target[1], t_d + tof, radius=radius, dv_max=dv_max, quality=quality)
+
+    scored = []
+    for tof in np.linspace(lo, hi, grid):
+        sol = at(float(tof), "fast")
+        if sol is not None:
+            scored.append((sol.cost, float(tof)))
+    if not scored:
+        return None
+    scored.sort()
+    step = (hi - lo) / (grid - 1)
+    tof0 = scored[0][1]
+    x = _golden(lambda t: (at(t, "fast") or _INF).cost, max(lo, tof0 - step), min(hi, tof0 + step), iters=8)
+    best = at(x, "full")
+    if best is None and len(scored) > 1:
+        best = at(scored[1][1], "full")
+    return best
+
+
+def plan_leg(mode: str, r_s, v_s, t_d: float, target_fn, T_t: float, mu: float, radius: float,
+             bounds=None, window: float = 0.0, dv_max: float | None = None):
+    """The leg in the requested transfer mode, as a LegPlan, or None when no transfer exists."""
+    if mode == "threeburn":
+        tb = plan_three_burn(r_s, v_s, t_d, target_fn, T_t, mu, radius, bounds=bounds, dv_max=dv_max if dv_max else math.inf)
+        return leg_from_three_burn(tb) if tb is not None else None
+    two = plan_two_burn(r_s, v_s, t_d, target_fn, T_t, mu, radius, bounds=bounds, window=window)
+    return leg_from_two_burn(two, r_s, target_fn) if two is not None else None
 
 
 def _coast(r, v, dt, mu):

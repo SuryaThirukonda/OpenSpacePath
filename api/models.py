@@ -55,13 +55,15 @@ class Ship(BaseModel):
     minBurnSpacing: float = Field(default=60.0, ge=0)
 
 
-Strategy = Literal["lambert2", "phasing3", "bielliptic3", "waypoint4", "best"]
+# How every transfer is flown: the two-burn Lambert rendezvous, or the three-burn rendezvous of
+# the derivation sheet (in-plane shaping, plane change at the node, velocity match).
+TransferMode = Literal["lambert2", "threeburn"]
+DEFAULT_TRANSFER: TransferMode = "threeburn"
 
 
 class Stop(BaseModel):
     satelliteId: str
     dwellSeconds: float = Field(default=1800.0, ge=0)
-    strategy: Strategy = "best"
     tofBounds: Optional[tuple[float, float]] = None
 
 
@@ -111,6 +113,8 @@ class MissionInput(BaseModel):
     stops: list[Stop] = Field(min_length=1, max_length=12)
     departureWindow: float = Field(default=0.0, ge=0)
     solver: str = Field(default="izzo2015", description="a lamberthub solver; see GET /api/lambert/solvers")
+    transfer: TransferMode = Field(default=DEFAULT_TRANSFER, description="two-burn Lambert or the three-burn rendezvous")
+    dvMax: Optional[float] = Field(default=None, gt=0, description="km/s; a three-burn leg above this is rejected")
 
 
 class PlanRequest(BaseModel):
@@ -252,6 +256,8 @@ class ArpTransferRequest(BaseModel):
     target: int = Field(ge=1)
     eta: float = Field(ge=0, description="earliest departure, days after the epoch")
     solver: str = "izzo2015"
+    transfer: TransferMode = DEFAULT_TRANSFER
+    dvMax: Optional[float] = Field(default=None, gt=0, description="km/s; a three-burn transfer above this is rejected")
     relaxed: bool = Field(default=False, description="do not charge the wait (the relaxation used for bounds)")
     tauF: Optional[float] = Field(default=None, gt=0, description="upper bound on the wait when relaxed, days")
 
@@ -266,14 +272,21 @@ class ArpTransfer(BaseModel):
     dv: float
     dv1: float
     dv2: float
+    dv3: float = Field(default=0.0, description="the third burn of a three-burn transfer; 0 for two burns")
     evals: int
     miss: float = Field(default=0.0, description="how far the arc ends from the target, as a fraction of its distance; -1 if unknown")
+    transfer: str = Field(default="lambert2", description="how this transfer was flown")
+    burns: int = Field(default=2, description="number of impulses")
+    lambertDv: Optional[float] = Field(default=None, description="km/s of the two-burn transfer at the same times, for comparison")
+    note: str = ""
 
 
 class ArpEvaluateRequest(BaseModel):
     instance: ArpInstance
     order: list[int] = Field(min_length=1, max_length=40, description="asteroid indices 1..n in visiting order")
     solver: str = "izzo2015"
+    transfer: TransferMode = DEFAULT_TRANSFER
+    dvMax: Optional[float] = Field(default=None, gt=0)
     times: Optional[list[Annotated[list[float], Field(min_length=2, max_length=2)]]] = Field(
         default=None, description="[wait, transfer] in days for each leg; omit to let the inner optimizer choose")
 
@@ -281,10 +294,32 @@ class ArpEvaluateRequest(BaseModel):
 class ArpEvaluation(BaseModel):
     order: list[int]
     solver: str
+    transfer: str = "lambert2"
     legs: list[ArpTransfer]
     cost: float
     dv: float
     time: float
+
+
+class ArpPathEntry(BaseModel):
+    """One stop of a user-written path: the asteroid with all of its elements, when to arrive, how long to stay."""
+    asteroid: ArpBody
+    arrival: float = Field(gt=0, description="days after the mission start at which the spacecraft must be at the asteroid")
+    delay: float = Field(default=0.0, ge=0, description="days spent at the asteroid before leaving")
+
+
+class ArpPathRequest(BaseModel):
+    """A path given by its times rather than found by an optimizer: the planner only flies it."""
+    name: str = "path"
+    mu: float = Field(default=132712440041.9, gt=0)
+    epoch: str
+    earth: ArpBody
+    departure: float = Field(default=0.0, ge=0, description="days after the mission start at which the spacecraft leaves Earth's orbit")
+    entries: list[ArpPathEntry] = Field(min_length=1, max_length=40)
+    solver: str = "izzo2015"
+    transfer: TransferMode = DEFAULT_TRANSFER
+    dvMax: Optional[float] = Field(default=None, gt=0)
+    timeWeight: float = Field(default=2.0 / 30.0, ge=0)
 
 
 class ArpPlanResponse(BaseModel):

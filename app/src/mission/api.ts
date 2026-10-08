@@ -2,7 +2,7 @@
 import { getBody } from '../data/bodies'
 import type { Scenario } from '../types'
 import type { SolverInfo } from '../arp/types'
-import type { MissionInput, MissionPlan } from './types'
+import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from './types'
 
 export class PlanError extends Error {}
 
@@ -43,7 +43,7 @@ export async function planMission(scenario: Scenario, mission: MissionInput, sig
       body: { id: body.id, mu: body.mu, radius: body.radius, rotationPeriod: body.rotationPeriod, atmosphere: body.atmosphere !== undefined },
       epoch: scenario.epoch,
       satellites: scenario.satellites.map(wireSatellite),
-      mission: { ...mission, solver: scenario.solver ?? DEFAULT_SOLVER },
+      mission: { ...mission, solver: scenario.solver ?? DEFAULT_SOLVER, transfer: scenario.transfer ?? DEFAULT_TRANSFER },
     }),
   })
   if (!res.ok) {

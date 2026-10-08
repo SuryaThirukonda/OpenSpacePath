@@ -1,6 +1,6 @@
 # A standard format for asteroid routing algorithms (ARP-ALGORITHM 1)
 
-Date: 2026-10-05. Status: implemented in the Routing tab of Orbit Lab. This is the specification of the format and the record of why it is shaped this way. The same text, shortened, is shown in the tab under "Format reference"; the code is `app/src/arp/format.ts` (the check and the examples), `app/public/arp-worker.js` (the runner) and `api/arp.py` (the transfer black box).
+Date: 2026-10-05, updated 2026-10-08 (transfer modes and the Path section). Status: implemented in the Routing tab of Orbit Lab. This is the specification of the format and the record of why it is shaped this way. The same text, shortened, is shown in the tab under "Format reference"; the code is `app/src/arp/format.ts` (the check and the examples), `app/public/arp-worker.js` (the runner) and `api/arp.py` (the transfer black box).
 
 ## 1. Purpose
 
@@ -70,6 +70,7 @@ Rules, each checked before a run and each reported with a sentence that says wha
 | `problem.tau_max`, `problem.t_max` | bounds on the wait and on the transfer, days |
 | `problem.time_weight` | w, km/s per day |
 | `problem.seed` | the run's random seed |
+| `problem.transfer` | how transfers are flown in this run: `"threeburn"` or `"lambert2"` (section 7.1) |
 
 ### 3.2 `tools`
 
@@ -126,7 +127,22 @@ Python was chosen because both papers' reference implementations and the transfe
 
 Three more examples are included as starting points: greedy by cheapest transfer, greedy start with a swap local search, and exhaustive search for small instances.
 
-## 7. Lambert solvers
+## 7. Transfers
+
+### 7.1 Two or three burns
+
+Every transfer is flown in one of two ways, chosen in the Transfer section and stored with the scene:
+
+- `lambert2`: the papers' two-impulse Lambert rendezvous.
+- `threeburn` (the default): the three-burn rendezvous of the derivation sheet, `research/07_three_burn_transfer.md`.
+
+The times (τ, t) of a transfer are always chosen as the papers define, by SLSQP on the two-burn cost from (0, 30), so a route has one deterministic cost in either mode and evaluations stay affordable. In three-burn mode those times are then flown with three burns and z charges the three-burn delta-v; the two-burn delta-v at the same times is reported beside it. With explicit times the three-burn transfer is solved directly. A route in three-burn mode is therefore not comparable with the papers' tables even under Izzo or Gooding; switch to two burns for that.
+
+### 7.2 The Path section
+
+Above the algorithm editor, a path can be written by hand: a list of entries, each holding an asteroid with all of its elements, the day to arrive there and how long to stay, plus the day the spacecraft leaves Earth's orbit. The arrival days and stays fix every departure and flight time, so the planner flies the path exactly as written (`POST /api/arp/path`), with whichever transfer is chosen, and draws it. The list can be filled from the last algorithm run, saved as JSON (`format: "arp-path"`) and opened again. Each entry carries its asteroid's elements so a saved path stands on its own.
+
+### 7.3 Lambert solvers
 
 Every transfer uses one solver from `lamberthub` 1.0.0, chosen in the "Lambert solver" section of the Mission and Routing tabs and stored with the scene. The default is Izzo (2015). Measured on 300 random heliocentric transfers by propagating each answer and comparing with the target:
 

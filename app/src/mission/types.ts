@@ -18,12 +18,18 @@ export interface Ship {
   minBurnSpacing: number
 }
 
-export type Strategy = 'lambert2' | 'phasing3' | 'bielliptic3' | 'waypoint4' | 'best'
+/**
+ * How every transfer is flown: the two-burn Lambert rendezvous, or the three-burn rendezvous of
+ * the derivation sheet (in-plane shaping, plane change at the node, velocity match).
+ */
+export type TransferMode = 'lambert2' | 'threeburn'
+export const DEFAULT_TRANSFER: TransferMode = 'threeburn'
+export const TRANSFER_MODES: TransferMode[] = ['lambert2', 'threeburn']
+export const transferName = (mode: TransferMode): string => (mode === 'threeburn' ? '3 burns' : '2 burns')
 
 export interface Stop {
   satelliteId: string
   dwellSeconds: number
-  strategy: Strategy
   tofBounds?: [number, number]
 }
 

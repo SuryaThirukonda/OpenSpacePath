@@ -3,6 +3,7 @@
  * api/models.py. Bodies are numbered as in Rudich et al. (2024): 0 is Earth, 1..n the asteroids.
  * Times in an instance and a route are days after the instance epoch; elements are km and rad.
  */
+import type { TransferMode } from '../mission/types'
 import type { OrbitalElements } from '../types'
 
 export interface ArpBody {
@@ -41,14 +42,24 @@ export interface ArpTransfer {
   dv: number
   dv1: number
   dv2: number
+  /** the third burn of a three-burn transfer; 0 with two burns */
+  dv3: number
   evals: number
   /** how far the arc ends from the target as a fraction of its distance; -1 if unknown */
   miss: number
+  /** how the transfer was flown */
+  transfer: TransferMode
+  /** number of impulses */
+  burns: number
+  /** km/s of the two-burn transfer at the same times, when flown with three burns */
+  lambertDv?: number | null
+  note?: string
 }
 
 export interface ArpEvaluation {
   order: number[]
   solver: string
+  transfer: TransferMode
   legs: ArpTransfer[]
   cost: number
   dv: number
@@ -102,6 +113,7 @@ export interface RunRecord {
   created: string
   instance: ArpInstance
   solver: string
+  transfer: TransferMode
   algorithm: { name: string; source: string }
   budget: number
   seed: number

@@ -191,6 +191,7 @@ problem (read only)
 - problem.n                      number of asteroids
 - problem.earth, problem.asteroids, problem.bodies[k]   bodies with .index .name .a .e .i .raan .argp .M0 (km, rad)
 - problem.mu, problem.epoch, problem.tau_max, problem.t_max, problem.time_weight, problem.seed
+- problem.transfer                "threeburn" or "lambert2": how every transfer in this run is flown
 
 tools
 - tools.transfer(a, b, eta) -> (tau, t, z)
@@ -208,4 +209,5 @@ tools
 - tools.budget, tools.evaluations, tools.transfers   the evaluation budget and the counts so far
 
 Calling tools.evaluate past the budget ends the run and keeps the best route so far.
-The Lambert solver chosen above is used for every transfer.`
+The transfer (two or three burns) and the Lambert solver chosen above are used for every transfer; the
+times of a transfer are always chosen on the two-burn cost, as the papers define.`

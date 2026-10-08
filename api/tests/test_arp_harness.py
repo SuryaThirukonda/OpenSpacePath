@@ -47,10 +47,10 @@ def presets():
     return out
 
 
-def run(source, n=5, budget=12, seed=3, solver="izzo2015"):
+def run(source, n=5, budget=12, seed=3, solver="izzo2015", transfer="lambert2"):
     events = []
     scope = load_harness(events)
-    job = {"instance": make_instance(n).model_dump(), "solver": solver, "budget": budget, "seed": seed}
+    job = {"instance": make_instance(n).model_dump(), "solver": solver, "transfer": transfer, "budget": budget, "seed": seed}
     return json.loads(scope["arp_run"](json.dumps(job), source)), events
 
 
@@ -126,6 +126,26 @@ def test_an_exception_in_the_algorithm_points_at_its_line():
     assert not out["ok"]
     assert out["error"].startswith("ZeroDivisionError")
     assert "line 6, in solve" in out["error"] and "1 / (x - 5)" in out["error"]
+
+
+def test_the_transfer_mode_reaches_the_algorithm_and_the_service():
+    probe = HEAD + ("def solve(problem, tools):\n"
+                    "    tools.log(problem.transfer)\n"
+                    "    tau, t, z = tools.transfer(0, 1, 0.0)\n"
+                    "    tools.log(repr(z))\n"
+                    "    return [1, 2, 3, 4, 5]\n")
+    import io
+    from contextlib import redirect_stdout
+    out = {}
+    for mode in ("lambert2", "threeburn"):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            res, _ = run(probe, transfer=mode)
+        assert res["ok"], res["error"]
+        name, z = buf.getvalue().strip().splitlines()
+        assert name == mode
+        out[mode] = float(z)
+    assert out["lambert2"] != out["threeburn"]
 
 
 def test_explicit_times_and_the_budget_cut_off():

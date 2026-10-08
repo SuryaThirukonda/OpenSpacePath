@@ -8,7 +8,7 @@ import { validateElements } from '../core/elements'
 import { snapRate } from '../core/time'
 import { BODY_BY_ID } from '../data/bodies'
 import { validateTleLines } from '../propagation/sgp4Propagator'
-import type { LaunchSpec, MissionInput, Stage, Stop, Strategy } from '../mission/types'
+import { TRANSFER_MODES, type LaunchSpec, type MissionInput, type Stage, type Stop, type TransferMode } from '../mission/types'
 import type { KeplerSatellite, OrbitalElements, Satellite, Scenario, TleSatellite } from '../types'
 
 export const PARAM = 's'
@@ -59,8 +59,6 @@ function cleanSatellite(s: unknown, bodyRadius: number): Satellite | null {
   }
   return null
 }
-
-const STRATEGIES: Strategy[] = ['lambert2', 'phasing3', 'bielliptic3', 'waypoint4', 'best']
 
 function cleanElements(x: unknown, bodyRadius: number): OrbitalElements | null {
   const el = x as Record<string, unknown> | undefined
@@ -127,9 +125,8 @@ function cleanMission(x: unknown, satellites: Satellite[], bodyRadius: number): 
   for (const raw of Array.isArray(m.stops) ? m.stops : []) {
     const st = raw as Record<string, unknown>
     if (typeof st.satelliteId !== 'string' || !ids.has(st.satelliteId)) continue
-    const strategy = STRATEGIES.includes(st.strategy as Strategy) ? (st.strategy as Strategy) : 'best'
     const dwell = isNum(st.dwellSeconds) && (st.dwellSeconds as number) >= 0 ? (st.dwellSeconds as number) : 0
-    const stop: Stop = { satelliteId: st.satelliteId, dwellSeconds: dwell, strategy }
+    const stop: Stop = { satelliteId: st.satelliteId, dwellSeconds: dwell }
     const tb = st.tofBounds as unknown[] | undefined
     if (Array.isArray(tb) && tb.length === 2 && isNum(tb[0]) && isNum(tb[1]) && (tb[0] as number) > 0 && (tb[1] as number) > (tb[0] as number)) stop.tofBounds = [tb[0] as number, tb[1] as number]
     stops.push(stop)
@@ -164,6 +161,7 @@ export function decodeScenario(encoded: string): Scenario | null {
     const mission = cleanMission(o.mission, satellites, radius)
     if (mission) scenario.mission = mission
     if (typeof o.solver === 'string' && /^[a-z0-9]{3,24}$/.test(o.solver)) scenario.solver = o.solver
+    if (TRANSFER_MODES.includes(o.transfer as TransferMode)) scenario.transfer = o.transfer as TransferMode
     return scenario
   } catch {
     return null

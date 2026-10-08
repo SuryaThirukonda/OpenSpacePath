@@ -12,7 +12,7 @@ import math
 import numpy as np
 
 from . import ship as shipmodel
-from .strategies import plan_leg
+from .legs import plan_leg
 from . import lambert
 from . import launch as L
 from .models import (Arc, Burn, BurnInterval, LaunchBudget, LaunchEvent, LaunchReport, Leg, MissionPlan, PlanRequest, Ride, Samples, StageReport)
@@ -44,6 +44,13 @@ def _sample_ride(target_fn, t0: float, t1: float, n: int = ARC_SAMPLES) -> Sampl
         r, v = state
         ts.append(t); rs.append(np.asarray(r).tolist()); vs.append(np.asarray(v).tolist())
     return Samples(t=ts, r=rs, v=vs)
+
+
+def burn_labels(strategy: str, count: int) -> list[str]:
+    """Names for the impulses of a leg: the sheet's three burns, or depart and arrive."""
+    if strategy == "threeburn":
+        return ["burn 1, shaping", "burn 2, plane change", "burn 3, match"] if count == 3 else ["burn 1, shaping", "burn 3, match"]
+    return ["depart"] + [f"burn {i + 2}" for i in range(count - 2)] + ["arrive"]
 
 
 def plan_mission(req: PlanRequest) -> MissionPlan:
@@ -92,12 +99,14 @@ def _plan_mission(req: PlanRequest) -> MissionPlan:
         target_fn = target_state_fn(sats[stop.satelliteId], mu, epoch_ms)
         T_t = target_period(sats[stop.satelliteId], mu)
         warnings: list[str] = []
-        sol = plan_leg(stop.strategy, r_s, v_s, t, target_fn, T_t, mu, radius, bounds=stop.tofBounds, window=m.departureWindow)
+        sol = plan_leg(m.transfer, r_s, v_s, t, target_fn, T_t, mu, radius, bounds=stop.tofBounds, window=m.departureWindow, dv_max=m.dvMax)
         if sol is None:
             none = "no transfer found for this leg"
+            if m.transfer == "threeburn":
+                none += "; no three-burn rendezvous fits the time window, the two-burn transfer may"
             if lambert.current_solver() not in lambert.ROBUST:
                 none += f"; the {lambert.current_solver()} solver is not robust, Izzo (2015) and Gooding (1990) are"
-            legs.append(Leg(toStop=k, strategy=stop.strategy, tof=0.0, totalDv=0.0,
+            legs.append(Leg(toStop=k, strategy=m.transfer, tof=0.0, totalDv=0.0,
                             warnings=warnings + [none], burns=[], arcs=[], ride=None))
             feasible = False
             break
@@ -105,7 +114,7 @@ def _plan_mission(req: PlanRequest) -> MissionPlan:
         warnings += sol.warnings
 
         burns: list[Burn] = []
-        labels = ["depart"] + [f"burn {i + 2}" for i in range(len(sol.burns) - 2)] + ["arrive"]
+        labels = burn_labels(strategy, len(sol.burns))
         for label, (tb, rb, dv) in zip(labels, sol.burns):
             mag = float(np.linalg.norm(dv))
             m1, prop, duration = shipmodel.burn(mass, mag, ship.isp, ship.maxThrust)

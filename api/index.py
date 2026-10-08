@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 
 from . import arp, lambert
 from .mission import plan_mission
-from .models import ArpEvaluateRequest, ArpEvaluation, ArpPlanResponse, ArpTransfer, ArpTransferRequest, MissionPlan, PlanRequest
+from .models import (ArpEvaluateRequest, ArpEvaluation, ArpPathRequest, ArpPlanResponse, ArpTransfer, ArpTransferRequest, MissionPlan,
+                     PlanRequest)
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 app = FastAPI(title="Orbit Lab planner", version=VERSION)
 
@@ -76,19 +77,18 @@ def lambert_solvers() -> dict:
 def arp_transfer(q: ArpTransferRequest) -> ArpTransfer:
     """The black-box B(a, a', eta) of the Asteroid Routing Problem, or its relaxation B'."""
     try:
-        tr = arp.transfer(q.instance, q.origin, q.target, q.eta, solver=lambert.check_solver(q.solver), relaxed=q.relaxed, tau_f=q.tauF)
+        tr = arp.transfer(q.instance, q.origin, q.target, q.eta, solver=lambert.check_solver(q.solver), relaxed=q.relaxed, tau_f=q.tauF,
+                          mode=q.transfer, dv_max=q.dvMax)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return ArpTransfer(origin=q.origin, target=q.target, eta=q.eta, tau=tr.tau, t=tr.t, z=tr.z, dv=tr.dv,
-                       dv1=float((tr.dv1 ** 2).sum() ** 0.5), dv2=float((tr.dv2 ** 2).sum() ** 0.5), evals=tr.evals,
-                       miss=tr.miss if tr.miss == tr.miss and tr.miss != float("inf") else -1.0)
+    return tr.to_model(q.origin, q.target, q.eta)
 
 
 @app.post("/api/arp/evaluate", response_model=ArpEvaluation)
 def arp_evaluate(q: ArpEvaluateRequest) -> ArpEvaluation:
     """The cost of visiting the asteroids in a given order (which may be partial)."""
     try:
-        ev, _ = arp.evaluate(q.instance, q.order, solver=lambert.check_solver(q.solver), times=q.times)
+        ev, _ = arp.evaluate(q.instance, q.order, solver=lambert.check_solver(q.solver), times=q.times, mode=q.transfer, dv_max=q.dvMax)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return ev
@@ -98,7 +98,18 @@ def arp_evaluate(q: ArpEvaluateRequest) -> ArpEvaluation:
 def arp_plan(q: ArpEvaluateRequest) -> ArpPlanResponse:
     """A route's cost together with its sampled trajectory, in the shape the Mission view draws."""
     try:
-        ev, raw = arp.evaluate(q.instance, q.order, solver=lambert.check_solver(q.solver), times=q.times)
+        ev, raw = arp.evaluate(q.instance, q.order, solver=lambert.check_solver(q.solver), times=q.times, mode=q.transfer, dv_max=q.dvMax)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return ArpPlanResponse(evaluation=ev, plan=arp.build_plan(q.instance, ev, raw))
+
+
+@app.post("/api/arp/path", response_model=ArpPlanResponse)
+def arp_path(q: ArpPathRequest) -> ArpPlanResponse:
+    """A path written as arrival days and stays per asteroid, flown exactly as given and drawn."""
+    try:
+        inst, order, times = arp.path_route(q)
+        ev, raw = arp.evaluate(inst, order, solver=lambert.check_solver(q.solver), times=times, mode=q.transfer, dv_max=q.dvMax)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return ArpPlanResponse(evaluation=ev, plan=arp.build_plan(inst, ev, raw))

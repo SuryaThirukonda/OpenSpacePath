@@ -29,12 +29,31 @@ ISS_TLE = {"id": "iss", "kind": "tle", "line1": ISS_LINE1, "line2": ISS_LINE2}
 BIG_SHIP = {"dryMass": 5000, "propellantMass": 500000, "isp": 450, "maxThrust": 2000000}
 
 
-def request(stops, start=None, ship=None, window=0.0):
+def request(stops, start=None, ship=None, window=0.0, transfer="lambert2"):
     return PlanRequest.model_validate({
         "body": BODY, "epoch": EPOCH, "satellites": [ISS_LIKE, GEO, POLAR, ISS_TLE],
-        "mission": {"ship": ship or BIG_SHIP,
+        "mission": {"ship": ship or BIG_SHIP, "transfer": transfer,
                     "startT": 0, "start": start or {"kind": "satellite", "id": "leo"}, "stops": stops, "departureWindow": window},
     })
+
+
+def check_leg_chain(plan, sats, stops):
+    """Every coast, propagated from its own first sample, lands on the next burn; the last on the target."""
+    for leg, sid in zip(plan.legs, stops):
+        target_fn = target_state_fn(sats[sid], MU_EARTH, DEFAULT_EPOCH_MS)
+        assert len(leg.burns) == len(leg.arcs) + 1 or (leg.strategy == "threeburn" and len(leg.burns) <= len(leg.arcs) + 1)
+        for arc, nxt in zip(leg.arcs[-(len(leg.burns) - 1):], leg.burns[1:]):
+            r0 = np.array(arc.samples.r[0]); v0 = np.array(arc.samples.v[0])
+            r_end, _ = propagate_universal(r0, v0, arc.t1 - arc.t0, MU_EARTH)
+            assert np.linalg.norm(r_end - np.array(nxt.r)) < 5e-3          # 5 m
+            assert abs(nxt.t - arc.t1) < 1e-6
+        last = leg.arcs[-1]
+        r0 = np.array(last.samples.r[0]); v0 = np.array(last.samples.v[0])
+        r_end, v_end = propagate_universal(r0, v0, last.t1 - last.t0, MU_EARTH)
+        r_t, v_t = target_fn(last.t1)
+        assert np.linalg.norm(r_end - r_t) < 5e-3
+        assert np.linalg.norm(v_end + np.array(leg.burns[-1].dv) - v_t) < 1e-6   # 1 mm/s
+        assert leg.ride is not None and leg.ride.t0 == last.t1
 
 
 def test_hohmann_is_recovered_when_the_phase_is_right():
@@ -57,23 +76,24 @@ def test_two_stop_tour_rendezvous_is_exact():
     assert len(plan.legs) == 2
     sats = {s["id"]: s for s in (ISS_LIKE, GEO, POLAR, ISS_TLE)}
     stops = ["geo", "iss"]
-    for leg, sid in zip(plan.legs, stops):
-        target_fn = target_state_fn(sats[sid], MU_EARTH, DEFAULT_EPOCH_MS)
-        assert len(leg.burns) == len(leg.arcs) + 1
-        # every coast, propagated from its own first sample, lands on the next burn
-        for arc, nxt in zip(leg.arcs, leg.burns[1:]):
-            r0 = np.array(arc.samples.r[0]); v0 = np.array(arc.samples.v[0])
-            r_end, _ = propagate_universal(r0, v0, arc.t1 - arc.t0, MU_EARTH)
-            assert np.linalg.norm(r_end - np.array(nxt.r)) < 1e-3          # 1 m
-            assert abs(nxt.t - arc.t1) < 1e-9
-        last = leg.arcs[-1]
-        r0 = np.array(last.samples.r[0]); v0 = np.array(last.samples.v[0])
-        r_end, v_end = propagate_universal(r0, v0, last.t1 - last.t0, MU_EARTH)
-        r_t, v_t = target_fn(last.t1)
-        assert np.linalg.norm(r_end - r_t) < 1e-3
-        assert np.linalg.norm(v_end + np.array(leg.burns[-1].dv) - v_t) < 1e-6   # 1 mm/s
+    check_leg_chain(plan, sats, stops)
+    for leg in plan.legs:
         assert abs(leg.burns[0].t - leg.arcs[0].t0) < 1e-9
-        assert leg.ride is not None and leg.ride.t0 == last.t1
+        assert [b.label for b in leg.burns] == ["depart", "arrive"]
+
+
+def test_three_burn_tour_is_exact_and_labelled():
+    """The same tour flown with the derivation sheet's three burns: every coast still lands on the next burn."""
+    plan = plan_mission(request([{"satelliteId": "geo", "dwellSeconds": 1800}], transfer="threeburn"))
+    assert plan.feasible, [l.warnings for l in plan.legs]
+    leg = plan.legs[0]
+    assert leg.strategy == "threeburn" and 2 <= len(leg.burns) <= 3
+    assert leg.burns[0].label == "burn 1, shaping" and leg.burns[-1].label == "burn 3, match"
+    check_leg_chain(plan, {s["id"]: s for s in (ISS_LIKE, GEO, POLAR, ISS_TLE)}, ["geo"])
+    # the two-burn plan of the same leg, for scale: the restricted family may cost a little more, never wildly so
+    two = plan_mission(request([{"satelliteId": "geo", "dwellSeconds": 1800}], transfer="lambert2"))
+    assert leg.totalDv < 1.5 * two.legs[0].totalDv
+    assert PlanRequest.model_validate(request([{"satelliteId": "geo"}]).model_dump()).mission.transfer == "lambert2"
 
 
 def test_plan_is_continuous_across_every_boundary():

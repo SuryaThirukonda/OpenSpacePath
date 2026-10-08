@@ -3,18 +3,15 @@ import { absoluteDate, formatDuration, formatUtc } from '../core/time'
 import { cloneVehicle, defaultLaunch, grossMass, LAUNCH_SITES, LAUNCH_VEHICLES, vehicleCapacity } from '../data/launch'
 import { LEG_COLORS } from '../data/legColors'
 import { emptyMission, SHIP_PRESETS, shipCapacity } from '../data/ships'
-import type { LaunchReport, LaunchSpec, MissionInput, Ship, Stage, Stop, Strategy } from '../mission/types'
+import type { LaunchReport, LaunchSpec, MissionInput, Ship, Stage, Stop } from '../mission/types'
 import { DEFAULT_SOLVER } from '../mission/api'
-import { planStart } from '../mission/types'
+import { DEFAULT_TRANSFER, planStart, transferName } from '../mission/types'
 import { epochMs, useStore, type CameraMode } from '../store/store'
 import { IconDown, IconPlus, IconUp, IconX } from './icons'
 import { Section } from './Section'
 import { SolverSelect } from './SolverSelect'
+import { TransferSelect } from './TransferSelect'
 import { useSolvers } from './useSolvers'
-
-const STRATEGIES: Array<[Strategy, string]> = [
-  ['best', 'best of all'], ['lambert2', '2-burn Lambert'], ['phasing3', '3-burn phasing'], ['bielliptic3', '3-burn bi-elliptic'], ['waypoint4', '4-burn waypoints'],
-]
 
 const CAMERAS: Array<[CameraMode, string, string]> = [
   ['free', 'Free', 'You steer: drag to orbit, wheel to zoom, right-drag to pan.'],
@@ -38,6 +35,7 @@ export function MissionPanel() {
   const [addId, setAddId] = useState(scenario.satellites[0]?.id ?? '')
   const solvers = useSolvers()
   const solverId = scenario.solver ?? DEFAULT_SOLVER
+  const transfer = scenario.transfer ?? DEFAULT_TRANSFER
 
   const update = (partial: Partial<MissionInput>) => setMission({ ...mission, ...partial })
   const updateShip = (partial: Partial<Ship>) => update({ ship: { ...mission.ship, ...partial } })
@@ -118,16 +116,7 @@ export function MissionPanel() {
                 <button className="icon" onClick={() => moveStop(i, 1)} aria-label="move down" disabled={i === mission.stops.length - 1}><IconDown /></button>
                 <button className="icon remove" onClick={() => update({ stops: mission.stops.filter((_, k) => k !== i) })} aria-label="remove stop"><IconX /></button>
               </div>
-              <div className="grid2">
-                <label className="field"><span>dwell, minutes</span><input type="number" min={0} value={st.dwellSeconds / 60} onChange={(e) => updateStop(i, { dwellSeconds: Math.max(0, num(e.target.value, st.dwellSeconds / 60)) * 60 })} /></label>
-                <label className="field"><span>strategy</span>
-                  <select value={st.strategy} onChange={(e) => updateStop(i, { strategy: e.target.value as Strategy })}>
-                    {STRATEGIES.map(([v, l]) => (
-                      <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              <label className="field"><span>dwell, minutes</span><input type="number" min={0} value={st.dwellSeconds / 60} onChange={(e) => updateStop(i, { dwellSeconds: Math.max(0, num(e.target.value, st.dwellSeconds / 60)) * 60 })} /></label>
             </li>
           ))}
         </ol>
@@ -137,7 +126,7 @@ export function MissionPanel() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
-          <button disabled={!addId} onClick={() => update({ stops: [...mission.stops, { satelliteId: addId, dwellSeconds: 1800, strategy: 'best' }] })}><IconPlus /> Add stop</button>
+          <button disabled={!addId} onClick={() => update({ stops: [...mission.stops, { satelliteId: addId, dwellSeconds: 1800 }] })}><IconPlus /> Add stop</button>
         </div>
         <div className="grid2">
           <label className="field"><span>start at t, minutes</span><input type="number" value={mission.startT / 60} onChange={(e) => update({ startT: num(e.target.value, mission.startT / 60) * 60 })} /></label>
@@ -145,7 +134,8 @@ export function MissionPanel() {
         </div>
       </Section>
 
-      <Section title="Lambert solver" defaultOpen={false} summary={solvers.find((s) => s.id === solverId)?.name ?? solverId}>
+      <Section title="Transfer" defaultOpen={false} summary={`${transferName(transfer)} · ${solvers.find((s) => s.id === solverId)?.name ?? solverId}`}>
+        <TransferSelect />
         <SolverSelect />
       </Section>
 
@@ -156,7 +146,7 @@ export function MissionPanel() {
         {plan && <button onClick={() => { const start = planStart(plan, mission.startT); setSpan(start + plan.totalTime); setT(start); }}>Fit timeline</button>}
         {plan && <button onClick={() => requestCamera('ship')}>Frame tour</button>}
       </div>
-      {planStatus === 'loading' && <p className="hint">{mission.start.kind === 'launch' ? 'Finding the launch window, integrating the ascent, then solving' : 'Solving'} Lambert transfers on the server. "Best of all" tries every strategy and takes about 15 s per stop; a single strategy is a few seconds.</p>}
+      {planStatus === 'loading' && <p className="hint">{mission.start.kind === 'launch' ? 'Finding the launch window, integrating the ascent, then solving' : 'Solving'} the transfers on the server: a two-burn leg takes a few seconds, a three-burn leg scans arrival times and takes longer.</p>}
       {planStatus === 'error' && <p className="error">{planError}</p>}
       {planStatus === 'idle' && scenario.mission && scenario.mission.stops.length > 0 && !plan && <p className="hint">Inputs changed. Press Plan to recompute.</p>}
 
@@ -179,7 +169,7 @@ export function MissionPanel() {
                 onClick={() => { selectLeg(selectedLeg === l.toStop ? null : l.toStop); requestCamera('ship') }}
               >
                 <div className="leg-head"><b>Leg {l.toStop + 1}</b><span className="leg-to">to {nameOf(mission.stops[l.toStop]?.satelliteId ?? '')}</span><span className="leg-dv">{l.totalDv.toFixed(3)} km/s</span></div>
-                <div className="hint">{l.strategy} · {l.burns.length} burns · TOF {formatDuration(l.tof)} · departs t = {formatDuration(l.burns[0]?.t ?? 0)}</div>
+                <div className="hint">{l.strategy === 'threeburn' ? 'three-burn' : 'Lambert'} · {l.burns.length} burns · TOF {formatDuration(l.tof)} · departs t = {formatDuration(l.arcs[0]?.t0 ?? l.burns[0]?.t ?? 0)}</div>
                 {l.warnings.map((w, k) => <div key={k} className="error">{w}</div>)}
               </li>
             ))}
