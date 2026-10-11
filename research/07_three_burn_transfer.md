@@ -1,6 +1,6 @@
 # The three-burn rendezvous in Orbit Lab
 
-Date: 2026-10-08. Status: implemented as the app's default transfer (`api/threeburn.py`), with the two-burn Lambert rendezvous as the toggle. This note records how the derivation sheet "A Three-Burn Impulsive Rendezvous Strategy Combining In-Plane Shaping, Plane Change, and Velocity Matching: Derivations and Notes" (13 pages, received 2026-10-08) was turned into code, where the code follows it exactly, and where it had to differ.
+Date: 2026-10-08, audited equation by equation 2026-10-11 (section 8). Status: implemented as the app's default transfer (`api/threeburn.py`), with the two-burn Lambert rendezvous as the toggle. This note records how the derivation sheet "A Three-Burn Impulsive Rendezvous Strategy Combining In-Plane Shaping, Plane Change, and Velocity Matching: Derivations and Notes" (13 pages, received 2026-10-08) was turned into code, where the code follows it exactly, and where it had to differ.
 
 ## 1. What the sheet describes
 
@@ -43,7 +43,7 @@ Each is deliberate and small; they are listed so they can be checked or reversed
 
 1. **Cost of burn 2.** Equation (40) gives |η₂ − 1| |v₂⁻|, the scaling part alone. Section 6.1 says burn 2 is one impulse combining shaping and rotation, so the code charges the magnitude of the actual velocity change, |v₂⁺ − v₂⁻| = √((η₂ − 1)² v_r² + v_θ² (η₂² − 2 η₂ cos φ + 1)), which includes the rotation and reduces to (40) at φ = 0.
 2. **Hyperbolic coasts.** Section 9 writes Kepler's equation for ellipses. Fast transfers put the chaser on hyperbolic arcs after burn 1 or 2, so `_tof` uses the hyperbolic form (H = 2 atanh(√((e−1)/(e+1)) tan(ν/2)), M = e sinh H − H) when e > 1 and rejects arcs that would cross the asymptote.
-3. **Selection by the total.** Section 10.3 selects by ΔV₁ + ΔV₂. The code selects by ΔV₁ + ΔV₂ + ΔV₃, since burn 3 is a real cost that differs between candidates. The three magnitudes are reported separately.
+3. **Selection by the total.** Section 10.3 selects by ΔV₁ + ΔV₂, with ΔV₂ from equation (40). The code selects by ΔV₁ + ΔV₂ + ΔV₃ with the combined burn 2, since burn 3 and the rotation are real costs that differ between candidates. The sheet's own criterion is kept as an option: `threeburn.SELECTION = "sheet"` judges candidates by burn 1 plus equation (40) exactly, and the reported burns stay the actual impulses either way (`test_threeburn_sheet.py` exercises both).
 4. **Fixed destination time** instead of the target-crossing search, as explained in section 2.
 
 ## 5. Where it is used
@@ -63,3 +63,23 @@ The search is a grid with refinement, not an exact method. On eleven transfers o
 ## 7. Tests
 
 `api/tests/test_threeburn.py`: Hohmann recovered as the direct member of the tangential family (1e-4); a 28.5° plane change uses all three burns and costs under half the forced Lambert arc; six random heliocentric transfers, each checked by propagating every coast to the next burn (5 m) and the last to the destination with the matched velocity (1 mm/s); the delta-v cap and impossible times give no answer; the vectorised times of flight agree with the universal-variable propagator on forty random ellipses and hyperbolas. `test_mission.py` flies a three-burn tour and checks the chain of coasts; `test_arp.py` checks that three-burn mode keeps the papers' times, reports the two-burn cost beside it, flies explicit times exactly, and that a written path is turned into legs and refused when its times do not follow.
+
+## 8. Audit against the sheet (2026-10-11)
+
+The derivation sheet was re-read and the implementation checked equation by equation. `api/tests/test_threeburn_sheet.py` recomputes every quantity below from the sheet's formula using only the solution's state vectors (independently of the solver's internals) on six solved transfers, three Earth plane changes and three heliocentric legs, and compares with what the solver reports and with the orbit elements read numerically from those states.
+
+| Sheet | Checked | Result |
+|---|---|---|
+| (15) ΔV₁ = \|η₁ − 1\| V₁; (21) both polar components scaled | burn 1 of the tangential family is parallel to v₁⁻ and \|v₁⁺\|/\|v₁⁻\| = η₁ | holds to 1e-9 |
+| §3.3, §5.1 radial impulse leaves v_θ unchanged | the transverse component of burn 1 in the radial family is zero | holds |
+| (17), (19) h₁, p₁, e₁, ω₁ from the post-burn state | against p, e and the periapsis direction read numerically from (r₁, v₁⁺) | holds to 1e-9 (p), 1e-7 (e) |
+| (28), (29) ŵ′ = cos φ ŵ + sin φ Ẑ, n̂_new = û × ŵ′ | against the angular-momentum direction of (r₂, v₂⁺) | holds to 1e-9 |
+| (30) i_new = φ, Ω_new = θ₂ | the angle between Ẑ and n̂_new; the node line is r₂, which lies in plane 1 | holds to 1e-9 |
+| (36) ψ_dest = atan2(d̂·ŵ′, d̂·û) with d̂ = r̂_P | against the solver's ψ | holds to 1e-9 |
+| (37) v₂⁺ = η₂ (v_r2⁻ û + v_θ2⁻ ŵ′) | \|v₂⁺\|/\|v₂⁻\| = η₂ and the vector itself | holds to 1e-9 |
+| (38), (39) η₂² in closed form; the post-burn-2 orbit passes r_dest at ν_node + ψ | η₂² from (39) with the pre-burn-2 state; p₂/(1 + e₂ cos(ν_node + ψ)) = r_dest | holds to 1e-9 |
+| (40) ΔV₂ = \|η₂ − 1\| \|v₂⁻\| | equals the applied impulse when φ = 0; with φ ≠ 0 the applied impulse is the combined one of §6.1 (section 4, item 1) | holds |
+| (41)–(45) times of flight by Kepler's equation | the solver's vectorised times for the burn 1 → burn 2 and burn 2 → destination coasts against the universal-variable propagator, and the three coasts summing to t_a − t_d | holds to 1e-9 |
+| burn 3 velocity match | v_end + ΔV₃ = v_P after propagating the last coast | holds to 1e-6 km/s |
+
+Nothing in the code had to change for the equations; the audit added the option to judge candidates by the sheet's own criterion (section 4, item 3).

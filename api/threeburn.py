@@ -48,6 +48,11 @@ QUALITY = {
 # burn-1 size as a fraction of the speed there (tangential: eta_1 - 1; radial: dv_r / V_1). Wide on
 # purpose: fast transfers between distant orbits want first burns larger than the orbital speed.
 RATIO = {"tangential": (-0.95, 2.0), "radial": (-2.0, 2.0)}
+# What a candidate is judged by (section 10.3 of the sheet). "total" is the sum of the three impulses as
+# actually applied; "sheet" is the sheet's own sum, burn 1 plus the scaling part of burn 2 from equation
+# (40), |eta_2 - 1| |v_2^-|, which leaves out the rotation and burn 3. The reported burns are the
+# actual impulses either way.
+SELECTION = "total"
 
 
 @dataclass
@@ -243,7 +248,9 @@ class _Setup:
         rmin = np.minimum(_min_radius(c["p1"], c["e1"], c["theta1"] - c["om1"], dtheta, c["r1"], r2),
                           _min_radius(p2, e2, nu_node, psi, r2, self.r_dest))
         valid &= np.isfinite(tB) & np.isfinite(tC)
+        dv_sheet = c["dv1"] + np.abs(eta2 - 1) * np.sqrt(vr2 ** 2 + vt2 ** 2)   # equation (40) plus burn 1
         return dict(valid=valid, f=np.where(valid, f, np.nan), dv=c["dv1"] + dv2 + dv3, dv2=dv2, dv3=dv3, rmin=rmin,
+                    judge=(c["dv1"] + dv2 + dv3) if SELECTION == "total" else dv_sheet,
                     theta2=theta2, r2=r2, vr2=vr2, vt2=vt2, eta2=eta2, cphi=cphi, sphi=sphi, psi=psi,
                     v3=np.stack([v3x, v3y, v3z], axis=-1), tB=tB, tC=tC, p2=p2, e2=e2)
 
@@ -294,11 +301,11 @@ class _Search:
                 flo = np.where(left, flo, fm)
             root = 0.5 * (lo + hi)
             at = S.sweep(sub, root, sign)
-            good = at["valid"] & (np.abs(at["f"]) < 1e-3 * max(S.T, 1.0)) & (at["dv"] <= self.dv_max)
+            good = at["valid"] & (np.abs(at["f"]) < 1e-3 * max(S.T, 1.0)) & (at["judge"] <= self.dv_max)
             if self.radius > 0:
                 good &= at["rmin"] > 1.01 * self.radius
             for m in np.flatnonzero(good):
-                found.append(dict(kind="node", cost=float(at["dv"][m]), s=float(sub["s"][m]), ratio=float(sub["ratio"][m]), family=family,
+                found.append(dict(kind="node", cost=float(at["judge"][m]), s=float(sub["s"][m]), ratio=float(sub["ratio"][m]), family=family,
                                   sign=sign, dtheta=float(root[m]), cell=(int(i[m]), int(j[m]))))
         found.sort(key=lambda d: d["cost"])
         out, seen = [], set()
