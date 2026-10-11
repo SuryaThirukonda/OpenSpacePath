@@ -8,6 +8,8 @@
 import { validateElements } from '../core/elements'
 import { getBody } from '../data/bodies'
 import type { TransferMode } from '../mission/types'
+import type { OrbitalElements } from '../types'
+import { AU_KM } from './instance'
 import type { ArpBody, ArpEvaluation, ArpInstance } from './types'
 
 export interface PathEntry {
@@ -40,8 +42,7 @@ export const emptyPath = (): PathPlan => ({ departure: 0, entries: [] })
 
 export const PATH_FORMAT_NAME = 'ARP-PATH'
 export const PATH_FORMAT_VERSION = 1
-const AU_KM = 149597870.7
-const DEG = Math.PI / 180
+export const DEG = Math.PI / 180
 
 /** What the Path text box accepts, shown beside it. */
 export const PATH_FORMAT_REFERENCE = `A path is text in this shape; one line per stop, in visiting order.
@@ -64,7 +65,7 @@ const fmt = (x: number, digits: number) => Number(x.toFixed(digits)).toString()
 
 /** The path as text in the standard format, the inverse of parsePathText. */
 export function pathText(inst: ArpInstance, path: PathPlan): string {
-  const orbit = (el: OrbitalElementsLike) =>
+  const orbit = (el: OrbitalElements) =>
     `a=${fmt(el.a / AU_KM, 8)} e=${fmt(el.e, 8)} i=${fmt(el.i / DEG, 6)} raan=${fmt(el.raan / DEG, 6)} argp=${fmt(el.argp / DEG, 6)} M0=${fmt(el.M0 / DEG, 6)}`
   const lines = [`${PATH_FORMAT_NAME} ${PATH_FORMAT_VERSION}`, `epoch: ${inst.epoch}`, `departure: ${fmt(path.departure, 4)}`]
   if (Math.abs(inst.mu - 132712440041.9) > 1) lines.push(`mu: ${inst.mu}`)
@@ -74,9 +75,7 @@ export function pathText(inst: ArpInstance, path: PathPlan): string {
   return lines.join('\n') + '\n'
 }
 
-type OrbitalElementsLike = ArpBody['elements']
-
-function readOrbit(fields: Map<string, [number, string]>, where: string): OrbitalElementsLike | string {
+function readOrbit(fields: Map<string, [number, string]>, where: string): OrbitalElements | string {
   const need = ['a', 'e', 'i', 'raan', 'argp', 'm0']
   const missing = need.filter((k) => !fields.has(k))
   if (missing.length) return `${where} is missing ${missing.map((k) => (k === 'm0' ? 'M0' : k)).join(', ')}`
@@ -100,8 +99,6 @@ function readFields(text: string): Map<string, [number, string]> | string {
   return out
 }
 
-const sameOrbit = (p: OrbitalElementsLike, q: OrbitalElementsLike) =>
-  (['a', 'e', 'i', 'raan', 'argp', 'M0'] as const).every((k) => Math.abs(p[k] - q[k]) <= 1e-6 * Math.max(1, Math.abs(q[k])))
 
 /**
  * A path from the text format. `inst` resolves stops to the instance's asteroids when name and
@@ -156,6 +153,39 @@ export function parsePathText(text: string, inst?: ArpInstance | null): PathPlan
 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
 
+const sameOrbit = (p: OrbitalElements, q: OrbitalElements) =>
+  (['a', 'e', 'i', 'raan', 'argp', 'M0'] as const).every((k) => Math.abs(p[k] - q[k]) <= 1e-6 * Math.max(1, Math.abs(q[k])))
+
+/** What is wrong with an entry's orbit, in sentences; none means it can be flown. */
+export function orbitProblems(el: OrbitalElements): string[] {
+  return validateElements(el, getBody('sun').radius).problems
+}
+
+/** A body of the path's own, not from the instance: a main-belt orbit to start editing from. */
+export function customAsteroid(path: PathPlan, k = path.entries.length + 1): ArpBody {
+  const ids = new Set(path.entries.map((e) => e.asteroid.id))
+  let id = `own-${k}`
+  for (let n = k; ids.has(id); n++) id = `own-${n + 1}`
+  return { id, name: `Asteroid ${id.slice(4)}`, elements: { a: 2.5 * AU_KM, e: 0.1, i: 5 * DEG, raan: 0, argp: 0, M0: 0 } }
+}
+
+/**
+ * An entry with its orbit (and name) changed. An entry that was one of the instance's asteroids
+ * becomes a body of its own the moment its orbit differs, so the scene draws what is flown.
+ */
+export function withOrbit(inst: ArpInstance | null, path: PathPlan, k: number, elements: Partial<OrbitalElements>, name?: string): PathEntry {
+  const entry = path.entries[k]
+  const next = { ...entry.asteroid.elements, ...elements }
+  const known = inst?.asteroids.find((a) => a.id === entry.asteroid.id)
+  let id = entry.asteroid.id
+  if (known && !sameOrbit(known.elements, next)) {
+    const taken = new Set(path.entries.map((e, i) => (i === k ? '' : e.asteroid.id)))
+    id = `${known.id}-own`
+    for (let n = 2; taken.has(id); n++) id = `${known.id}-own-${n}`
+  }
+  return { ...entry, asteroid: { id, name: name ?? entry.asteroid.name, elements: next } }
+}
+
 /** Sentences saying what stops the path from being flown; none means it can be. */
 export function pathProblems(path: PathPlan): string[] {
   const out: string[] = []
@@ -167,6 +197,7 @@ export function pathProblems(path: PathPlan): string[] {
     const who = `${k + 1}. ${e.asteroid.name || e.asteroid.id}`
     if (seen.has(e.asteroid.id)) out.push(`${who} is visited twice; the problem visits each asteroid once`)
     seen.add(e.asteroid.id)
+    for (const p of orbitProblems(e.asteroid.elements)) out.push(`${who}: ${p}`)
     if (!isNum(e.arrival) || !isNum(e.delay) || e.delay < 0) out.push(`${who}: arrival and stay are day numbers, the stay zero or more`)
     else if (e.arrival <= free) out.push(`${who} arrives on day ${e.arrival}, but the spacecraft only leaves the previous body on day ${free}`)
     free = (isNum(e.arrival) ? e.arrival : free) + (isNum(e.delay) && e.delay >= 0 ? e.delay : 0)
@@ -174,11 +205,11 @@ export function pathProblems(path: PathPlan): string[] {
   return out
 }
 
-/** A new entry: the first asteroid not yet in the path, arriving a year after the spacecraft is free. */
-export function nextEntry(inst: ArpInstance, path: PathPlan): PathEntry | null {
+/** A new entry, arriving a year after the spacecraft is free: the first asteroid of the instance not
+ * yet in the path, or, once they are all in it, a body of the path's own to edit. */
+export function nextEntry(inst: ArpInstance, path: PathPlan): PathEntry {
   const used = new Set(path.entries.map((e) => e.asteroid.id))
-  const asteroid = inst.asteroids.find((a) => !used.has(a.id))
-  if (!asteroid) return null
+  const asteroid = inst.asteroids.find((a) => !used.has(a.id)) ?? customAsteroid(path)
   const last = path.entries[path.entries.length - 1]
   const free = last ? last.arrival + last.delay : path.departure
   return { asteroid, arrival: Math.round(free + 365), delay: 30 }

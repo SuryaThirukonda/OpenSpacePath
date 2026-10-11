@@ -1,7 +1,8 @@
 import { useRef, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import { ALGORITHM_EDITOR } from '../arp/config'
 import { FORMAT_NAME, FORMAT_REFERENCE, FORMAT_VERSION, PAPER_PRESETS, PAPERS, parseAlgorithm, PRESETS } from '../arp/format'
-import { parsePath, PATH_FORMAT_NAME, PATH_FORMAT_REFERENCE, PATH_FORMAT_VERSION, pathProblems, pathText } from '../arp/path'
+import { AU_KM } from '../arp/instance'
+import { DEG, orbitProblems, parsePath, PATH_FORMAT_NAME, PATH_FORMAT_REFERENCE, PATH_FORMAT_VERSION, pathProblems, pathText, type PathEntry } from '../arp/path'
 import { useArp } from '../arp/store'
 import type { ArpEvaluation, ArpInstance, EvaluationRow } from '../arp/types'
 import { LEG_COLORS } from '../data/legColors'
@@ -143,9 +144,10 @@ export function RoutingPanel() {
                 <li key={i} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
                   <div className="row">
                     <span className="stop-index">{i + 1}</span>
-                    <select value={en.asteroid.id} disabled={flying} aria-label={`asteroid ${i + 1}`} onChange={(e) => { const a = instance.asteroids.find((x) => x.id === e.target.value); if (a) actions.updateEntry(i, { asteroid: a }) }}>
+                    <select value={en.asteroid.id} disabled={flying} aria-label={`asteroid ${i + 1}`} onChange={(e) => { if (e.target.value === '__own') actions.makeEntryCustom(i); else { const a = instance.asteroids.find((x) => x.id === e.target.value); if (a) actions.updateEntry(i, { asteroid: a }) } }}>
                       {instance.asteroids.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
-                      {!instance.asteroids.some((a) => a.id === en.asteroid.id) && <option value={en.asteroid.id}>{en.asteroid.name || en.asteroid.id} (imported)</option>}
+                      {!instance.asteroids.some((a) => a.id === en.asteroid.id) && <option value={en.asteroid.id}>{en.asteroid.name || en.asteroid.id} (own orbit)</option>}
+                      <option value="__own">an orbit of its own…</option>
                     </select>
                     <button className="icon" onClick={() => actions.moveEntry(i, -1)} aria-label="move up" disabled={i === 0 || flying}><IconUp /></button>
                     <button className="icon" onClick={() => actions.moveEntry(i, 1)} aria-label="move down" disabled={i === path.entries.length - 1 || flying}><IconDown /></button>
@@ -155,13 +157,14 @@ export function RoutingPanel() {
                     <label className="field"><span>arrive on day</span><input type="number" min={0} step="any" value={en.arrival} disabled={flying} onChange={(e) => actions.updateEntry(i, { arrival: num(e.target.value, en.arrival) })} /></label>
                     <label className="field"><span>stay, days</span><input type="number" min={0} step="any" value={en.delay} disabled={flying} onChange={(e) => actions.updateEntry(i, { delay: num(e.target.value, en.delay) })} /></label>
                   </div>
+                  <OrbitFields entry={en} own={!instance.asteroids.some((a) => a.id === en.asteroid.id)} disabled={flying} onChange={(el, name) => actions.setEntryOrbit(i, el, name)} />
                 </li>
               ))}
             </ol>
               </>
             )}
             <div className="row">
-              {pathMode === 'form' && <button onClick={actions.addEntry} disabled={flying || path.entries.length >= instance.asteroids.length}><IconPlus /> Add asteroid</button>}
+              {pathMode === 'form' && <button onClick={actions.addEntry} disabled={flying} title="The next asteroid of the instance, or a new orbit once they are all in the path"><IconPlus /> Add asteroid</button>}
               {result && <button onClick={actions.pathFromResult} disabled={flying} title="Copy the last run's route, with its arrival days and waits, into the path">From last run</button>}
               <button onClick={() => pathFileInput.current?.click()} disabled={flying} title="A file in the path format, or the JSON this page exported before">Open file</button>
               {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.txt`, pathText(instance, path), 'text/plain')}>Save file</button>}
@@ -285,6 +288,48 @@ export function RoutingPanel() {
         </Section>
       )}
     </div>
+  )
+}
+
+const ORBIT_FIELDS: Array<[keyof PathEntry['asteroid']['elements'], string, number, number]> = [
+  // key, label, scale from the stored unit (km, rad) to the shown one, digits shown
+  ['a', 'a, AU', 1 / AU_KM, 6], ['e', 'e', 1, 6], ['i', 'i, deg', 1 / DEG, 4],
+  ['raan', 'RAAN Ω, deg', 1 / DEG, 4], ['argp', 'arg. periapsis ω, deg', 1 / DEG, 4], ['M0', 'M0 at the epoch, deg', 1 / DEG, 4],
+]
+
+/**
+ * An entry's own attributes: its name and the six elements of its orbit, in AU and degrees.
+ * The inputs commit on blur or Enter so a number can be typed in full; they remount when the
+ * entry becomes another body, through the key on each.
+ */
+function OrbitFields({ entry, own, disabled, onChange }: { entry: PathEntry; own: boolean; disabled: boolean; onChange: (el: Partial<PathEntry['asteroid']['elements']>, name?: string) => void }) {
+  const el = entry.asteroid.elements
+  const problems = orbitProblems(el)
+  const shown = (v: number, scale: number, digits: number) => Number((v * scale).toFixed(digits)).toString()
+  const commit = (key: keyof PathEntry['asteroid']['elements'], scale: number) => (e: { currentTarget: HTMLInputElement }) => {
+    const v = Number(e.currentTarget.value)
+    if (e.currentTarget.value !== '' && Number.isFinite(v) && Math.abs(v / scale - el[key]) > 1e-12) onChange({ [key]: v / scale })
+  }
+  const enter = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') e.currentTarget.blur() }
+  return (
+    <details className="orbit">
+      <summary>
+        <span className="orbit-sum">orbit · a {(el.a / AU_KM).toFixed(3)} AU · e {el.e.toFixed(3)} · i {(el.i / DEG).toFixed(1)}°{own ? ' · its own' : ''}</span>
+      </summary>
+      <label className="field"><span>name</span>
+        <input key={`${entry.asteroid.id}-name`} type="text" defaultValue={entry.asteroid.name} disabled={disabled} onKeyDown={enter}
+          onBlur={(e) => { const name = e.currentTarget.value.trim(); if (name && name !== entry.asteroid.name) onChange({}, name) }} />
+      </label>
+      <div className="grid2">
+        {ORBIT_FIELDS.map(([key, label, scale, digits]) => (
+          <label key={key} className="field"><span>{label}</span>
+            <input key={`${entry.asteroid.id}-${key}-${el[key]}`} type="number" step="any" defaultValue={shown(el[key], scale, digits)} disabled={disabled} onKeyDown={enter} onBlur={commit(key, scale)} />
+          </label>
+        ))}
+      </div>
+      {problems.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
+      <p className="hint">Heliocentric elements at the instance epoch; the mean anomaly M0 says where on the orbit the asteroid is then. Changing the orbit of an asteroid from the instance makes this entry a body of its own.</p>
+    </details>
   )
 }
 

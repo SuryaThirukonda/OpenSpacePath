@@ -11,7 +11,8 @@ import { useStore } from '../store/store'
 import { ALGORITHM_EDITOR } from './config'
 import { PAPER_PRESETS, parseAlgorithm, PRESETS } from './format'
 import { generateInstance, instanceToScenario, parseInstance } from './instance'
-import { emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, type PathEntry, type PathPlan } from './path'
+import { customAsteroid, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, withOrbit, type PathEntry, type PathPlan } from './path'
+import type { OrbitalElements } from '../types'
 import { AlgorithmRunner } from './runner'
 import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, WorkerResult } from './types'
 
@@ -107,6 +108,10 @@ export interface ArpState {
   setPath: (path: PathPlan) => void
   addEntry: () => void
   updateEntry: (k: number, partial: Partial<PathEntry>) => void
+  /** change an entry's orbit or name; an instance asteroid becomes a body of its own when its orbit changes */
+  setEntryOrbit: (k: number, elements: Partial<OrbitalElements>, name?: string) => void
+  /** make an entry a body of its own with a fresh orbit to edit */
+  makeEntryCustom: (k: number) => void
   removeEntry: (k: number) => void
   moveEntry: (k: number, d: number) => void
   /** fill the path from the last algorithm result */
@@ -341,8 +346,18 @@ export const useArp = create<ArpState>((set, get) => ({
   addEntry: () => {
     const { instance, path } = get()
     if (!instance) return
-    const entry = nextEntry(instance, path)
-    if (entry) get().setPath({ ...path, entries: [...path.entries, entry] })
+    get().setPath({ ...path, entries: [...path.entries, nextEntry(instance, path)] })
+  },
+  setEntryOrbit: (k, elements, name) => {
+    const { instance, path } = get()
+    if (!path.entries[k]) return
+    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? withOrbit(instance, path, k, elements, name) : e)) })
+  },
+  makeEntryCustom: (k) => {
+    const path = get().path
+    if (!path.entries[k]) return
+    const body = customAsteroid(path, k + 1)
+    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? { ...e, asteroid: { ...body, elements: { ...e.asteroid.elements } } } : e)) })
   },
   updateEntry: (k, partial) => {
     const path = get().path

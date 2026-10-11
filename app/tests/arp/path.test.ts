@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateInstance } from '../../src/arp/instance'
-import { emptyPath, nextEntry, parsePath, parsePathText, pathFile, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText } from '../../src/arp/path'
+import { customAsteroid, emptyPath, nextEntry, parsePath, parsePathText, pathFile, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, withOrbit } from '../../src/arp/path'
 import type { ArpEvaluation } from '../../src/arp/types'
 
 const inst = generateInstance(4, 9)
@@ -26,7 +26,27 @@ describe('a path written by hand', () => {
     expect(next?.asteroid.id).toBe(inst.asteroids[1].id)
     expect(next?.arrival).toBe(595)
     const full = { departure: 0, entries: inst.asteroids.map((asteroid, k) => ({ asteroid, arrival: 100 * (k + 1), delay: 0 })) }
-    expect(nextEntry(inst, full)).toBeNull()
+    const extra = nextEntry(inst, full)
+    expect(extra.asteroid.id).toBe('own-5')
+    expect(pathProblems({ ...full, entries: [...full.entries, extra] })).toEqual([])
+  })
+
+  it('lets an entry carry an orbit of its own and flags a bad one', () => {
+    const path = { departure: 0, entries: [{ asteroid: inst.asteroids[0], arrival: 300, delay: 0 }, { asteroid: inst.asteroids[1], arrival: 700, delay: 0 }] }
+    // a name change alone keeps the identity; an orbit change makes it a body of its own
+    expect(withOrbit(inst, path, 0, {}, 'Pallas').asteroid).toMatchObject({ id: inst.asteroids[0].id, name: 'Pallas' })
+    const own = withOrbit(inst, path, 0, { e: 0.3 })
+    expect(own.asteroid.id).toBe(`${inst.asteroids[0].id}-own`)
+    expect(own.asteroid.elements.e).toBe(0.3)
+    expect(own.asteroid.elements.a).toBe(inst.asteroids[0].elements.a)
+    const bad = { ...path, entries: [withOrbit(inst, path, 0, { e: 1.2 }), path.entries[1]] }
+    expect(pathProblems(bad)[0]).toMatch(/1\. Asteroid 1: eccentricity/)
+    const fresh = customAsteroid(path)
+    expect(fresh.id).toBe('own-3')
+    expect(pathProblems({ ...path, entries: [...path.entries, { asteroid: fresh, arrival: 1200, delay: 0 }] })).toEqual([])
+    // the text format carries the own orbit and brings it back as its own
+    const round = parsePathText(pathText(inst, { ...path, entries: [own, path.entries[1]] }), inst)
+    expect(typeof round === 'string' ? round : round.entries[0].asteroid.id).not.toBe(inst.asteroids[0].id)
   })
 
   it('comes from a route an algorithm found and keeps its times', () => {

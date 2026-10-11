@@ -274,6 +274,13 @@ pre.log { max-height: 160px; }
 .transfer .seg button { flex: 1; }
 .path-list select { flex: 1; min-width: 0; }
 .path-mode { display: flex; }
+details.orbit { display: flex; flex-direction: column; gap: 6px; }
+details.orbit summary { cursor: pointer; list-style: none; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+details.orbit summary::-webkit-details-marker { display: none; }
+details.orbit summary::before { content: "\25B8"; font-size: 10px; color: var(--faint); }
+details.orbit[open] summary::before { content: "\25BE"; }
+details.orbit summary:hover { color: var(--text); }
+details.orbit .orbit-sum { font-variant-numeric: tabular-nums; }
 .path-mode button { flex: 1; }
 textarea.path-text { min-height: 150px; }
 .legs-table th { text-align: left; font-weight: 500; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--line); }
