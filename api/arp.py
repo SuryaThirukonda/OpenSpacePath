@@ -107,6 +107,8 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
         raise ValueError("a transfer needs two different bodies")
     if mode not in ("lambert2", "threeburn"):
         raise ValueError(f"unknown transfer mode {mode!r}: use lambert2 or threeburn")
+    if relaxed:
+        mode = "lambert2"   # B' only bounds; it is the papers' two-burn relaxation whatever flies the route
     mu = inst.mu
     a, b = body_elements(inst, origin), body_elements(inst, target)
     tau_hi = float(tau_f) if (relaxed and tau_f) else inst.tauMax

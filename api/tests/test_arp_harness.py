@@ -42,7 +42,7 @@ def load_harness(events):
 def presets():
     ts = (ROOT / "app/src/arp/format.ts").read_text()
     out = {}
-    for ident, body in re.findall(r"\{ id: '([a-z-]+)', label: '[^']*', source: `((?:[^`\\]|\\.)*)` \}", ts):
+    for ident, body in re.findall(r"\{ id: '([a-z-]+)', label: '[^']*', paper: (?:1|2|null), source: `((?:[^`\\]|\\.)*)` \}", ts):
         out[ident] = body.replace("\\`", "`").replace("\\${", "${").replace("\\\\", "\\")
     return out
 
@@ -58,7 +58,7 @@ PRESETS = presets()
 
 
 def test_all_presets_are_found():
-    assert set(PRESETS) == {"greedy-nn", "greedy-cost", "random", "local", "exhaustive"}
+    assert set(PRESETS) == {"greedy-nn", "random", "restricted-dd", "peel-and-bound", "greedy-cost", "local", "exhaustive"}
 
 
 @pytest.mark.parametrize("ident", sorted(PRESETS))
@@ -69,6 +69,23 @@ def test_every_preset_runs_and_returns_a_complete_route(ident):
     assert out["evaluations"] <= 12
     kinds = {e["type"] for e in events}
     assert kinds <= {"transfer", "evaluation", "report"} and kinds
+
+
+def test_the_second_papers_algorithms_bound_before_they_pay():
+    """The decision-diagram algorithms ask for the n(n+1) relaxed bounds first, then exact transfers for
+    the few children that survive, and Peel-and-Bound never returns a worse route than its restricted start."""
+    out, events = run(PRESETS["restricted-dd"])
+    assert out["ok"], out["error"]
+    relaxed = [e for e in events if e["type"] == "transfer" and e["relaxed"]]
+    exact = [e for e in events if e["type"] == "transfer" and not e["relaxed"]]
+    assert len(relaxed) == 5 * 5 + 5 - 5   # (n + 1) origins x n targets, minus a -> a
+    assert 0 < len(exact) <= 6 * 5          # WIDTH x n exact arcs at most
+    assert out["evaluations"] == 1 and sorted(out["order"]) == [1, 2, 3, 4, 5]
+    out2, events2 = run(PRESETS["peel-and-bound"])
+    assert out2["ok"], out2["error"]
+    evals = [e for e in events2 if e["type"] == "evaluation"]
+    assert evals and evals[-1]["cost"] <= evals[0]["cost"]       # the restricted start is never beaten upward
+    assert out2["order"] == evals[-1]["order"]
 
 
 def test_the_greedy_route_is_the_papers_algorithm():

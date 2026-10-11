@@ -27,7 +27,7 @@ Units: km, km/s, s, kg, N, rad. Times are simulated seconds since the scenario e
 
 ## Asteroid routing
 
-`arp.py` implements the problem of López-Ibáñez, Chicano and Gil-Merino (2022) and Rudich et al. (2024): bodies on heliocentric Kepler orbits, body 0 Earth and 1..n the asteroids; a transfer waits tau in [0, 730] days and flies t in [1, 730] days, chosen by SLSQP from (0, 30) on the two-burn cost, and costs delta-v plus 2 km/s per 30 days of tau + t. In `threeburn` mode the chosen times are flown with the three-burn rendezvous and its delta-v is charged, with the two-burn figure reported beside it. The relaxed variant does not charge the wait. The service never runs a visitor's algorithm: that happens in the browser, which asks these endpoints for transfers. `research/06_routing_algorithm_format.md` specifies the algorithm format.
+`arp.py` implements the problem of López-Ibáñez, Chicano and Gil-Merino (2022) and Rudich et al. (2024): bodies on heliocentric Kepler orbits, body 0 Earth and 1..n the asteroids; a transfer waits tau in [0, 730] days and flies t in [1, 730] days, chosen by SLSQP from (0, 30) on the two-burn cost, and costs delta-v plus 2 km/s per 30 days of tau + t. In `threeburn` mode the chosen times are flown with the three-burn rendezvous and its delta-v is charged, with the two-burn figure reported beside it. The relaxed variant does not charge the wait and is always the two-burn bound. The service never runs a visitor's algorithm: that happens in the browser, which asks these endpoints for transfers. `research/06_routing_algorithm_format.md` specifies the algorithm format.
 
 ## Launching from the ground
 

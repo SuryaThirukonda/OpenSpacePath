@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FORMAT_REFERENCE, parseAlgorithm, PRESETS } from '../../src/arp/format'
+import { FORMAT_REFERENCE, PAPER_PRESETS, parseAlgorithm, PRESETS } from '../../src/arp/format'
 import { ARP_EPOCH, AU_KM, earthElements, generateInstance, instanceToScenario, parseInstance, seededRandom } from '../../src/arp/instance'
 import { period } from '../../src/core/elements'
 import { elementsToState, norm } from '../../src/core/kepler'
@@ -99,6 +99,10 @@ describe('the algorithm format', () => {
       expect(h.name.length).toBeGreaterThan(3)
     }
     expect(parseAlgorithm(PRESETS[0].source).fields.source).toMatch(/Algorithm 1/)
+    // two algorithms from each paper are what the tab offers without the editor
+    expect(PAPER_PRESETS.map((p) => p.paper)).toEqual([1, 1, 2, 2])
+    expect(PAPER_PRESETS.map((p) => p.id)).toEqual(['greedy-nn', 'random', 'restricted-dd', 'peel-and-bound'])
+    for (const p of PAPER_PRESETS) expect(parseAlgorithm(p.source).fields.source).toMatch(/Lopez-Ibanez|Rudich/)
     expect(FORMAT_REFERENCE).toMatch(/tools\.transfer\(a, b, eta\)/)
   })
 
