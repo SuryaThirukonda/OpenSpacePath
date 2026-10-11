@@ -112,7 +112,7 @@ export function ConvergenceChart({ rows, onPick }: { rows: EvaluationRow[]; onPi
         <text x={x(last.index) + 8} y={y(last.best ?? last.cost)} dy="0.32em" className="end-label">{fmt(last.best ?? last.cost)}</text>
       </svg>
       {active && (
-        <div className="tip" style={{ left: tipLeft }} role="status">
+        <div className="chart-tip" style={{ left: tipLeft }} role="status">
           <div className="tip-head">Route {active.index}</div>
           <div><svg width="10" height="10"><circle cx="5" cy="5" r="4" fill={EACH} /></svg><b>{fmt(active.cost)}</b> this route</div>
           <div><svg width="14" height="8"><path d="M1,4H13" stroke={BEST} strokeWidth="2" strokeLinecap="round" /></svg><b>{fmt(active.best ?? active.cost)}</b> best so far</div>
