@@ -10,12 +10,13 @@ import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from '../missio
 import { useStore } from '../store/store'
 import { parseAlgorithm, PRESETS } from './format'
 import { generateInstance, instanceToScenario, parseInstance } from './instance'
-import { emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, type PathEntry, type PathPlan } from './path'
+import { emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, type PathEntry, type PathPlan } from './path'
 import { AlgorithmRunner } from './runner'
 import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, WorkerResult } from './types'
 
 export type RunStatus = 'idle' | 'loading' | 'running' | 'done' | 'error' | 'stopped'
 export type PathStatus = 'idle' | 'loading' | 'done' | 'error'
+export type PathMode = 'form' | 'text'
 
 const DAY = 86400
 const KEY = 'orbitlab.routing.v1'
@@ -29,6 +30,8 @@ interface Saved {
   instanceSeed: number
   instance: ArpInstance | null
   path: PathPlan
+  pathMode?: PathMode
+  pathText?: string
 }
 
 function load(): Partial<Saved> {
@@ -42,7 +45,8 @@ function load(): Partial<Saved> {
 
 function save(s: ArpState): void {
   try {
-    const v: Saved = { source: s.source, presetId: s.presetId, budget: s.budget, seed: s.seed, n: s.n, instanceSeed: s.instanceSeed, instance: s.instance, path: s.path }
+    const v: Saved = { source: s.source, presetId: s.presetId, budget: s.budget, seed: s.seed, n: s.n, instanceSeed: s.instanceSeed, instance: s.instance,
+                       path: s.path, pathMode: s.pathMode, pathText: s.pathText }
     localStorage.setItem(KEY, JSON.stringify(v))
   } catch {
     // storage may be unavailable (private window); the tab works without it
@@ -81,6 +85,9 @@ export interface ArpState {
   pathResult: ArpEvaluation | null
   /** Earth and the path's asteroids in visiting order, the instance the path result refers to */
   pathInstance: ArpInstance | null
+  /** the path is edited as rows, or as text in the standard format */
+  pathMode: PathMode
+  pathText: string
 
   setN: (n: number) => void
   setInstanceSeed: (seed: number) => void
@@ -104,6 +111,10 @@ export interface ArpState {
   /** fill the path from the last algorithm result */
   pathFromResult: () => void
   importPath: (text: string) => string | null
+  setPathMode: (mode: PathMode) => void
+  setPathText: (text: string) => void
+  /** read the text into the path; a sentence says what is wrong when it cannot be */
+  applyPathText: () => string | null
   /** fly the path exactly as written and draw it */
   flyPath: () => Promise<void>
 }
@@ -165,6 +176,8 @@ export const useArp = create<ArpState>((set, get) => ({
   pathError: null,
   pathResult: null,
   pathInstance: null,
+  pathMode: saved.pathMode === 'text' ? 'text' : 'form',
+  pathText: typeof saved.pathText === 'string' ? saved.pathText : '',
 
   setN: (n) => { set({ n: Math.min(30, Math.max(2, Math.round(n) || 2)) }); save(get()) },
   setInstanceSeed: (instanceSeed) => { set({ instanceSeed: Math.round(instanceSeed) || 0 }); save(get()) },
@@ -173,7 +186,7 @@ export const useArp = create<ArpState>((set, get) => ({
     runSeq += 1
     const inst = generateInstance(get().n, get().instanceSeed)
     set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null })
+          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, emptyPath()) })
     save(get())
     ensureScene(inst, true)
   },
@@ -183,7 +196,7 @@ export const useArp = create<ArpState>((set, get) => ({
     get().stop()
     runSeq += 1
     set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null })
+          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, emptyPath()) })
     save(get())
     ensureScene(inst, true)
     return null
@@ -311,7 +324,11 @@ export const useArp = create<ArpState>((set, get) => ({
     }
   },
 
-  setPath: (path) => { set({ path, pathStatus: 'idle', pathError: null }); save(get()) },
+  setPath: (path) => {
+    const inst = get().instance
+    set({ path, pathStatus: 'idle', pathError: null, ...(inst ? { pathText: pathText(inst, path) } : {}) })
+    save(get())
+  },
   addEntry: () => {
     const { instance, path } = get()
     if (!instance) return
@@ -339,15 +356,37 @@ export const useArp = create<ArpState>((set, get) => ({
     if (instance && result) get().setPath(pathFromEvaluation(instance, result))
   },
   importPath: (text) => {
-    const path = parsePath(text)
+    const path = parsePath(text, get().instance)
     if (typeof path === 'string') return path
     get().setPath(path)
     return null
   },
+  setPathMode: (pathMode) => {
+    const { instance, path } = get()
+    set({ pathMode, ...(pathMode === 'text' && instance ? { pathText: pathText(instance, path) } : {}) })
+    save(get())
+  },
+  setPathText: (text) => { set({ pathText: text, pathStatus: 'idle', pathError: null }); save(get()) },
+  applyPathText: () => {
+    const { instance, pathText: text } = get()
+    const path = parsePath(text, instance)
+    if (typeof path === 'string') return path
+    set({ path, pathStatus: 'idle', pathError: null })
+    save(get())
+    return null
+  },
 
   flyPath: async () => {
-    const { instance, path } = get()
+    const { instance, pathMode } = get()
     if (!instance) return
+    if (pathMode === 'text') {
+      const bad = get().applyPathText()
+      if (bad) {
+        set({ pathStatus: 'error', pathError: bad })
+        return
+      }
+    }
+    const path = get().path
     const problems = pathProblems(path)
     if (problems.length) {
       set({ pathStatus: 'error', pathError: problems.join('\n') })

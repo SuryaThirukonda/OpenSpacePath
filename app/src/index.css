@@ -273,6 +273,9 @@ pre.log { max-height: 160px; }
 .transfer .seg { display: flex; }
 .transfer .seg button { flex: 1; }
 .path-list select { flex: 1; min-width: 0; }
+.path-mode { display: flex; }
+.path-mode button { flex: 1; }
+textarea.path-text { min-height: 150px; }
 .legs-table th { text-align: left; font-weight: 500; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--line); }
 .legs-table td:first-child { width: auto; color: var(--text); }
 .legs-table td:not(:first-child), .legs-table th:not(:first-child) { text-align: right; white-space: nowrap; }

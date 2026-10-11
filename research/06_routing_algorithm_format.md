@@ -140,7 +140,17 @@ The times (τ, t) of a transfer are always chosen as the papers define, by SLSQP
 
 ### 7.2 The Path section
 
-Above the algorithm editor, a path can be written by hand: a list of entries, each holding an asteroid with all of its elements, the day to arrive there and how long to stay, plus the day the spacecraft leaves Earth's orbit. The arrival days and stays fix every departure and flight time, so the planner flies the path exactly as written (`POST /api/arp/path`), with whichever transfer is chosen, and draws it. The list can be filled from the last algorithm run, saved as JSON (`format: "arp-path"`) and opened again. Each entry carries its asteroid's elements so a saved path stands on its own.
+Above the algorithm editor, a path can be written by hand: a list of entries, each holding an asteroid with all of its elements, the day to arrive there and how long to stay, plus the day the spacecraft leaves Earth's orbit. The arrival days and stays fix every departure and flight time, so the planner flies the path exactly as written (`POST /api/arp/path`), with whichever transfer is chosen, and draws it. The list can be edited as rows or typed as text in a standard format, `ARP-PATH 1`:
+
+```
+ARP-PATH 1
+epoch: 2121-01-01T00:00:00Z
+departure: 0
+Asteroid 1: a=3.2654 e=0.1823 i=6.72 raan=147.75 argp=296.07 M0=283.61 arrive=365 stay=30
+Ceres: a=2.767 AU e=0.0785 i=10.59 deg raan=80.3 argp=73.6 M0=130 arrive=760 stay=20
+```
+
+One line per stop in visiting order: a name, then `key=value` pairs in any order, with `a` in AU (or `km`), the angles in degrees (or `rad`), `M0` at the epoch, `arrive` the day the spacecraft must be there and `stay` the days spent there. A stop whose name and orbit match an asteroid of the instance is that asteroid; any other orbit is a body of its own and is drawn when the path is flown, so orbits can be typed from a catalogue without touching the instance. Lines starting with `#` are comments; `mu:`, `earth:` and `id=` are optional. The page checks the text as it is typed and names the first thing wrong with it. The list can also be filled from the last algorithm run and saved to or opened from a file (this text, or the JSON the page exported before). Each entry carries its asteroid's elements so a saved path stands on its own.
 
 ### 7.3 Lambert solvers
 

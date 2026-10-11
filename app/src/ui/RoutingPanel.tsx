@@ -1,6 +1,6 @@
 import { useRef, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
 import { FORMAT_NAME, FORMAT_REFERENCE, FORMAT_VERSION, parseAlgorithm, PRESETS } from '../arp/format'
-import { pathFile, pathProblems } from '../arp/path'
+import { parsePath, PATH_FORMAT_NAME, PATH_FORMAT_REFERENCE, PATH_FORMAT_VERSION, pathProblems, pathText } from '../arp/path'
 import { useArp } from '../arp/store'
 import type { ArpEvaluation, ArpInstance, EvaluationRow } from '../arp/types'
 import { LEG_COLORS } from '../data/legColors'
@@ -56,6 +56,8 @@ export function RoutingPanel() {
   const pathError = useArp((s) => s.pathError)
   const pathResult = useArp((s) => s.pathResult)
   const pathInst = useArp((s) => s.pathInstance)
+  const pathMode = useArp((s) => s.pathMode)
+  const pathTextValue = useArp((s) => s.pathText)
   const actions = useArp.getState()
   const solver = useStore((s) => s.scenario.solver ?? DEFAULT_SOLVER)
   const transfer = useStore((s) => s.scenario.transfer ?? DEFAULT_TRANSFER)
@@ -63,8 +65,10 @@ export function RoutingPanel() {
   const instanceFile = useRef<HTMLInputElement>(null)
   const sourceFile = useRef<HTMLInputElement>(null)
   const pathFileInput = useRef<HTMLInputElement>(null)
-  const problems = instance ? pathProblems(path) : []
+  const textCheck = pathMode === 'text' && instance ? parsePath(pathTextValue, instance) : null
+  const problems = instance ? (pathMode === 'text' ? (typeof textCheck === 'string' ? [textCheck] : []) : pathProblems(path)) : []
   const flying = pathStatus === 'loading'
+  const stops = pathMode === 'text' && textCheck && typeof textCheck !== 'string' ? textCheck.entries.length : path.entries.length
 
   const header = parseAlgorithm(source)
   const busy = status === 'running' || status === 'loading'
@@ -109,10 +113,29 @@ export function RoutingPanel() {
         </div>
       </Section>
 
-      <Section title="Path" summary={path.entries.length ? `${path.entries.length} asteroid${path.entries.length === 1 ? '' : 's'}${pathResult && pathStatus === 'done' ? `, delta-v ${pathResult.dv.toFixed(1)} km/s` : ''}` : 'none yet'}>
+      <Section title="Path" summary={stops ? `${stops} asteroid${stops === 1 ? '' : 's'}${pathResult && pathStatus === 'done' ? `, delta-v ${pathResult.dv.toFixed(1)} km/s` : ''}` : 'none yet'}>
         <p className="hint">The route, written by hand: each asteroid with its orbit, the day to arrive there and how long to stay. From those the planner knows every departure and flight time and flies the path exactly, with the transfer chosen below.</p>
         {instance ? (
           <>
+            <div className="seg path-mode" role="radiogroup" aria-label="how to write the path">
+              <button role="radio" aria-checked={pathMode === 'form'} className={pathMode === 'form' ? 'on' : ''} onClick={() => actions.setPathMode('form')} disabled={flying}>Rows</button>
+              <button role="radio" aria-checked={pathMode === 'text'} className={pathMode === 'text' ? 'on' : ''} onClick={() => actions.setPathMode('text')} disabled={flying}>Text</button>
+            </div>
+            {pathMode === 'text' ? (
+              <>
+                <textarea
+                  className="code path-text" value={pathTextValue} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={10}
+                  aria-label={`path, ${PATH_FORMAT_NAME} ${PATH_FORMAT_VERSION}`} onChange={(e) => actions.setPathText(e.target.value)} readOnly={flying}
+                />
+                {typeof textCheck === 'string'
+                  ? <p className="format bad">{textCheck}</p>
+                  : <p className="format ok">Valid {PATH_FORMAT_NAME} {PATH_FORMAT_VERSION}: {textCheck?.entries.length ?? 0} stop{textCheck?.entries.length === 1 ? '' : 's'}{textCheck && textCheck.entries.some((e) => !instance.asteroids.some((a) => a.id === e.asteroid.id)) ? ', some with orbits of their own' : ''}</p>}
+                <Section title="Path format" defaultOpen={false}>
+                  <pre className="reference">{PATH_FORMAT_REFERENCE}</pre>
+                </Section>
+              </>
+            ) : (
+              <>
             <label className="field"><span>leave Earth on day</span><input type="number" min={0} step="any" value={path.departure} disabled={flying} onChange={(e) => actions.setPath({ ...path, departure: num(e.target.value, path.departure) })} /></label>
             <ol className="stops path-list">
               {path.entries.map((en, i) => (
@@ -134,14 +157,16 @@ export function RoutingPanel() {
                 </li>
               ))}
             </ol>
+              </>
+            )}
             <div className="row">
-              <button onClick={actions.addEntry} disabled={flying || path.entries.length >= instance.asteroids.length}><IconPlus /> Add asteroid</button>
+              {pathMode === 'form' && <button onClick={actions.addEntry} disabled={flying || path.entries.length >= instance.asteroids.length}><IconPlus /> Add asteroid</button>}
               {result && <button onClick={actions.pathFromResult} disabled={flying} title="Copy the last run's route, with its arrival days and waits, into the path">From last run</button>}
-              <button onClick={() => pathFileInput.current?.click()} disabled={flying}>Import</button>
-              {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.json`, JSON.stringify(pathFile(instance, path), null, 2), 'application/json')}>Export</button>}
-              <input ref={pathFileInput} type="file" accept=".json,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importPath(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Import failed: ${bad}` }) })} />
+              <button onClick={() => pathFileInput.current?.click()} disabled={flying} title="A file in the path format, or the JSON this page exported before">Open file</button>
+              {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.txt`, pathText(instance, path), 'text/plain')}>Save file</button>}
+              <input ref={pathFileInput} type="file" accept=".txt,.json,text/plain,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importPath(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Import failed: ${bad}` }) })} />
             </div>
-            {problems.length > 0 && path.entries.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
+            {pathMode === 'form' && problems.length > 0 && path.entries.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
             <div className="plan-bar">
               <button className="primary big" onClick={() => void actions.flyPath()} disabled={flying || problems.length > 0}>
                 {flying ? <><span className="spinner" aria-hidden="true" /> Flying…</> : `Fly path, ${transferName(transfer)}`}

@@ -420,7 +420,12 @@ export class SceneManager {
     // the close views draw the ship larger so it reads as an object, not a marker
     const shipScale = this.managedCamera ? (mode === 'chase' ? 3.5 : 1.5) : 1
     this.ship.updateScale(dist, h, fov, shipScale)
-    this.companionId = this.managedCamera && st.kind !== 'ascent' ? (s.scenario.mission?.stops[st.leg]?.satelliteId ?? null) : null
+    // the satellite drawn at the ship's scale is the one the ship is riding with; a target still far
+    // ahead stays a marker, or it would loom over the scene at a fixed size on screen
+    const ridingWith = st.kind !== 'ride' ? null
+      : s.plan.prelude && s.t <= s.plan.prelude.t1 ? s.plan.prelude.satelliteId
+      : (s.plan.legs[st.leg]?.ride?.satelliteId ?? null)
+    this.companionId = this.managedCamera ? ridingWith : null
     this.shipPixelsPerUnit = 15 * shipScale
     this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg },
       this.camera.position, h, fov, (v) => this.inertial.localToWorld(v))
