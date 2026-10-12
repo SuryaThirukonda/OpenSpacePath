@@ -328,7 +328,7 @@ function OrbitFields({ entry, own, disabled, onChange }: { entry: PathEntry; own
         ))}
       </div>
       {problems.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
-      <p className="hint">Heliocentric elements at the instance epoch; the mean anomaly M0 says where on the orbit the asteroid is then. Changing the orbit of an asteroid from the instance makes this entry a body of its own.</p>
+      <p className="hint">Heliocentric elements at the instance epoch; the mean anomaly M0 says where on the orbit the asteroid is then. A change here moves the asteroid in the scene as you make it.</p>
     </details>
   )
 }

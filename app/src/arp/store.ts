@@ -11,7 +11,7 @@ import { useStore } from '../store/store'
 import { ALGORITHM_EDITOR } from './config'
 import { PAPER_PRESETS, parseAlgorithm, PRESETS } from './format'
 import { generateInstance, instanceToScenario, parseInstance } from './instance'
-import { customAsteroid, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, withOrbit, type PathEntry, type PathPlan } from './path'
+import { customAsteroid, defaultSchedule, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, syncInstance, withOrbit, type PathEntry, type PathPlan } from './path'
 import type { OrbitalElements } from '../types'
 import { AlgorithmRunner } from './runner'
 import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, WorkerResult } from './types'
@@ -132,6 +132,7 @@ let showSeq = 0
 /** Counts runs, so a result that arrives after the next run began is dropped. */
 let runSeq = 0
 let pathSeq = 0
+let textTimer: number | undefined
 let startedAt = 0
 
 /** The inputs the scene needs to draw a route as a tour: Earth's orbit, then each asteroid in turn. */
@@ -201,8 +202,9 @@ export const useArp = create<ArpState>((set, get) => ({
     get().stop()
     runSeq += 1
     const inst = generateInstance(get().n, get().instanceSeed)
+    const path = defaultSchedule(inst.asteroids)   // every generated asteroid, with its orbit, in the path to tweak
     set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, emptyPath()) })
+          path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
     save(get())
     ensureScene(inst, true)
   },
@@ -211,8 +213,9 @@ export const useArp = create<ArpState>((set, get) => ({
     if (typeof inst === 'string') return inst
     get().stop()
     runSeq += 1
+    const path = defaultSchedule(inst.asteroids)
     set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, emptyPath()) })
+          path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
     save(get())
     ensureScene(inst, true)
     return null
@@ -346,8 +349,20 @@ export const useArp = create<ArpState>((set, get) => ({
   },
 
   setPath: (path) => {
-    const inst = get().instance
-    set({ path, pathStatus: 'idle', pathError: null, ...(inst ? { pathText: pathText(inst, path) } : {}) })
+    const base = get().instance
+    // the instance's asteroids follow the path's entries, and so does the scene, as the edit is made
+    const synced = base ? syncInstance(base, path) : null
+    const inst = synced ? synced.instance : null
+    set({ path, pathStatus: 'idle', pathError: null, ...(inst ? { instance: inst, pathText: pathText(inst, path) } : {}) })
+    if (synced && synced.changed.length) {
+      const main = useStore.getState()
+      if (main.world === 'asteroids') {
+        for (const a of synced.changed) {
+          const sat = main.scenario.satellites.find((s) => s.id === a.id)
+          if (sat && sat.kind === 'kepler') main.updateSatellite({ ...sat, name: a.name, elements: { ...a.elements } })
+        }
+      }
+    }
     save(get())
   },
   addEntry: () => {
@@ -356,9 +371,9 @@ export const useArp = create<ArpState>((set, get) => ({
     get().setPath({ ...path, entries: [...path.entries, nextEntry(instance, path)] })
   },
   setEntryOrbit: (k, elements, name) => {
-    const { instance, path } = get()
+    const path = get().path
     if (!path.entries[k]) return
-    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? withOrbit(instance, path, k, elements, name) : e)) })
+    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? withOrbit(path, k, elements, name) : e)) })
   },
   makeEntryCustom: (k) => {
     const path = get().path
@@ -397,12 +412,22 @@ export const useArp = create<ArpState>((set, get) => ({
     set({ pathMode, ...(pathMode === 'text' && instance ? { pathText: pathText(instance, path) } : {}) })
     save(get())
   },
-  setPathText: (text) => { set({ pathText: text, pathStatus: 'idle', pathError: null }); save(get()) },
+  setPathText: (text) => {
+    set({ pathText: text, pathStatus: 'idle', pathError: null })
+    save(get())
+    // the text is live too: once it parses, the rows, the instance and the scene follow it
+    window.clearTimeout(textTimer)
+    textTimer = window.setTimeout(() => {
+      if (get().pathText === text && typeof parsePath(text, get().instance) !== 'string') get().applyPathText()
+    }, 400)
+  },
   applyPathText: () => {
     const { instance, pathText: text } = get()
     const path = parsePath(text, instance)
     if (typeof path === 'string') return path
-    set({ path, pathStatus: 'idle', pathError: null })
+    const keep = text
+    get().setPath(path)          // through setPath, so the instance and the scene follow the text
+    set({ pathText: keep })      // but the text stays as typed, not re-serialised under the cursor
     save(get())
     return null
   },

@@ -139,7 +139,8 @@ export function parsePathText(text: string, inst?: ArpInstance | null): PathPlan
     const stay = fields.get('stay') ?? fields.get('delay') ?? [0, '']
     if (!arrive) return `${where} needs arrive=<day>`
     if (!Number.isFinite(arrive[0]) || !Number.isFinite(stay[0]) || stay[0] < 0) return `${where}: arrive and stay are day numbers, the stay zero or more`
-    const known = inst?.asteroids.find((a) => (a.name || a.id).toLowerCase() === lower && sameOrbit(a.elements, elements))
+    // a stop named like an asteroid of the instance is that asteroid, with the orbit as typed here
+    const known = inst?.asteroids.find((a) => (a.name || a.id).toLowerCase() === lower)
     const idText = /\bid\s*=\s*([A-Za-z0-9_.-]+)/.exec(value)
     const id = idText ? idText[1] : known ? known.id : slug(key)
     if (ids.has(id)) return `${where} repeats the id "${id}"`
@@ -156,6 +157,29 @@ const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFin
 const sameOrbit = (p: OrbitalElements, q: OrbitalElements) =>
   (['a', 'e', 'i', 'raan', 'argp', 'M0'] as const).every((k) => Math.abs(p[k] - q[k]) <= 1e-6 * Math.max(1, Math.abs(q[k])))
 
+/** A path through these asteroids in order: a year of flight to each, a month at each. */
+export function defaultSchedule(asteroids: ArpBody[], departure = 0): PathPlan {
+  return { departure, entries: asteroids.map((asteroid, k) => ({ asteroid, arrival: departure + 365 * (k + 1) + 30 * k, delay: 30 })) }
+}
+
+/**
+ * The instance with its asteroids as the path now describes them: an entry that is one of the
+ * instance's asteroids carries that asteroid's name and orbit, so edits in the path reach the
+ * instance, the scene and the algorithms. Returns the asteroids that changed.
+ */
+export function syncInstance(inst: ArpInstance, path: PathPlan): { instance: ArpInstance; changed: ArpBody[] } {
+  const byId = new Map(path.entries.map((e) => [e.asteroid.id, e.asteroid]))
+  const changed: ArpBody[] = []
+  const asteroids = inst.asteroids.map((a) => {
+    const edited = byId.get(a.id)
+    if (!edited || (edited.name === a.name && sameOrbit(edited.elements, a.elements))) return a
+    const next = { id: a.id, name: edited.name, elements: { ...edited.elements } }
+    changed.push(next)
+    return next
+  })
+  return { instance: changed.length ? { ...inst, asteroids } : inst, changed }
+}
+
 /** What is wrong with an entry's orbit, in sentences; none means it can be flown. */
 export function orbitProblems(el: OrbitalElements): string[] {
   return validateElements(el, getBody('sun').radius).problems
@@ -169,21 +193,10 @@ export function customAsteroid(path: PathPlan, k = path.entries.length + 1): Arp
   return { id, name: `Asteroid ${id.slice(4)}`, elements: { a: 2.5 * AU_KM, e: 0.1, i: 5 * DEG, raan: 0, argp: 0, M0: 0 } }
 }
 
-/**
- * An entry with its orbit (and name) changed. An entry that was one of the instance's asteroids
- * becomes a body of its own the moment its orbit differs, so the scene draws what is flown.
- */
-export function withOrbit(inst: ArpInstance | null, path: PathPlan, k: number, elements: Partial<OrbitalElements>, name?: string): PathEntry {
+/** An entry with its orbit, or its name, changed in place; the asteroid keeps its identity. */
+export function withOrbit(path: PathPlan, k: number, elements: Partial<OrbitalElements>, name?: string): PathEntry {
   const entry = path.entries[k]
-  const next = { ...entry.asteroid.elements, ...elements }
-  const known = inst?.asteroids.find((a) => a.id === entry.asteroid.id)
-  let id = entry.asteroid.id
-  if (known && !sameOrbit(known.elements, next)) {
-    const taken = new Set(path.entries.map((e, i) => (i === k ? '' : e.asteroid.id)))
-    id = `${known.id}-own`
-    for (let n = 2; taken.has(id); n++) id = `${known.id}-own-${n}`
-  }
-  return { ...entry, asteroid: { id, name: name ?? entry.asteroid.name, elements: next } }
+  return { ...entry, asteroid: { ...entry.asteroid, name: name ?? entry.asteroid.name, elements: { ...entry.asteroid.elements, ...elements } } }
 }
 
 /** Sentences saying what stops the path from being flown; none means it can be. */
