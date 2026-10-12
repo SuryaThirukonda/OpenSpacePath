@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateInstance } from '../../src/arp/instance'
-import { defaultSchedule, emptyPath, headerOf, nextEntry, parsePath, parsePathText, pathFile, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, randomAsteroid, syncInstance, withOrbit } from '../../src/arp/path'
+import { customAsteroid, emptyPath, nextEntry, parsePath, parsePathText, pathFile, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, withOrbit } from '../../src/arp/path'
 import type { ArpEvaluation } from '../../src/arp/types'
 
 const inst = generateInstance(4, 9)
@@ -20,34 +20,33 @@ describe('a path written by hand', () => {
     expect(pathProblems({ ...good, entries: [{ asteroid: a[0], arrival: 300, delay: -1 }] })[0]).toMatch(/day numbers/)
   })
 
-  it('adds a random asteroid a year after the spacecraft is free, and schedules a generated list', () => {
+  it('suggests the next unused asteroid a year after the spacecraft is free', () => {
     const path = { departure: 5, entries: [{ asteroid: inst.asteroids[0], arrival: 200, delay: 30 }] }
-    const next = nextEntry(path, 42)
-    expect(next.arrival).toBe(595)
-    expect(next.asteroid.id).toBe('asteroid-2')
-    expect(pathProblems({ ...path, entries: [...path.entries, next] })).toEqual([])
-    expect(nextEntry(path, 42).asteroid.elements).toEqual(next.asteroid.elements)           // seeded: repeatable
-    expect(nextEntry(path, 43).asteroid.elements.a).not.toBe(next.asteroid.elements.a)
-    const sched = defaultSchedule(inst.asteroids)
-    expect(sched.entries.map((e) => [e.arrival, e.delay])).toEqual([[365, 30], [760, 30], [1155, 30], [1550, 30]])
-    expect(pathProblems(sched)).toEqual([])
-    expect(syncInstance(inst, sched).asteroids).toEqual(inst.asteroids)
-    // ids never collide with what is already in the list
-    const taken = { departure: 0, entries: [{ asteroid: { ...inst.asteroids[0], id: 'asteroid-2' }, arrival: 100, delay: 0 }] }
-    expect(randomAsteroid(taken, 1).id).toBe('asteroid-3')
+    const next = nextEntry(inst, path)
+    expect(next?.asteroid.id).toBe(inst.asteroids[1].id)
+    expect(next?.arrival).toBe(595)
+    const full = { departure: 0, entries: inst.asteroids.map((asteroid, k) => ({ asteroid, arrival: 100 * (k + 1), delay: 0 })) }
+    const extra = nextEntry(inst, full)
+    expect(extra.asteroid.id).toBe('own-5')
+    expect(pathProblems({ ...full, entries: [...full.entries, extra] })).toEqual([])
   })
 
-  it('edits the orbit or name of an entry in place and flags a bad orbit', () => {
+  it('lets an entry carry an orbit of its own and flags a bad one', () => {
     const path = { departure: 0, entries: [{ asteroid: inst.asteroids[0], arrival: 300, delay: 0 }, { asteroid: inst.asteroids[1], arrival: 700, delay: 0 }] }
-    expect(withOrbit(path, 0, {}, 'Pallas').asteroid).toMatchObject({ id: inst.asteroids[0].id, name: 'Pallas' })
-    const changed = withOrbit(path, 0, { e: 0.3 })
-    expect(changed.asteroid.id).toBe(inst.asteroids[0].id)
-    expect(changed.asteroid.elements.e).toBe(0.3)
-    expect(changed.asteroid.elements.a).toBe(inst.asteroids[0].elements.a)
-    const bad = { ...path, entries: [withOrbit(path, 0, { e: 1.2 }), path.entries[1]] }
+    // a name change alone keeps the identity; an orbit change makes it a body of its own
+    expect(withOrbit(inst, path, 0, {}, 'Pallas').asteroid).toMatchObject({ id: inst.asteroids[0].id, name: 'Pallas' })
+    const own = withOrbit(inst, path, 0, { e: 0.3 })
+    expect(own.asteroid.id).toBe(`${inst.asteroids[0].id}-own`)
+    expect(own.asteroid.elements.e).toBe(0.3)
+    expect(own.asteroid.elements.a).toBe(inst.asteroids[0].elements.a)
+    const bad = { ...path, entries: [withOrbit(inst, path, 0, { e: 1.2 }), path.entries[1]] }
     expect(pathProblems(bad)[0]).toMatch(/1\. Asteroid 1: eccentricity/)
-    // the synced instance follows the edit, so the scene and the algorithms see the same orbit
-    expect(syncInstance(inst, bad).asteroids[0].elements.e).toBe(1.2)
+    const fresh = customAsteroid(path)
+    expect(fresh.id).toBe('own-3')
+    expect(pathProblems({ ...path, entries: [...path.entries, { asteroid: fresh, arrival: 1200, delay: 0 }] })).toEqual([])
+    // the text format carries the own orbit and brings it back as its own
+    const round = parsePathText(pathText(inst, { ...path, entries: [own, path.entries[1]] }), inst)
+    expect(typeof round === 'string' ? round : round.entries[0].asteroid.id).not.toBe(inst.asteroids[0].id)
   })
 
   it('comes from a route an algorithm found and keeps its times', () => {
@@ -76,28 +75,23 @@ describe('a path written by hand', () => {
     expect(parsePath(JSON.stringify({ format: 'arp-path', departure: 500, entries: path.entries }))).toMatch(/only leaves/)
   })
 
-  it('round trips through the text format', () => {
+  it('round trips through the text format and resolves stops to the instance', () => {
     const path = { departure: 3, entries: [{ asteroid: inst.asteroids[1], arrival: 400, delay: 15 }, { asteroid: inst.asteroids[0], arrival: 900, delay: 0 }] }
     const text = pathText(inst, path)
     expect(text.split('\n')[0]).toBe('ARP-PATH 1')
     expect(text).toContain(`epoch: ${inst.epoch}`)
-    const back = parsePathText(text)
+    const back = parsePathText(text, inst)
     expect(typeof back).not.toBe('string')
     if (typeof back === 'string') return
     expect(back.departure).toBe(3)
-    expect(back.entries.map((e) => [e.asteroid.name, e.arrival, e.delay])).toEqual([[inst.asteroids[1].name, 400, 15], [inst.asteroids[0].name, 900, 0]])
-    expect(back.entries.map((e) => e.asteroid.id)).toEqual(['asteroid-2', 'asteroid-1'])
+    expect(back.entries.map((e) => [e.asteroid.id, e.arrival, e.delay])).toEqual([[inst.asteroids[1].id, 400, 15], [inst.asteroids[0].id, 900, 0]])
     for (const [e, orig] of back.entries.map((e, k) => [e, path.entries[k]] as const)) {
       expect(e.asteroid.elements.a / orig.asteroid.elements.a).toBeCloseTo(1, 6)
       expect(e.asteroid.elements.i).toBeCloseTo(orig.asteroid.elements.i, 6)
     }
     // the file reader takes the text format as well as the JSON it used to export
-    expect(parsePath(text)).toEqual(back)
-    expect(typeof parsePath(JSON.stringify(pathFile(inst, path)))).not.toBe('string')
-    // the header of either file form names the epoch and Earth
-    expect(headerOf(text)).toMatchObject({ epoch: inst.epoch })
-    expect(headerOf(text).earth?.elements.a).toBeCloseTo(inst.earth.elements.a, -1)
-    expect(headerOf(JSON.stringify(pathFile(inst, path)))).toMatchObject({ epoch: inst.epoch, mu: inst.mu })
+    expect(parsePath(text, inst)).toEqual(back)
+    expect(typeof parsePath(JSON.stringify(pathFile(inst, path)), inst)).not.toBe('string')
   })
 
   it('reads orbits typed by hand with units, and names the first thing that is wrong', () => {
@@ -107,7 +101,7 @@ departure: 12 d
 # a comment
 Ceres: a=2.767 AU e=0.0785 i=10.59 deg raan=80.3 argp=73.6 M0=0.5 rad arrive=400 stay=10
 Vesta: a=353000000km e=0.089 i=7.14 raan=103.8 argp=151.2 M0=20 arrive=900 id=vesta-4`
-    const p = parsePathText(good)
+    const p = parsePathText(good, inst)
     expect(typeof p).not.toBe('string')
     if (typeof p === 'string') return
     expect(p.departure).toBe(12)
@@ -119,16 +113,16 @@ Vesta: a=353000000km e=0.089 i=7.14 raan=103.8 argp=151.2 M0=20 arrive=900 id=ve
     expect(p.entries[1].asteroid.id).toBe('vesta-4')
     expect(p.entries[1].asteroid.elements.a).toBe(353000000)
     expect(p.entries[1].delay).toBe(0)
-    expect(parsePathText('hello')).toMatch(/first line must be "ARP-PATH 1"/)
-    expect(parsePathText('ARP-PATH 2\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=1')).toMatch(/version 2/)
-    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 arrive=1')).toMatch(/missing argp, M0/)
-    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=1 stay=2 parsecs')).toMatch(/cannot read|unknown unit/)
-    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 stay=2')).toMatch(/needs arrive/)
-    expect(parsePathText('ARP-PATH 1\ndeparture: soon\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=1')).toMatch(/departure must be a day number/)
-    expect(parsePathText('ARP-PATH 1\nX a=1')).toMatch(/needs a name followed by a colon/)
-    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=500\nY: a=1.5 e=0 i=0 raan=0 argp=0 M0=0 arrive=100')).toMatch(/arrives on day 100/)
-    // two stops with one name get distinct ids
-    const twins = parsePathText('ARP-PATH 1\nX: a=2 e=0 i=0 raan=0 argp=0 M0=0 arrive=300\nX: a=2.5 e=0 i=0 raan=0 argp=0 M0=0 arrive=800')
-    expect(typeof twins === 'string' ? twins : twins.entries.map((e) => e.asteroid.id)).toEqual(['x', 'x-2'])
+    expect(parsePathText('hello', inst)).toMatch(/first line must be "ARP-PATH 1"/)
+    expect(parsePathText('ARP-PATH 2\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=1', inst)).toMatch(/version 2/)
+    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 arrive=1', inst)).toMatch(/missing argp, M0/)
+    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=1 stay=2 parsecs', inst)).toMatch(/cannot read|unknown unit/)
+    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 stay=2', inst)).toMatch(/needs arrive/)
+    expect(parsePathText('ARP-PATH 1\ndeparture: soon\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=1', inst)).toMatch(/departure must be a day number/)
+    expect(parsePathText('ARP-PATH 1\nX a=1', inst)).toMatch(/needs a name followed by a colon/)
+    expect(parsePathText('ARP-PATH 1\nX: a=1 e=0 i=0 raan=0 argp=0 M0=0 arrive=500\nY: a=1.5 e=0 i=0 raan=0 argp=0 M0=0 arrive=100', inst)).toMatch(/arrives on day 100/)
+    // a stop with the instance asteroid's name but a different orbit is a body of its own
+    const own = parsePathText(`ARP-PATH 1\n${inst.asteroids[0].name}: a=2.2 e=0.1 i=1 raan=2 argp=3 M0=4 arrive=300`, inst)
+    expect(typeof own === 'string' ? own : own.entries[0].asteroid.id).not.toBe(inst.asteroids[0].id)
   })
 })

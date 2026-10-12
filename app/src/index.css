@@ -272,7 +272,7 @@ pre.log { max-height: 160px; }
 .transfer { display: flex; flex-direction: column; gap: 6px; }
 .transfer .seg { display: flex; }
 .transfer .seg button { flex: 1; }
-.path-list input.name { flex: 1; min-width: 0; }
+.path-list select { flex: 1; min-width: 0; }
 .path-mode { display: flex; }
 details.orbit { display: flex; flex-direction: column; gap: 6px; }
 details.orbit summary { cursor: pointer; list-style: none; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }

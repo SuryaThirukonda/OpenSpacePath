@@ -1,16 +1,15 @@
 /**
- * The asteroids of the problem and the path through them, as one list. One entry per asteroid
- * holds the asteroid itself with all of its orbital data, the day the spacecraft must arrive
- * there, and how long it stays. The list is the route a spacecraft follows: with the arrival days
- * and the stays, every departure and flight time is known, so the planner only has to fly it.
- * The list is also the instance an algorithm runs on and what the scene shows. The elements
- * travel inside each entry so a path stands on its own.
+ * A path written by hand. One entry per asteroid holds the asteroid itself with all of its orbital
+ * data, the day the spacecraft must arrive there, and how long it stays. The list is the route a
+ * spacecraft follows: with the arrival days and the stays, every departure and flight time is
+ * known, so the planner only has to fly it. The elements travel inside each entry so a path
+ * stands on its own and the server plans from exactly what is written here.
  */
 import { validateElements } from '../core/elements'
 import { getBody } from '../data/bodies'
 import type { TransferMode } from '../mission/types'
 import type { OrbitalElements } from '../types'
-import { AU_KM, seededRandom } from './instance'
+import { AU_KM } from './instance'
 import type { ArpBody, ArpEvaluation, ArpInstance } from './types'
 
 export interface PathEntry {
@@ -58,8 +57,8 @@ export const PATH_FORMAT_REFERENCE = `A path is text in this shape; one line per
 - A stop is "name: key=value ...". The orbit: a in AU (or "a=4.9e8km"), e, and the angles i, raan, argp, M0 in degrees (or "i=0.12rad"), M0 at the epoch.
   Then arrive (the day the spacecraft must be there) and stay (days spent there before leaving). The keys may come in any order.
 - Optional: "mu:" in km^3/s^2 (the Sun when absent); "earth:" with the same orbit keys (JPL's Earth when absent); "id=" on a stop.
-- These stops are the asteroids of the problem: the scene shows them, an algorithm visits them, Fly path flies them in this order.
-- Lines starting with # are comments. A file in this format, an instance JSON or a saved run can be opened.`
+- A stop whose name and orbit match an asteroid of the instance is that asteroid; any other orbit is a new body, drawn when the path is flown.
+- Lines starting with # are comments. A file in this format, or the JSON the page used to export, can be imported.`
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'stop'
 const fmt = (x: number, digits: number) => Number(x.toFixed(digits)).toString()
@@ -101,8 +100,11 @@ function readFields(text: string): Map<string, [number, string]> | string {
 }
 
 
-/** A path from the text format, or a sentence saying what is wrong with it. */
-export function parsePathText(text: string): PathPlan | string {
+/**
+ * A path from the text format. `inst` resolves stops to the instance's asteroids when name and
+ * orbit match; a typed orbit that differs is a body of its own. Returns a sentence on failure.
+ */
+export function parsePathText(text: string, inst?: ArpInstance | null): PathPlan | string {
   const lines = text.split(/\r?\n/)
   const first = lines.find((l) => l.trim().length > 0)?.trim() ?? ''
   const head = new RegExp(`^${PATH_FORMAT_NAME}\\s+(\\d+)$`).exec(first)
@@ -120,7 +122,7 @@ export function parsePathText(text: string): PathPlan | string {
     const key = line.slice(0, colon).trim()
     const value = line.slice(colon + 1).trim()
     const lower = key.toLowerCase()
-    if (lower === 'epoch' || lower === 'mu' || lower === 'earth') continue // the base of the instance, read by headerOf
+    if (lower === 'epoch' || lower === 'mu' || lower === 'earth') continue // kept with the instance, read by the file importer
     if (lower === 'departure') {
       const d = Number(value.replace(/\s*(d|days?)$/i, ''))
       if (!Number.isFinite(d) || d < 0) return `departure must be a day number, zero or more, not "${value}"`
@@ -137,10 +139,10 @@ export function parsePathText(text: string): PathPlan | string {
     const stay = fields.get('stay') ?? fields.get('delay') ?? [0, '']
     if (!arrive) return `${where} needs arrive=<day>`
     if (!Number.isFinite(arrive[0]) || !Number.isFinite(stay[0]) || stay[0] < 0) return `${where}: arrive and stay are day numbers, the stay zero or more`
+    const known = inst?.asteroids.find((a) => (a.name || a.id).toLowerCase() === lower && sameOrbit(a.elements, elements))
     const idText = /\bid\s*=\s*([A-Za-z0-9_.-]+)/.exec(value)
-    if (idText && ids.has(idText[1])) return `${where} repeats the id "${idText[1]}"`
-    let id = idText ? idText[1] : slug(key)
-    for (let n = 2; ids.has(id); n++) id = `${slug(key)}-${n}`
+    const id = idText ? idText[1] : known ? known.id : slug(key)
+    if (ids.has(id)) return `${where} repeats the id "${id}"`
     ids.add(id)
     entries.push({ asteroid: { id, name: key, elements }, arrival: arrive[0], delay: stay[0] })
   }
@@ -151,37 +153,37 @@ export function parsePathText(text: string): PathPlan | string {
 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x)
 
+const sameOrbit = (p: OrbitalElements, q: OrbitalElements) =>
+  (['a', 'e', 'i', 'raan', 'argp', 'M0'] as const).every((k) => Math.abs(p[k] - q[k]) <= 1e-6 * Math.max(1, Math.abs(q[k])))
+
 /** What is wrong with an entry's orbit, in sentences; none means it can be flown. */
 export function orbitProblems(el: OrbitalElements): string[] {
   return validateElements(el, getBody('sun').radius).problems
 }
 
-/** A random main-belt orbit (the generator's distribution) for the k-th asteroid of a path, seeded. */
-export function randomAsteroid(path: PathPlan, seed: number, k = path.entries.length + 1): ArpBody {
-  const rnd = seededRandom(seed * 7919 + 1000 * k + 7)
+/** A body of the path's own, not from the instance: a main-belt orbit to start editing from. */
+export function customAsteroid(path: PathPlan, k = path.entries.length + 1): ArpBody {
   const ids = new Set(path.entries.map((e) => e.asteroid.id))
-  let id = `asteroid-${k}`
-  for (let n = k; ids.has(id); n++) id = `asteroid-${n + 1}`
-  return {
-    id, name: `Asteroid ${id.slice(9)}`,
-    elements: { a: (2.1 + 1.2 * rnd()) * AU_KM, e: 0.02 + 0.23 * rnd(), i: 14 * rnd() * DEG, raan: 2 * Math.PI * rnd(), argp: 2 * Math.PI * rnd(), M0: 2 * Math.PI * rnd() },
-  }
+  let id = `own-${k}`
+  for (let n = k; ids.has(id); n++) id = `own-${n + 1}`
+  return { id, name: `Asteroid ${id.slice(4)}`, elements: { a: 2.5 * AU_KM, e: 0.1, i: 5 * DEG, raan: 0, argp: 0, M0: 0 } }
 }
 
-/** A path through these asteroids in order: a year of flight to each, a month at each. */
-export function defaultSchedule(asteroids: ArpBody[], departure = 0): PathPlan {
-  return { departure, entries: asteroids.map((asteroid, k) => ({ asteroid, arrival: departure + 365 * (k + 1) + 30 * k, delay: 30 })) }
-}
-
-/** An entry with its orbit, or its name, changed. */
-export function withOrbit(path: PathPlan, k: number, elements: Partial<OrbitalElements>, name?: string): PathEntry {
+/**
+ * An entry with its orbit (and name) changed. An entry that was one of the instance's asteroids
+ * becomes a body of its own the moment its orbit differs, so the scene draws what is flown.
+ */
+export function withOrbit(inst: ArpInstance | null, path: PathPlan, k: number, elements: Partial<OrbitalElements>, name?: string): PathEntry {
   const entry = path.entries[k]
-  return { ...entry, asteroid: { ...entry.asteroid, name: name ?? entry.asteroid.name, elements: { ...entry.asteroid.elements, ...elements } } }
-}
-
-/** The instance with the path's asteroids: the list is what the scene shows and what an algorithm visits. */
-export function syncInstance(inst: ArpInstance, path: PathPlan): ArpInstance {
-  return { ...inst, asteroids: path.entries.map((e) => e.asteroid) }
+  const next = { ...entry.asteroid.elements, ...elements }
+  const known = inst?.asteroids.find((a) => a.id === entry.asteroid.id)
+  let id = entry.asteroid.id
+  if (known && !sameOrbit(known.elements, next)) {
+    const taken = new Set(path.entries.map((e, i) => (i === k ? '' : e.asteroid.id)))
+    id = `${known.id}-own`
+    for (let n = 2; taken.has(id); n++) id = `${known.id}-own-${n}`
+  }
+  return { ...entry, asteroid: { id, name: name ?? entry.asteroid.name, elements: next } }
 }
 
 /** Sentences saying what stops the path from being flown; none means it can be. */
@@ -203,9 +205,11 @@ export function pathProblems(path: PathPlan): string[] {
   return out
 }
 
-/** A new entry with a random orbit, arriving a year after the spacecraft is free. */
-export function nextEntry(path: PathPlan, seed: number): PathEntry {
-  const asteroid = randomAsteroid(path, seed)
+/** A new entry, arriving a year after the spacecraft is free: the first asteroid of the instance not
+ * yet in the path, or, once they are all in it, a body of the path's own to edit. */
+export function nextEntry(inst: ArpInstance, path: PathPlan): PathEntry {
+  const used = new Set(path.entries.map((e) => e.asteroid.id))
+  const asteroid = inst.asteroids.find((a) => !used.has(a.id)) ?? customAsteroid(path)
   const last = path.entries[path.entries.length - 1]
   const free = last ? last.arrival + last.delay : path.departure
   return { asteroid, arrival: Math.round(free + 365), delay: 30 }
@@ -218,7 +222,7 @@ export function pathRequest(inst: ArpInstance, path: PathPlan, solver: string, t
 
 /** The path seen as an instance, Earth and its asteroids in visiting order, so a result can be named and drawn. */
 export function pathInstance(inst: ArpInstance, path: PathPlan): ArpInstance {
-  return syncInstance(inst, path)
+  return { ...inst, name: `${inst.name} path`, asteroids: path.entries.map((e) => e.asteroid) }
 }
 
 /** A path from a route an algorithm found: the arrival day and the wait at each asteroid become its entries. */
@@ -249,41 +253,9 @@ function cleanBody(x: unknown, k: number): ArpBody | string {
   return { id: typeof o.id === 'string' && o.id ? o.id : `asteroid-${k + 1}`, name: typeof o.name === 'string' ? o.name : `Asteroid ${k + 1}`, elements }
 }
 
-/** The epoch, mu and Earth a path file names, when it names them (text header lines or JSON fields). */
-export function headerOf(text: string): { epoch?: string; mu?: number; earth?: ArpBody } {
-  const out: { epoch?: string; mu?: number; earth?: ArpBody } = {}
-  if (text.trim().startsWith('{')) {
-    try {
-      const o = JSON.parse(text) as Record<string, unknown>
-      if (typeof o.epoch === 'string' && !Number.isNaN(Date.parse(o.epoch))) out.epoch = o.epoch
-      if (isNum(o.mu) && o.mu > 0) out.mu = o.mu
-      const earth = cleanBody(o.earth, -1)
-      if (typeof earth !== 'string') out.earth = { ...earth, id: 'earth', name: 'Earth' }
-    } catch {
-      // not JSON: nothing to read
-    }
-    return out
-  }
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/#.*$/, '').trim()
-    const colon = line.indexOf(':')
-    if (colon < 0) continue
-    const key = line.slice(0, colon).trim().toLowerCase()
-    const value = line.slice(colon + 1).trim()
-    if (key === 'epoch' && !Number.isNaN(Date.parse(value))) out.epoch = value
-    else if (key === 'mu' && isNum(Number(value)) && Number(value) > 0) out.mu = Number(value)
-    else if (key === 'earth') {
-      const fields = readFields(value)
-      const el = typeof fields === 'string' ? fields : readOrbit(fields, 'earth')
-      if (typeof el !== 'string') out.earth = { id: 'earth', name: 'Earth', elements: el }
-    }
-  }
-  return out
-}
-
 /** A path from a saved file, text or the JSON the page exports, or a sentence saying what is wrong with it. */
-export function parsePath(text: string): PathPlan | string {
-  if (!text.trim().startsWith('{')) return parsePathText(text)
+export function parsePath(text: string, inst?: ArpInstance | null): PathPlan | string {
+  if (!text.trim().startsWith('{')) return parsePathText(text, inst)
   let raw: unknown
   try {
     raw = JSON.parse(text)

@@ -64,9 +64,10 @@ export function RoutingPanel() {
   const solver = useStore((s) => s.scenario.solver ?? DEFAULT_SOLVER)
   const transfer = useStore((s) => s.scenario.transfer ?? DEFAULT_TRANSFER)
   const solvers = useSolvers()
+  const instanceFile = useRef<HTMLInputElement>(null)
   const sourceFile = useRef<HTMLInputElement>(null)
   const pathFileInput = useRef<HTMLInputElement>(null)
-  const textCheck = pathMode === 'text' && instance ? parsePath(pathTextValue) : null
+  const textCheck = pathMode === 'text' && instance ? parsePath(pathTextValue, instance) : null
   const problems = instance ? (pathMode === 'text' ? (typeof textCheck === 'string' ? [textCheck] : []) : pathProblems(path)) : []
   const flying = pathStatus === 'loading'
   const stops = pathMode === 'text' && textCheck && typeof textCheck !== 'string' ? textCheck.entries.length : path.entries.length
@@ -95,19 +96,27 @@ export function RoutingPanel() {
 
   return (
     <div className="form routing">
-      <Section title="Asteroids and path" summary={stops ? `${stops} asteroid${stops === 1 ? '' : 's'}${instance ? `, ${instance.name}` : ''}${pathResult && pathStatus === 'done' ? `, delta-v ${pathResult.dv.toFixed(1)} km/s` : ''}` : 'none yet'}>
-        <p className="hint">One list is the whole problem: each asteroid with its orbit, the day to arrive there and how long to stay. The scene shows exactly these asteroids, an algorithm visits them, and Fly path flies them in this order with the transfer chosen below. Generate writes a random set from a seed; then edit any of it, as rows or as text.</p>
+      <Section title="Instance" summary={instance ? `${instance.asteroids.length} asteroids, ${instance.name}` : 'none yet'}>
+        {instance ? (
+          <p className="hint"><b>{instance.name}</b>: Earth and {instance.asteroids.length} asteroids, starting {instance.epoch.slice(0, 10)}. {instance.note}</p>
+        ) : (
+          <p className="hint">The Asteroid Routing Problem: leave Earth's orbit and visit every asteroid once, as cheaply and quickly as possible. Generate an instance to begin; it replaces the current scene with a Sun-centred one.</p>
+        )}
         <div className="grid2">
-          <label className="field"><span>asteroids</span><input type="number" min={2} max={30} value={n} onChange={(e) => actions.setN(num(e.target.value, n))} disabled={flying} /></label>
-          <label className="field"><span>seed</span><input type="number" value={instanceSeed} onChange={(e) => actions.setInstanceSeed(num(e.target.value, instanceSeed))} disabled={flying} /></label>
+          <label className="field"><span>asteroids</span><input type="number" min={2} max={30} value={n} onChange={(e) => actions.setN(num(e.target.value, n))} /></label>
+          <label className="field"><span>seed</span><input type="number" value={instanceSeed} onChange={(e) => actions.setInstanceSeed(num(e.target.value, instanceSeed))} /></label>
         </div>
         <div className="row">
-          <button className={instance ? '' : 'primary'} onClick={actions.generate} disabled={busy || flying} title="Write a random set of asteroids into the list, a year of flight to each and a month at each">{instance ? 'Generate again' : 'Generate'}</button>
-          {instance && <button onClick={actions.showInstance} disabled={busy || flying}>Show in scene</button>}
-          <button onClick={() => pathFileInput.current?.click()} disabled={busy || flying} title="A path file (text or JSON), an instance JSON, or a saved run">Open file</button>
-          {instance && path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.txt`, pathText(instance, path), 'text/plain')}>Save file</button>}
-          <input ref={pathFileInput} type="file" accept=".txt,.json,text/plain,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.openFile(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Could not open the file: ${bad}` }) })} />
+          <button className={instance ? '' : 'primary'} onClick={actions.generate} disabled={busy}>{instance ? 'Generate again' : 'Generate instance'}</button>
+          {instance && <button onClick={actions.showInstance} disabled={busy}>Show in scene</button>}
+          <button onClick={() => instanceFile.current?.click()} disabled={busy}>Import</button>
+          {instance && <button onClick={() => download(`arp-instance-${instance.name}.json`, JSON.stringify(instance, null, 2), 'application/json')}>Export</button>}
+          <input ref={instanceFile} type="file" accept=".json,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importInstance(text); if (bad) useArp.setState({ error: `Import failed: ${bad}` }) })} />
         </div>
+      </Section>
+
+      <Section title="Path" summary={stops ? `${stops} asteroid${stops === 1 ? '' : 's'}${pathResult && pathStatus === 'done' ? `, delta-v ${pathResult.dv.toFixed(1)} km/s` : ''}` : 'none yet'}>
+        <p className="hint">The route, written by hand: each asteroid with its orbit, the day to arrive there and how long to stay. From those the planner knows every departure and flight time and flies the path exactly, with the transfer chosen below.</p>
         {instance ? (
           <>
             <div className="seg path-mode" role="radiogroup" aria-label="how to write the path">
@@ -117,12 +126,12 @@ export function RoutingPanel() {
             {pathMode === 'text' ? (
               <>
                 <textarea
-                  className="code path-text" value={pathTextValue} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={12}
+                  className="code path-text" value={pathTextValue} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={10}
                   aria-label={`path, ${PATH_FORMAT_NAME} ${PATH_FORMAT_VERSION}`} onChange={(e) => actions.setPathText(e.target.value)} readOnly={flying}
                 />
                 {typeof textCheck === 'string'
                   ? <p className="format bad">{textCheck}</p>
-                  : <p className="format ok">Valid {PATH_FORMAT_NAME} {PATH_FORMAT_VERSION}: {textCheck?.entries.length ?? 0} asteroid{textCheck?.entries.length === 1 ? '' : 's'}</p>}
+                  : <p className="format ok">Valid {PATH_FORMAT_NAME} {PATH_FORMAT_VERSION}: {textCheck?.entries.length ?? 0} stop{textCheck?.entries.length === 1 ? '' : 's'}{textCheck && textCheck.entries.some((e) => !instance.asteroids.some((a) => a.id === e.asteroid.id)) ? ', some with orbits of their own' : ''}</p>}
                 <Section title="Path format" defaultOpen={false}>
                   <pre className="reference">{PATH_FORMAT_REFERENCE}</pre>
                 </Section>
@@ -132,12 +141,14 @@ export function RoutingPanel() {
             <label className="field"><span>leave Earth on day</span><input type="number" min={0} step="any" value={path.departure} disabled={flying} onChange={(e) => actions.setPath({ ...path, departure: num(e.target.value, path.departure) })} /></label>
             <ol className="stops path-list">
               {path.entries.map((en, i) => (
-                <li key={en.asteroid.id} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
+                <li key={i} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
                   <div className="row">
                     <span className="stop-index">{i + 1}</span>
-                    <input className="name" type="text" defaultValue={en.asteroid.name} disabled={flying} aria-label={`name of asteroid ${i + 1}`}
-                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                      onBlur={(e) => { const name = e.currentTarget.value.trim(); if (name && name !== en.asteroid.name) actions.setEntryOrbit(i, {}, name) }} />
+                    <select value={en.asteroid.id} disabled={flying} aria-label={`asteroid ${i + 1}`} onChange={(e) => { if (e.target.value === '__own') actions.makeEntryCustom(i); else { const a = instance.asteroids.find((x) => x.id === e.target.value); if (a) actions.updateEntry(i, { asteroid: a }) } }}>
+                      {instance.asteroids.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
+                      {!instance.asteroids.some((a) => a.id === en.asteroid.id) && <option value={en.asteroid.id}>{en.asteroid.name || en.asteroid.id} (own orbit)</option>}
+                      <option value="__own">an orbit of its own…</option>
+                    </select>
                     <button className="icon" onClick={() => actions.moveEntry(i, -1)} aria-label="move up" disabled={i === 0 || flying}><IconUp /></button>
                     <button className="icon" onClick={() => actions.moveEntry(i, 1)} aria-label="move down" disabled={i === path.entries.length - 1 || flying}><IconDown /></button>
                     <button className="icon remove" onClick={() => actions.removeEntry(i)} aria-label="remove" disabled={flying}><IconX /></button>
@@ -146,19 +157,22 @@ export function RoutingPanel() {
                     <label className="field"><span>arrive on day</span><input type="number" min={0} step="any" value={en.arrival} disabled={flying} onChange={(e) => actions.updateEntry(i, { arrival: num(e.target.value, en.arrival) })} /></label>
                     <label className="field"><span>stay, days</span><input type="number" min={0} step="any" value={en.delay} disabled={flying} onChange={(e) => actions.updateEntry(i, { delay: num(e.target.value, en.delay) })} /></label>
                   </div>
-                  <OrbitFields entry={en} disabled={flying} onChange={(el) => actions.setEntryOrbit(i, el)} />
+                  <OrbitFields entry={en} own={!instance.asteroids.some((a) => a.id === en.asteroid.id)} disabled={flying} onChange={(el, name) => actions.setEntryOrbit(i, el, name)} />
                 </li>
               ))}
             </ol>
               </>
             )}
             <div className="row">
-              {pathMode === 'form' && <button onClick={actions.addEntry} disabled={flying} title="A new asteroid with a random orbit, arriving a year after the spacecraft is free"><IconPlus /> Add asteroid</button>}
-              {result && <button onClick={actions.pathFromResult} disabled={flying} title="Reorder the list to the last run's route, with its arrival days and waits">From last run</button>}
+              {pathMode === 'form' && <button onClick={actions.addEntry} disabled={flying} title="The next asteroid of the instance, or a new orbit once they are all in the path"><IconPlus /> Add asteroid</button>}
+              {result && <button onClick={actions.pathFromResult} disabled={flying} title="Copy the last run's route, with its arrival days and waits, into the path">From last run</button>}
+              <button onClick={() => pathFileInput.current?.click()} disabled={flying} title="A file in the path format, or the JSON this page exported before">Open file</button>
+              {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.txt`, pathText(instance, path), 'text/plain')}>Save file</button>}
+              <input ref={pathFileInput} type="file" accept=".txt,.json,text/plain,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importPath(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Import failed: ${bad}` }) })} />
             </div>
             {pathMode === 'form' && problems.length > 0 && path.entries.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
             <div className="plan-bar">
-              <button className="primary big" onClick={() => void actions.flyPath()} disabled={flying || busy || problems.length > 0}>
+              <button className="primary big" onClick={() => void actions.flyPath()} disabled={flying || problems.length > 0}>
                 {flying ? <><span className="spinner" aria-hidden="true" /> Flying…</> : `Fly path, ${transferName(transfer)}`}
               </button>
             </div>
@@ -166,7 +180,7 @@ export function RoutingPanel() {
             {pathStatus === 'done' && pathResult && pathInst && <RouteSummary instance={pathInst} ev={pathResult} />}
           </>
         ) : (
-          <p className="hint">Press Generate, or open a file, to begin; the scene becomes a Sun-centred one with these asteroids.</p>
+          <p className="hint">Generate or import an instance first; its asteroids are what a path can visit.</p>
         )}
       </Section>
 
@@ -225,11 +239,11 @@ export function RoutingPanel() {
       </Section>
 
       <div className="plan-bar">
-        <button className="primary big" onClick={actions.run} disabled={!instance || instance.asteroids.length === 0 || busy || flying || !header.ok}>
+        <button className="primary big" onClick={actions.run} disabled={!instance || busy || !header.ok}>
           {busy ? <><span className="spinner" aria-hidden="true" /> {status === 'loading' ? 'Loading Python…' : 'Running…'}</> : 'Run'}
         </button>
         {busy && <button onClick={actions.stop}>Stop</button>}
-        {(!instance || instance.asteroids.length === 0) && <span className="hint">Add asteroids to the list first.</span>}
+        {!instance && <span className="hint">Generate an instance first.</span>}
       </div>
       {(busy || status !== 'idle') && (
         <p className="hint status" role="status">
@@ -284,10 +298,11 @@ const ORBIT_FIELDS: Array<[keyof PathEntry['asteroid']['elements'], string, numb
 ]
 
 /**
- * An entry's orbit: its six elements, in AU and degrees. The inputs commit on blur or Enter so a
- * number can be typed in full; the key on each remounts it when the value changes elsewhere.
+ * An entry's own attributes: its name and the six elements of its orbit, in AU and degrees.
+ * The inputs commit on blur or Enter so a number can be typed in full; they remount when the
+ * entry becomes another body, through the key on each.
  */
-function OrbitFields({ entry, disabled, onChange }: { entry: PathEntry; disabled: boolean; onChange: (el: Partial<PathEntry['asteroid']['elements']>) => void }) {
+function OrbitFields({ entry, own, disabled, onChange }: { entry: PathEntry; own: boolean; disabled: boolean; onChange: (el: Partial<PathEntry['asteroid']['elements']>, name?: string) => void }) {
   const el = entry.asteroid.elements
   const problems = orbitProblems(el)
   const shown = (v: number, scale: number, digits: number) => Number((v * scale).toFixed(digits)).toString()
@@ -299,8 +314,12 @@ function OrbitFields({ entry, disabled, onChange }: { entry: PathEntry; disabled
   return (
     <details className="orbit">
       <summary>
-        <span className="orbit-sum">orbit · a {(el.a / AU_KM).toFixed(3)} AU · e {el.e.toFixed(3)} · i {(el.i / DEG).toFixed(1)}°</span>
+        <span className="orbit-sum">orbit · a {(el.a / AU_KM).toFixed(3)} AU · e {el.e.toFixed(3)} · i {(el.i / DEG).toFixed(1)}°{own ? ' · its own' : ''}</span>
       </summary>
+      <label className="field"><span>name</span>
+        <input key={`${entry.asteroid.id}-name`} type="text" defaultValue={entry.asteroid.name} disabled={disabled} onKeyDown={enter}
+          onBlur={(e) => { const name = e.currentTarget.value.trim(); if (name && name !== entry.asteroid.name) onChange({}, name) }} />
+      </label>
       <div className="grid2">
         {ORBIT_FIELDS.map(([key, label, scale, digits]) => (
           <label key={key} className="field"><span>{label}</span>
@@ -309,7 +328,7 @@ function OrbitFields({ entry, disabled, onChange }: { entry: PathEntry; disabled
         ))}
       </div>
       {problems.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
-      <p className="hint">Heliocentric elements at the instance epoch; the mean anomaly M0 says where on the orbit the asteroid is then.</p>
+      <p className="hint">Heliocentric elements at the instance epoch; the mean anomaly M0 says where on the orbit the asteroid is then. Changing the orbit of an asteroid from the instance makes this entry a body of its own.</p>
     </details>
   )
 }

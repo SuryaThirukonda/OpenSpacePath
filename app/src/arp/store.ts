@@ -11,7 +11,7 @@ import { useStore } from '../store/store'
 import { ALGORITHM_EDITOR } from './config'
 import { PAPER_PRESETS, parseAlgorithm, PRESETS } from './format'
 import { generateInstance, instanceToScenario, parseInstance } from './instance'
-import { defaultSchedule, emptyPath, headerOf, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, syncInstance, withOrbit, type PathEntry, type PathPlan } from './path'
+import { customAsteroid, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, withOrbit, type PathEntry, type PathPlan } from './path'
 import type { OrbitalElements } from '../types'
 import { AlgorithmRunner } from './runner'
 import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, WorkerResult } from './types'
@@ -93,10 +93,8 @@ export interface ArpState {
 
   setN: (n: number) => void
   setInstanceSeed: (seed: number) => void
-  /** write a random set of asteroids, with a default schedule, into the path */
   generate: () => void
-  /** open a path file (text or JSON), an instance JSON or a saved run into the path */
-  openFile: (text: string) => string | null
+  importInstance: (text: string) => string | null
   showInstance: () => void
   setSource: (source: string) => void
   choosePreset: (id: string) => void
@@ -110,12 +108,15 @@ export interface ArpState {
   setPath: (path: PathPlan) => void
   addEntry: () => void
   updateEntry: (k: number, partial: Partial<PathEntry>) => void
-  /** change an entry's orbit or name */
+  /** change an entry's orbit or name; an instance asteroid becomes a body of its own when its orbit changes */
   setEntryOrbit: (k: number, elements: Partial<OrbitalElements>, name?: string) => void
+  /** make an entry a body of its own with a fresh orbit to edit */
+  makeEntryCustom: (k: number) => void
   removeEntry: (k: number) => void
   moveEntry: (k: number, d: number) => void
   /** fill the path from the last algorithm result */
   pathFromResult: () => void
+  importPath: (text: string) => string | null
   setPathMode: (mode: PathMode) => void
   setPathText: (text: string) => void
   /** read the text into the path; a sentence says what is wrong when it cannot be */
@@ -146,8 +147,7 @@ export function routeMission(inst: ArpInstance, ev: ArpEvaluation): MissionInput
 function ensureScene(inst: ArpInstance, force = false): void {
   const main = useStore.getState()
   const ids = new Set(main.scenario.satellites.map((s) => s.id))
-  // the scene shows exactly this list: Earth and these asteroids, no more and no fewer
-  const present = main.scenario.bodyId === 'sun' && ids.size === inst.asteroids.length + 1 && ids.has(inst.earth.id) && inst.asteroids.every((a) => ids.has(a.id))
+  const present = main.scenario.bodyId === 'sun' && ids.has(inst.earth.id) && inst.asteroids.every((a) => ids.has(a.id))
   if (present && !force) return
   main.loadScenario(instanceToScenario(inst, main.scenario.solver))
   main.select(null)
@@ -159,16 +159,6 @@ function ensureScene(inst: ArpInstance, force = false): void {
 const saved = load()
 const firstPreset = PRESETS[0]
 
-/** The list is one thing: the instance's asteroids are the path's entries. Older saves had them apart. */
-function initialList(): { instance: ArpInstance | null; path: PathPlan } {
-  const inst = saved.instance ?? null
-  const path = saved.path && Array.isArray(saved.path.entries) ? saved.path : emptyPath()
-  if (!inst) return { instance: null, path }
-  if (path.entries.length === 0 && inst.asteroids.length > 0) return { instance: inst, path: defaultSchedule(inst.asteroids) }
-  return { instance: syncInstance(inst, path), path }
-}
-const list = initialList()
-
 /** The algorithm the tab starts with: what was saved, unless the editor is off and that was not one of the papers'. */
 function initialAlgorithm(): { presetId: string; source: string } {
   if (ALGORITHM_EDITOR) return { presetId: saved.presetId ?? firstPreset.id, source: saved.source ?? firstPreset.source }
@@ -178,7 +168,7 @@ function initialAlgorithm(): { presetId: string; source: string } {
 const initial = initialAlgorithm()
 
 export const useArp = create<ArpState>((set, get) => ({
-  instance: list.instance,
+  instance: saved.instance ?? null,
   n: saved.n ?? 8,
   instanceSeed: saved.instanceSeed ?? 42,
   presetId: initial.presetId,
@@ -195,7 +185,7 @@ export const useArp = create<ArpState>((set, get) => ({
   resultNote: '',
   shown: null,
   elapsedMs: 0,
-  path: list.path,
+  path: saved.path && Array.isArray(saved.path.entries) ? saved.path : emptyPath(),
   pathStatus: 'idle',
   pathError: null,
   pathResult: null,
@@ -209,33 +199,18 @@ export const useArp = create<ArpState>((set, get) => ({
     get().stop()
     runSeq += 1
     const inst = generateInstance(get().n, get().instanceSeed)
-    const path = defaultSchedule(inst.asteroids)
     set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
+          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, emptyPath()) })
     save(get())
     ensureScene(inst, true)
   },
-  openFile: (text) => {
-    const current = get().instance
-    let inst: ArpInstance
-    let path: PathPlan
-    const parsed = parsePath(text)
-    if (typeof parsed !== 'string') {
-      const head = headerOf(text)
-      const base = current ?? generateInstance(0, 0)
-      inst = { ...base, name: 'opened path', note: 'A path opened from a file.', ...(head.epoch ? { epoch: head.epoch } : {}), ...(head.mu ? { mu: head.mu } : {}), ...(head.earth ? { earth: head.earth } : {}) }
-      path = parsed
-    } else {
-      const asInstance = parseInstance(text)
-      if (typeof asInstance === 'string') return text.trim().startsWith('{') ? asInstance : parsed
-      inst = asInstance
-      path = defaultSchedule(inst.asteroids)
-    }
-    inst = syncInstance(inst, path)
+  importInstance: (text) => {
+    const inst = parseInstance(text)
+    if (typeof inst === 'string') return inst
     get().stop()
     runSeq += 1
-    set({ instance: inst, n: Math.max(2, inst.asteroids.length), status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
+    set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
+          path: emptyPath(), pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, emptyPath()) })
     save(get())
     ensureScene(inst, true)
     return null
@@ -255,7 +230,7 @@ export const useArp = create<ArpState>((set, get) => ({
 
   run: () => {
     const { instance, source, budget, seed } = get()
-    if (!instance || instance.asteroids.length === 0) return
+    if (!instance) return
     const header = parseAlgorithm(source)
     if (!header.ok) {
       set({ status: 'error', error: header.errors.join('\n'), message: 'The algorithm is not in the standard format.' })
@@ -364,20 +339,25 @@ export const useArp = create<ArpState>((set, get) => ({
   },
 
   setPath: (path) => {
-    const base = get().instance
-    const inst = base ? syncInstance(base, path) : null
-    set({ path, instance: inst, pathStatus: 'idle', pathError: null, ...(inst ? { pathText: pathText(inst, path) } : {}) })
+    const inst = get().instance
+    set({ path, pathStatus: 'idle', pathError: null, ...(inst ? { pathText: pathText(inst, path) } : {}) })
     save(get())
   },
   addEntry: () => {
-    const { instance, path, instanceSeed } = get()
+    const { instance, path } = get()
     if (!instance) return
-    get().setPath({ ...path, entries: [...path.entries, nextEntry(path, instanceSeed)] })
+    get().setPath({ ...path, entries: [...path.entries, nextEntry(instance, path)] })
   },
   setEntryOrbit: (k, elements, name) => {
+    const { instance, path } = get()
+    if (!path.entries[k]) return
+    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? withOrbit(instance, path, k, elements, name) : e)) })
+  },
+  makeEntryCustom: (k) => {
     const path = get().path
     if (!path.entries[k]) return
-    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? withOrbit(path, k, elements, name) : e)) })
+    const body = customAsteroid(path, k + 1)
+    get().setPath({ ...path, entries: path.entries.map((e, i) => (i === k ? { ...e, asteroid: { ...body, elements: { ...e.asteroid.elements } } } : e)) })
   },
   updateEntry: (k, partial) => {
     const path = get().path
@@ -399,6 +379,12 @@ export const useArp = create<ArpState>((set, get) => ({
     const { instance, result } = get()
     if (instance && result) get().setPath(pathFromEvaluation(instance, result))
   },
+  importPath: (text) => {
+    const path = parsePath(text, get().instance)
+    if (typeof path === 'string') return path
+    get().setPath(path)
+    return null
+  },
   setPathMode: (pathMode) => {
     const { instance, path } = get()
     set({ pathMode, ...(pathMode === 'text' && instance ? { pathText: pathText(instance, path) } : {}) })
@@ -406,7 +392,8 @@ export const useArp = create<ArpState>((set, get) => ({
   },
   setPathText: (text) => { set({ pathText: text, pathStatus: 'idle', pathError: null }); save(get()) },
   applyPathText: () => {
-    const path = parsePath(get().pathText)
+    const { instance, pathText: text } = get()
+    const path = parsePath(text, instance)
     if (typeof path === 'string') return path
     set({ path, pathStatus: 'idle', pathError: null })
     save(get())
