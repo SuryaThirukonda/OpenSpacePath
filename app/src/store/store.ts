@@ -20,8 +20,29 @@ export type CameraMode = 'free' | 'follow' | 'chase' | 'birdseye'
 
 export type PlanStatus = 'idle' | 'loading' | 'ready' | 'error'
 
+/**
+ * The scene shows one of two worlds: the satellites around a body (the Satellites and Mission
+ * tabs) or the asteroids around the Sun (the Asteroids tab). Each keeps its own scenario, plan
+ * and clock; switching tabs switches worlds and the other one waits in `stashed`.
+ */
+export type World = 'satellites' | 'asteroids'
+
+export interface WorldStash {
+  scenario: Scenario
+  t: number
+  playing: boolean
+  selectedId: string | null
+  plan: MissionPlan | null
+  planStatus: PlanStatus
+  planError: string | null
+  selectedLeg: number | null
+  cameraMode: CameraMode
+}
+
 export interface AppState {
   scenario: Scenario
+  world: World
+  stashed: Partial<Record<World, WorldStash>>
   /** Simulated seconds since the scenario epoch. */
   t: number
   playing: boolean
@@ -40,6 +61,8 @@ export interface AppState {
   selectedLeg: number | null
 
   loadScenario: (sc: Scenario) => void
+  /** Show the other world: the current one is stashed, the other restored (or started empty). */
+  switchWorld: (world: World) => void
   setBody: (bodyId: string) => void
   setEpoch: (iso: string) => void
   addSatellite: (s: Satellite, select?: boolean) => void
@@ -87,8 +110,15 @@ export function defaultScenario(): Scenario {
 let cameraSeq = 0
 let planSeq = 0
 
+/** The asteroid world before anything is generated: the Sun alone, at the papers' epoch. */
+function emptyAsteroidScenario(shared: { solver?: string; transfer?: Scenario['transfer'] }): Scenario {
+  return { bodyId: 'sun', epoch: '2121-01-01T00:00:00Z', satellites: [], spanSeconds: 8 * 365.25 * 86400, rate: 2592000, ...shared }
+}
+
 export const useStore = create<AppState>((set) => ({
   scenario: defaultScenario(),
+  world: 'satellites',
+  stashed: {},
   t: 0,
   playing: true,
   selectedId: null,
@@ -104,6 +134,21 @@ export const useStore = create<AppState>((set) => ({
   selectedLeg: null,
 
   loadScenario: (sc) => set({ scenario: sc, t: 0, selectedId: sc.satellites[0]?.id ?? null, plan: null, planStatus: 'idle', planError: null }),
+  switchWorld: (world) =>
+    set((s) => {
+      if (s.world === world) return {}
+      planSeq++ // a planner request still in flight belongs to the world being left
+      const stash: WorldStash = { scenario: s.scenario, t: s.t, playing: s.playing, selectedId: s.selectedId, plan: s.plan, planStatus: s.planStatus,
+                                  planError: s.planError, selectedLeg: s.selectedLeg, cameraMode: s.cameraMode }
+      const kept = s.stashed[world]
+      // the transfer and solver choices are the user's, not a world's: they travel across
+      const shared = { solver: s.scenario.solver, transfer: s.scenario.transfer }
+      const next: WorldStash = kept
+        ? { ...kept, scenario: { ...kept.scenario, ...shared } }
+        : { scenario: world === 'asteroids' ? emptyAsteroidScenario(shared) : { ...defaultScenario(), ...shared }, t: 0, playing: false, selectedId: null,
+            plan: null, planStatus: 'idle', planError: null, selectedLeg: null, cameraMode: 'free' }
+      return { ...next, world, stashed: { ...s.stashed, [s.world]: stash }, cameraRequest: { kind: world === 'asteroids' ? 'all' : 'reset', seq: ++cameraSeq } }
+    }),
   setBody: (bodyId) =>
     set((s) => {
       const oldBody = getBody(s.scenario.bodyId)
@@ -189,6 +234,12 @@ export const useStore = create<AppState>((set) => ({
   toggleBurnLabels: () => set((s) => ({ showBurnLabels: !s.showBurnLabels })),
   selectLeg: (leg) => set({ selectedLeg: leg }),
 }))
+
+/** How many satellites and stops the satellites world holds, whichever world is shown. */
+export function satellitesWorldCounts(s: AppState): { satellites: number; stops: number } {
+  const sc = s.world === 'satellites' ? s.scenario : s.stashed.satellites?.scenario
+  return { satellites: sc?.satellites.length ?? 0, stops: sc?.mission?.stops.length ?? 0 }
+}
 
 /** Store fields that reset whenever the scenario's physics changes under a plan. */
 const invalidPlan = { plan: null, planStatus: 'idle' as PlanStatus, planError: null, selectedLeg: null }

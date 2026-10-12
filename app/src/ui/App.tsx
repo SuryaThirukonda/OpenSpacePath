@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useStore } from '../store/store'
+import { satellitesWorldCounts, useStore } from '../store/store'
 import { scenarioToSearch } from '../url/urlState'
 import { BodySelector } from './BodySelector'
 import { CameraButtons } from './CameraButtons'
@@ -8,9 +8,10 @@ import { SatelliteForm } from './SatelliteForm'
 import { MissionPanel } from './MissionPanel'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
-import { IconCode, IconLogo, IconRoute, IconSatellite } from './icons'
+import { IconAsteroid, IconLogo, IconRoute, IconSatellite } from './icons'
 import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
+import { useArp } from '../arp/store'
 import { RoutingPanel } from './RoutingPanel'
 import { Viewport } from './Viewport'
 
@@ -50,9 +51,15 @@ function useKeys() {
 }
 
 function LeftTabs() {
-  const [tab, setTab] = useState<'satellites' | 'mission' | 'routing'>('satellites')
-  const sats = useStore((s) => s.scenario.satellites.length)
-  const stops = useStore((s) => s.scenario.mission?.stops.length ?? 0)
+  const [tab, select] = useState<'satellites' | 'mission' | 'routing'>('satellites')
+  const sats = useStore((s) => satellitesWorldCounts(s).satellites)
+  const stops = useStore((s) => satellitesWorldCounts(s).stops)
+  // the Satellites and Mission tabs look at the satellites world, the Asteroids tab at the asteroids
+  const setTab = (next: 'satellites' | 'mission' | 'routing') => {
+    select(next)
+    useStore.getState().switchWorld(next === 'routing' ? 'asteroids' : 'satellites')
+    if (next === 'routing') useArp.getState().enterWorld()
+  }
   return (
     <>
       <div className="tabs main-tabs" role="tablist">
@@ -63,7 +70,7 @@ function LeftTabs() {
           <IconRoute /> Mission {stops > 0 && <span className="pill">{stops}</span>}
         </button>
         <button role="tab" aria-selected={tab === 'routing'} className={tab === 'routing' ? 'tab active' : 'tab'} onClick={() => setTab('routing')}>
-          <IconCode /> Routing
+          <IconAsteroid /> Asteroids
         </button>
       </div>
       {tab === 'routing' ? (

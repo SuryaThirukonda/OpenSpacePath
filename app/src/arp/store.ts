@@ -96,6 +96,8 @@ export interface ArpState {
   generate: () => void
   importInstance: (text: string) => string | null
   showInstance: () => void
+  /** The Asteroids tab was opened: put its instance in the scene unless it is there already. */
+  enterWorld: () => void
   setSource: (source: string) => void
   choosePreset: (id: string) => void
   setBudget: (budget: number) => void
@@ -219,6 +221,10 @@ export const useArp = create<ArpState>((set, get) => ({
     const inst = get().instance
     if (inst) ensureScene(inst, true)
   },
+  enterWorld: () => {
+    const inst = get().instance
+    if (inst) ensureScene(inst)
+  },
   setSource: (source) => { set({ source, presetId: PRESETS.find((p) => p.source === source)?.id ?? 'custom' }); save(get()) },
   choosePreset: (id) => {
     const p = PRESETS.find((x) => x.id === id)
@@ -311,6 +317,7 @@ export const useArp = create<ArpState>((set, get) => ({
       }
       const { evaluation, plan } = (await res.json()) as { evaluation: ArpEvaluation; plan: MissionPlan }
       if (seq !== showSeq) return evaluation // a newer route is on its way
+      if (useStore.getState().world !== 'asteroids') return evaluation // the user has moved to the satellites; nothing to draw into
       ensureScene(inst)
       const now = useStore.getState()
       now.loadRoute(routeMission(inst, evaluation), plan)
@@ -432,6 +439,10 @@ export const useArp = create<ArpState>((set, get) => ({
       const { evaluation, plan } = (await res.json()) as { evaluation: ArpEvaluation; plan: MissionPlan }
       if (seq !== pathSeq) return
       const pinst = pathInstance(instance, path)
+      if (useStore.getState().world !== 'asteroids') {
+        set({ pathStatus: 'done', pathResult: evaluation, pathInstance: pinst })
+        return
+      }
       ensureScene(pinst)
       const now = useStore.getState()
       now.loadRoute(routeMission(pinst, evaluation), plan)

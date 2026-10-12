@@ -1,6 +1,6 @@
 # A standard format for asteroid routing algorithms (ARP-ALGORITHM 1)
 
-Date: 2026-10-05, updated 2026-10-08 (transfer modes and the Path section). Status: implemented in the Routing tab of Orbit Lab. This is the specification of the format and the record of why it is shaped this way. The same text, shortened, is shown in the tab under "Format reference"; the code is `app/src/arp/format.ts` (the check and the examples), `app/public/arp-worker.js` (the runner) and `api/arp.py` (the transfer black box).
+Date: 2026-10-05, updated 2026-10-08 (transfer modes and the Path section). Status: implemented in the Asteroids tab of Orbit Lab (named Routing until 2026-10-12). This is the specification of the format and the record of why it is shaped this way. The same text, shortened, is shown in the tab under "Format reference"; the code is `app/src/arp/format.ts` (the check and the examples), `app/public/arp-worker.js` (the runner) and `api/arp.py` (the transfer black box).
 
 ## 1. Purpose
 
