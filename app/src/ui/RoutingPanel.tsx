@@ -351,6 +351,7 @@ function RouteSummary({ instance, ev }: { instance: ArpInstance; ev: ArpEvaluati
       <p className="hint">f = delta-v + {(instance.timeWeight * 30).toFixed(1)} km/s per 30 days. Order: Earth, {ev.order.join(', ')}. {three ? 'Three burns per transfer' : 'Two burns per transfer'}, solver {ev.solver}.{compare ? ` The two-burn Lambert transfers at the same times would total ${lambert.toFixed(1)} km/s.` : ''}</p>
       {miss > 1e-4 && <p className="hint caution">With this solver the transfers miss their targets by up to {(100 * miss).toFixed(2)}% of the distance. Izzo (2015) and Gooding (1990) are exact.</p>}
       {notes.map((n, k) => <p key={k} className="hint caution">{n}</p>)}
+      <div className="table-scroll">
       <table className="kv legs-table">
         <thead><tr><th>leg</th><th>wait</th><th>flight</th><th>burns</th><th>delta-v</th>{compare && <th>2-burn</th>}<th>cost</th></tr></thead>
         <tbody>
@@ -364,6 +365,7 @@ function RouteSummary({ instance, ev }: { instance: ArpInstance; ev: ArpEvaluati
           ))}
         </tbody>
       </table>
+      </div>
     </>
   )
 }
