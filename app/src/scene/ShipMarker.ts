@@ -4,10 +4,9 @@
  */
 import * as THREE from 'three'
 import type { LaunchVehicle } from '../mission/types'
+import { Attitude, orientationFrom } from './attitude'
 import { buildSpacecraft, buildStack, SPACECRAFT_TAIL, type Model, type StackModel } from './models'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
-
-const FORWARD = new THREE.Vector3(0, 0, 1)
 
 export class ShipMarker {
   readonly group = new THREE.Group()
@@ -23,8 +22,10 @@ export class ShipMarker {
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
   private readonly labelAspect: number
-  private readonly q = new THREE.Quaternion()
+  private readonly attitude = new Attitude()
+  private readonly target = new THREE.Quaternion()
   private readonly heading = new THREE.Vector3(0, 0, 1)
+  private aimed = false
 
   constructor(name: string, color: string) {
     this.spacecraft = buildSpacecraft()
@@ -91,14 +92,28 @@ export class ShipMarker {
     }
   }
 
-  /** Position and heading in the parent's (inertial) local frame. */
-  setState(position: THREE.Vector3, velocity: THREE.Vector3): void {
+  /**
+   * Position in the parent's (inertial) frame, and where the nose should point: along `aim` when
+   * given (a burn is near), else along the velocity; `up` is the belly-down reference, away from
+   * the body. The ship turns there at a bounded rate over `dtMs` of wall time, or at once when
+   * `snap` (time jumped).
+   */
+  setState(position: THREE.Vector3, velocity: THREE.Vector3, aim: THREE.Vector3 | null, up: THREE.Vector3, dtMs: number, snap: boolean): void {
     this.group.position.copy(position)
-    if (velocity.lengthSq() > 0) {
-      this.heading.copy(velocity).normalize()
-      this.q.setFromUnitVectors(FORWARD, this.heading)
-      this.model.quaternion.copy(this.q)
+    const dir = aim && aim.lengthSq() > 0 ? aim : velocity
+    if (dir.lengthSq() > 0) {
+      orientationFrom(dir, up, this.target)
+      if (snap || !this.aimed) this.attitude.snap(this.target)
+      else this.attitude.advance(this.target, Math.min(dtMs, 100) / 1000)
+      this.aimed = true
     }
+    this.model.quaternion.copy(this.attitude.q)
+    this.attitude.forward(this.heading)
+  }
+
+  /** How far the nose still is from where it should point, radians; 0 once a slew is over. */
+  slewRemaining(): number {
+    return 2 * Math.acos(Math.min(1, Math.abs(this.attitude.q.dot(this.target))))
   }
 
   /**

@@ -35,12 +35,19 @@ interface Marker {
   position: THREE.Vector3
 }
 
+/** A coast drawn on its own: the samples [start, end) of the flat plan, split into flown and remaining. */
+interface Stretch {
+  start: number
+  end: number
+  flown: Line2
+  remaining: Line2
+  flownGeo: LineGeometry
+  remainingGeo: LineGeometry
+}
+
 export class MissionPath {
   readonly group = new THREE.Group()
-  private flown?: Line2
-  private remaining?: Line2
-  private flownGeo?: LineGeometry
-  private remainingGeo?: LineGeometry
+  private stretches: Stretch[] = []
   private flownMat?: LineMaterial
   private remainingMat?: LineMaterial
   private markers: Marker[] = []
@@ -64,27 +71,39 @@ export class MissionPath {
       if (flat.kind[i] === 1) c.multiplyScalar(0.7) // rides a little dimmer than coasts
       col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b
     }
-    if (n >= 2) {
-      const rpos = new Float32Array(3 * n)
-      const rcol = new Float32Array(3 * n)
-      for (let i = 0; i < n; i++) {
-        const j = n - 1 - i
-        rpos[3 * i] = pos[3 * j]; rpos[3 * i + 1] = pos[3 * j + 1]; rpos[3 * i + 2] = pos[3 * j + 2]
-        rcol[3 * i] = col[3 * j]; rcol[3 * i + 1] = col[3 * j + 1]; rcol[3 * i + 2] = col[3 * j + 2]
+    // the coasts, each as its own pair of lines (flown, remaining). Rides are not drawn: the ship
+    // keeps station with a body then, and the body's own orbit already shows where it goes
+    this.flownMat = makeLineMaterial({ vertexColors: true, width: 3, opacity: 1 })
+    this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.45, dashed: { dashSize: 0.35, gapSize: 0.22 } })
+    let start = 0
+    while (start < n) {
+      let end = start + 1
+      while (end < n && flat.kind[end] === flat.kind[start] && flat.leg[end] === flat.leg[start]) end++
+      if (flat.kind[start] !== 1 && end - start >= 2) {
+        const len = end - start
+        const fpos = pos.subarray(3 * start, 3 * end)
+        const fcol = col.subarray(3 * start, 3 * end)
+        const rpos = new Float32Array(3 * len)
+        const rcol = new Float32Array(3 * len)
+        for (let i = 0; i < len; i++) {
+          const j = len - 1 - i
+          rpos[3 * i] = fpos[3 * j]; rpos[3 * i + 1] = fpos[3 * j + 1]; rpos[3 * i + 2] = fpos[3 * j + 2]
+          rcol[3 * i] = fcol[3 * j]; rcol[3 * i + 1] = fcol[3 * j + 1]; rcol[3 * i + 2] = fcol[3 * j + 2]
+        }
+        const flownGeo = new LineGeometry()
+        flownGeo.setPositions(fpos)
+        flownGeo.setColors(fcol)
+        const remainingGeo = new LineGeometry()
+        remainingGeo.setPositions(rpos)
+        remainingGeo.setColors(rcol)
+        const flown = new Line2(flownGeo, this.flownMat)
+        const remaining = new Line2(remainingGeo, this.remainingMat)
+        remaining.computeLineDistances()
+        flown.frustumCulled = remaining.frustumCulled = false
+        this.group.add(flown, remaining)
+        this.stretches.push({ start, end, flown, remaining, flownGeo, remainingGeo })
       }
-      this.flownGeo = new LineGeometry()
-      this.flownGeo.setPositions(pos)
-      this.flownGeo.setColors(col)
-      this.remainingGeo = new LineGeometry()
-      this.remainingGeo.setPositions(rpos)
-      this.remainingGeo.setColors(rcol)
-      this.flownMat = makeLineMaterial({ vertexColors: true, width: 3, opacity: 1 })
-      this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.45, dashed: { dashSize: 0.35, gapSize: 0.22 } })
-      this.flown = new Line2(this.flownGeo, this.flownMat)
-      this.remaining = new Line2(this.remainingGeo, this.remainingMat)
-      this.remaining.computeLineDistances()
-      this.flown.frustumCulled = this.remaining.frustumCulled = false
-      this.group.add(this.flown, this.remaining)
+      start = end
     }
 
     // one bounding sphere per leg, for framing
@@ -156,20 +175,25 @@ export class MissionPath {
     this.markers.push({ t, leg, point, pointMat, label: sprite, labelAspect: aspect, position })
   }
 
-  /** Per-frame: split flown/remaining at t, dim passed markers, size labels. */
-  update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null },
+  /**
+   * Per-frame: split flown/remaining at t, size labels, and keep the clutter down: markers belong
+   * to the selected leg, or else to the leg in play (`currentLeg`); the others are dim and unlabelled.
+   */
+  update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null; currentLeg: number | null },
          cameraPos: THREE.Vector3, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3): void {
     if (!this.flat) return
-    if (this.flownGeo && this.remainingGeo && this.remaining) {
-      const k = flownCount(this.flat, t)
-      const counts = segmentCounts(this.flat.n, k)
-      this.flownGeo.instanceCount = counts.flown
-      this.remainingGeo.instanceCount = counts.remaining
-      this.remaining.visible = opts.showRemaining && counts.remaining > 0
+    const k = flownCount(this.flat, t)
+    for (const st of this.stretches) {
+      const len = st.end - st.start
+      const counts = segmentCounts(len, Math.min(Math.max(k - st.start, 0), len))
+      st.flownGeo.instanceCount = counts.flown
+      st.remainingGeo.instanceCount = counts.remaining
+      st.remaining.visible = opts.showRemaining && counts.remaining > 0
     }
+    const focus = opts.selectedLeg ?? opts.currentLeg
     for (const m of this.markers) {
       const passed = m.t <= t
-      const dim = opts.selectedLeg !== null && opts.selectedLeg !== m.leg
+      const dim = focus !== null && focus !== m.leg
       m.pointMat.opacity = (passed ? 0.35 : 1) * (dim ? 0.4 : 1)
       m.label.visible = opts.showLabels && !dim
       const h = 16 * worldPerPixel(cameraPos.distanceTo(toWorld(m.position.clone())), viewportHeight, fovRad)
@@ -198,9 +222,12 @@ export class MissionPath {
   }
 
   clear(): void {
-    for (const o of [this.flown, this.remaining]) if (o) this.group.remove(o)
-    this.flownGeo?.dispose()
-    this.remainingGeo?.dispose()
+    for (const st of this.stretches) {
+      this.group.remove(st.flown, st.remaining)
+      st.flownGeo.dispose()
+      st.remainingGeo.dispose()
+    }
+    this.stretches = []
     this.flownMat?.dispose()
     this.remainingMat?.dispose()
     for (const m of this.markers) {
@@ -214,7 +241,6 @@ export class MissionPath {
     this.legSpheres = []
     this.legViews = []
     this.ascent = null
-    this.flown = this.remaining = undefined
   }
 
   dispose(): void {

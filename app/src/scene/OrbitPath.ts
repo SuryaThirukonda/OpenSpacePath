@@ -9,6 +9,7 @@ import { makeLineMaterial } from './lines'
 
 const WIDTH = 2.4
 const WIDTH_SELECTED = 3.4
+const WIDTH_QUIET = 1.3
 
 export class OrbitPath {
   readonly line: Line2
@@ -44,9 +45,10 @@ export class OrbitPath {
     this.material.color.set(color)
   }
 
-  setEmphasis(selected: boolean, anySelected: boolean): void {
-    this.material.opacity = selected ? 1.0 : anySelected ? 0.3 : 0.8
-    this.material.linewidth = selected ? WIDTH_SELECTED : WIDTH
+  /** `quiet` draws the orbit thin and faint: a route is shown and this is not the body in play. */
+  setEmphasis(selected: boolean, anySelected: boolean, quiet = false): void {
+    this.material.opacity = selected ? 1.0 : anySelected ? 0.3 : quiet ? 0.28 : 0.8
+    this.material.linewidth = selected ? WIDTH_SELECTED : quiet ? WIDTH_QUIET : WIDTH
   }
 
   boundingSphere(): THREE.Sphere | null {

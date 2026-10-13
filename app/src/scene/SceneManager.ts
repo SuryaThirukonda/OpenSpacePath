@@ -10,7 +10,7 @@ import { getBody } from '../data/bodies'
 import { keplerPathSamples, keplerStateAt } from '../propagation/keplerPropagator'
 import { gmst, satrecFor, sgp4PathSamples, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
 import { flattenPlan, shipStateAt, type FlatPlan, type ShipState } from '../mission/state'
-import type { MissionPlan } from '../mission/types'
+import type { Burn, MissionPlan } from '../mission/types'
 import { epochMs, isRenderable, useStore, type AppState, type CameraMode } from '../store/store'
 import type { CentralBody, Satellite, StateVector } from '../types'
 import { InertialAxes } from './AxesHelper'
@@ -72,6 +72,10 @@ export class SceneManager {
   private insetAt = -Infinity
   /** In a close view, the satellite the ship is heading for and the ship's size on screen. */
   private companionId: string | null = null
+  /** the body the ship is with or heading for; the other orbits are drawn quietly while a route is shown */
+  private focusId: string | null = null
+  private readonly aim = new THREE.Vector3()
+  private readonly upRef = new THREE.Vector3()
   private shipPixelsPerUnit = 0
   private readonly scratch = new THREE.Vector3()
 
@@ -243,7 +247,8 @@ export class SceneManager {
         }
       }
       const selected = sat.id === s.selectedId
-      v.path.setEmphasis(selected, anySelected)
+      const quiet = s.plan !== null && this.focusId !== null && sat.id !== this.focusId
+      v.path.setEmphasis(selected, anySelected, quiet)
       v.marker.setEmphasis(selected, anySelected)
       v.marker.setLabelVisible(s.showLabels)
     }
@@ -393,13 +398,21 @@ export class SceneManager {
     if (!s.plan || !this.flat || !this.ship) {
       this.prevT = s.t
       this.companionId = null
+      this.focusId = null
       return
     }
     const st = shipStateAt(this.flat, s.t)
     if (!st) return
     const pos = kmToScene(st.r)
     const vel = new THREE.Vector3(st.v.x, st.v.y, st.v.z)
-    this.ship.setState(pos, vel)
+    // ease the managed cameras only while time flows; a scrub or a jump snaps them
+    const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
+    const continuous = Number.isFinite(this.prevT) && Math.abs(s.t - this.prevT) <= maxStep
+    // the nose points along the next burn while one is near, else along the flight; belly to the body
+    const burn = this.burnNear(s.plan, s.t)
+    const aim = burn ? this.aim.set(burn.dv[0], burn.dv[1], burn.dv[2]) : null
+    this.upRef.copy(pos).normalize()
+    this.ship.setState(pos, vel, aim, this.upRef, dtMs, !continuous)
     this.ship.setLabelVisible(s.showLabels)
     // the launch vehicle sheds a stage at each separation; once in orbit the spacecraft flies on
     const dropped = s.plan.launch ? s.plan.launch.events.filter((e) => e.label.includes('separation') && e.t <= s.t).length : 0
@@ -408,9 +421,6 @@ export class SceneManager {
     const worldPos = this.inertial.localToWorld(pos.clone())
     const fov = (this.camera.fov * Math.PI) / 180
     const h = this.container.clientHeight || 1
-    // ease the managed cameras only while time flows; a scrub or a jump snaps them
-    const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
-    const continuous = Number.isFinite(this.prevT) && Math.abs(s.t - this.prevT) <= maxStep
     if (!continuous) this.chaseReady = this.birdReady = false
     if (this.managedCamera && mode === 'chase') this.chaseCamera(st, worldPos, vel, dtMs)
     else if (this.managedCamera) this.birdsEyeCamera(st, nowMs, dtMs, fov)
@@ -425,9 +435,11 @@ export class SceneManager {
     const ridingWith = st.kind !== 'ride' ? null
       : s.plan.prelude && s.t <= s.plan.prelude.t1 ? s.plan.prelude.satelliteId
       : (s.plan.legs[st.leg]?.ride?.satelliteId ?? null)
-    this.companionId = this.managedCamera ? ridingWith : null
+    // only the chase view, which sits next to the ship, draws that body at the ship's scale
+    this.companionId = this.managedCamera && mode === 'chase' ? ridingWith : null
+    this.focusId = ridingWith ?? s.scenario.mission?.stops[st.leg]?.satelliteId ?? null
     this.shipPixelsPerUnit = 15 * shipScale
-    this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg },
+    this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg, currentLeg: st.outside ? null : st.leg },
       this.camera.position, h, fov, (v) => this.inertial.localToWorld(v))
 
     // burns: fire when the clock crosses one while playing, not when scrubbing across it
@@ -452,6 +464,25 @@ export class SceneManager {
     this.prevT = s.t
     this.ship.exhaustPosition(this.burnEffect.group.position)
     this.burnEffect.update(nowMs, dist * shipScale, h, fov)
+  }
+
+  /**
+   * The burn the ship should be pointing at: one within its window around `t`, the window being a
+   * share of the leg's flight time before the burn (turning to it) and after (turning back).
+   */
+  private burnNear(plan: MissionPlan, t: number): Burn | null {
+    let best: Burn | null = null
+    let bestGap = Infinity
+    for (const leg of plan.legs) {
+      const pre = 0.06 * Math.max(leg.tof, 1)
+      const post = 0.04 * Math.max(leg.tof, 1)
+      for (const b of leg.burns) {
+        if (t < b.t - pre || t > b.t + post || b.magnitude <= 0) continue
+        const gap = Math.abs(t - b.t)
+        if (gap < bestGap) { best = b; bestGap = gap }
+      }
+    }
+    return best
   }
 
   /** Follow: keep the ship at the controls' target while it coasts and carry the camera along; the user can still orbit and zoom. */
