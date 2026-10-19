@@ -42,7 +42,7 @@ def load_harness(events):
 def presets():
     ts = (ROOT / "app/src/arp/format.ts").read_text()
     out = {}
-    for ident, body in re.findall(r"\{ id: '([a-z-]+)', label: '[^']*', paper: (?:1|2|null), source: `((?:[^`\\]|\\.)*)` \}", ts):
+    for ident, body in re.findall(r"\{ id: '([a-z-]+)', label: '[^']*', paper: (?:1|2), source: `((?:[^`\\]|\\.)*)` \}", ts):
         out[ident] = body.replace("\\`", "`").replace("\\${", "${").replace("\\\\", "\\")
     return out
 
@@ -58,7 +58,7 @@ PRESETS = presets()
 
 
 def test_all_presets_are_found():
-    assert set(PRESETS) == {"greedy-nn", "random", "restricted-dd", "peel-and-bound", "greedy-cost", "local", "exhaustive"}
+    assert set(PRESETS) == {"greedy-nn", "random", "restricted-dd", "peel-and-bound"}
 
 
 @pytest.mark.parametrize("ident", sorted(PRESETS))

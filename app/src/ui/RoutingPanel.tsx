@@ -1,6 +1,5 @@
 import { useRef, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react'
-import { ALGORITHM_EDITOR } from '../arp/config'
-import { FORMAT_NAME, FORMAT_REFERENCE, FORMAT_VERSION, PAPER_PRESETS, PAPERS, parseAlgorithm, PRESETS } from '../arp/format'
+import { FORMAT_NAME, FORMAT_REFERENCE, FORMAT_VERSION, PAPER_PRESETS, PAPERS, parseAlgorithm } from '../arp/format'
 import { AU_KM } from '../arp/instance'
 import { DEG, orbitProblems, parsePath, PATH_FORMAT_NAME, PATH_FORMAT_REFERENCE, PATH_FORMAT_VERSION, pathProblems, pathText, type PathEntry } from '../arp/path'
 import { useArp } from '../arp/store'
@@ -190,52 +189,35 @@ export function RoutingPanel() {
       </Section>
 
       <Section title="Algorithm" summary={header.name}>
-        {ALGORITHM_EDITOR ? (
-          <>
-            <label className="field"><span>start from</span>
-              <select value={presetId} onChange={(e) => actions.choosePreset(e.target.value)} disabled={busy}>
-                {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                {presetId === 'custom' && <option value="custom">your own</option>}
-              </select>
-            </label>
-            <textarea
-              className="code" value={source} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={16}
-              aria-label="algorithm source, Python" onChange={(e) => actions.setSource(e.target.value)} onKeyDown={onEditorKey} readOnly={busy}
-            />
-            {header.ok
-              ? <p className="format ok">Valid {FORMAT_NAME} {FORMAT_VERSION}: “{header.name}”</p>
-              : <div className="format bad">{header.errors.map((m, k) => <p key={k}>{m}</p>)}</div>}
-          </>
-        ) : (
-          <>
-            <label className="field"><span>algorithm</span>
-              <select value={presetId} onChange={(e) => actions.choosePreset(e.target.value)} disabled={busy}>
-                {([1, 2] as const).map((paper) => (
-                  <optgroup key={paper} label={PAPERS[paper]}>
-                    {PAPER_PRESETS.filter((p) => p.paper === paper).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-            <p className="hint">{header.fields.description}{header.fields.source ? ` From ${header.fields.source}.` : ''}</p>
-          </>
-        )}
+        <label className="field"><span>start from</span>
+          <select value={presetId} onChange={(e) => actions.choosePreset(e.target.value)} disabled={busy}>
+            {([1, 2] as const).map((paper) => (
+              <optgroup key={paper} label={PAPERS[paper]}>
+                {PAPER_PRESETS.filter((p) => p.paper === paper).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </optgroup>
+            ))}
+            {presetId === 'custom' && <option value="custom">your own</option>}
+          </select>
+        </label>
+        <textarea
+          className="code" value={source} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={16}
+          aria-label="algorithm source, Python" onChange={(e) => actions.setSource(e.target.value)} onKeyDown={onEditorKey} readOnly={busy}
+        />
+        {header.ok
+          ? <p className="format ok">Valid {FORMAT_NAME} {FORMAT_VERSION}: “{header.name}”</p>
+          : <div className="format bad">{header.errors.map((m, k) => <p key={k}>{m}</p>)}</div>}
         <div className="grid2">
           <label className="field"><span>budget, route evaluations</span><input type="number" min={1} max={2000} value={budget} onChange={(e) => actions.setBudget(num(e.target.value, budget))} disabled={busy} /></label>
           <label className="field"><span>random seed</span><input type="number" value={seed} onChange={(e) => actions.setSeed(num(e.target.value, seed))} disabled={busy} /></label>
         </div>
-        {ALGORITHM_EDITOR && (
-          <>
-            <div className="row">
-              <button onClick={() => sourceFile.current?.click()} disabled={busy}>Open .py</button>
-              <button onClick={() => download(`${header.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'algorithm'}.py`, source, 'text/x-python')}>Save .py</button>
-              <input ref={sourceFile} type="file" accept=".py,text/x-python,text/plain" hidden onChange={(e) => readFile(e, actions.setSource)} />
-            </div>
-            <Section title="Format reference" defaultOpen={false}>
-              <pre className="reference">{FORMAT_REFERENCE}</pre>
-            </Section>
-          </>
-        )}
+        <div className="row">
+          <button onClick={() => sourceFile.current?.click()} disabled={busy}>Open .py</button>
+          <button onClick={() => download(`${header.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'algorithm'}.py`, source, 'text/x-python')}>Save .py</button>
+          <input ref={sourceFile} type="file" accept=".py,text/x-python,text/plain" hidden onChange={(e) => readFile(e, actions.setSource)} />
+        </div>
+        <Section title="Format reference" defaultOpen={false}>
+          <pre className="reference">{FORMAT_REFERENCE}</pre>
+        </Section>
       </Section>
 
       <div className="plan-bar">

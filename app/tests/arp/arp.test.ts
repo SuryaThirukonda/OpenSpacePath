@@ -91,7 +91,7 @@ describe('the algorithm format', () => {
   const ok = '"""ARP-ALGORITHM 1\nname: Mine\n"""\n\ndef solve(problem, tools):\n    return []\n'
 
   it('accepts every preset and reads its name', () => {
-    expect(PRESETS.length).toBeGreaterThanOrEqual(5)
+    expect(PRESETS.length).toBe(4)
     for (const p of PRESETS) {
       const h = parseAlgorithm(p.source)
       expect(h.errors).toEqual([])

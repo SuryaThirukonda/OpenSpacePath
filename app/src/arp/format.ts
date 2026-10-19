@@ -45,8 +45,8 @@ export function parseAlgorithm(source: string): AlgorithmHeader {
 export interface Preset {
   id: string
   label: string
-  /** which paper the algorithm comes from; null for the extra examples */
-  paper: 1 | 2 | null
+  /** which paper the algorithm comes from */
+  paper: 1 | 2
   source: string
 }
 
@@ -55,7 +55,7 @@ export const PAPERS: Record<1 | 2, string> = {
   2: 'Rudich, López-Ibáñez, Römer, Cappart and Rousseau (2024)',
 }
 
-/** Starting points, each a complete algorithm in the format: two from each paper, then extra examples. */
+/** The algorithms of the two papers, two from each, each a complete file in the format and a starting point for your own. */
 export const PRESETS: Preset[] = [
   { id: 'greedy-nn', label: 'Greedy nearest neighbour (paper 1, Algorithm 1)', paper: 1, source: `"""ARP-ALGORITHM 1
 name: Greedy nearest neighbour
@@ -241,85 +241,10 @@ def solve(problem, tools):
         tools.log("every other route was bounded away: %.2f is optimal within the relaxed bounds" % best_cost)
     return best
 ` },
-  { id: 'greedy-cost', label: 'Greedy cheapest transfer', paper: null, source: `"""ARP-ALGORITHM 1
-name: Greedy cheapest transfer
-description: At each step ask the black box for the transfer to every unvisited asteroid and take the cheapest.
-"""
-
-
-def solve(problem, tools):
-    here, eta = 0, 0.0
-    unvisited = list(range(1, problem.n + 1))
-    order = []
-    while unvisited:
-        options = [(tools.transfer(here, a, eta), a) for a in unvisited]
-        (tau, t, z), nxt = min(options, key=lambda option: option[0].z)
-        eta += tau + t
-        unvisited.remove(nxt)
-        order.append(nxt)
-        here = nxt
-        tools.report(order, "cheapest cost %.2f" % z)
-    return order
-` },
-  { id: 'local', label: 'Greedy + swap local search', paper: null, source: `"""ARP-ALGORITHM 1
-name: Greedy start, then swap local search
-description: Start from the nearest-neighbour route and keep any swap of two asteroids that lowers the cost.
-"""
-
-
-def nearest_neighbour(problem, tools):
-    here, eta = 0, 0.0
-    unvisited = list(range(1, problem.n + 1))
-    order = []
-    while unvisited:
-        nxt = min(unvisited, key=lambda a: tools.distance(here, a, eta))
-        tau, t, z = tools.transfer(here, nxt, eta)
-        eta += tau + t
-        unvisited.remove(nxt)
-        order.append(nxt)
-        here = nxt
-    return order
-
-
-def solve(problem, tools):
-    order = nearest_neighbour(problem, tools)
-    best = tools.evaluate(order).cost
-    improved = True
-    while improved:
-        improved = False
-        for i in range(problem.n - 1):
-            for j in range(i + 1, problem.n):
-                if tools.evaluations >= tools.budget:
-                    return order
-                candidate = order[:]
-                candidate[i], candidate[j] = candidate[j], candidate[i]
-                cost = tools.evaluate(candidate).cost
-                if cost < best:
-                    order, best, improved = candidate, cost, True
-    return order
-` },
-  { id: 'exhaustive', label: 'Exhaustive (small instances)', paper: null, source: `"""ARP-ALGORITHM 1
-name: Exhaustive search
-description: Evaluate every order. Exact for the inner optimizer in use, and only practical up to about six asteroids (720 orders).
-"""
-from itertools import permutations
-
-
-def solve(problem, tools):
-    best, best_cost = None, float("inf")
-    for order in permutations(range(1, problem.n + 1)):
-        if tools.evaluations >= tools.budget:
-            tools.log("budget used before every order was tried")
-            break
-        cost = tools.evaluate(list(order)).cost
-        if cost < best_cost:
-            best, best_cost = list(order), cost
-    return best
-` },
 ]
 
-/** The algorithms of the two papers, two from each: what the tab offers unless the editor is switched on. */
-export const PAPER_PRESETS: Preset[] = PRESETS.filter((p) => p.paper !== null)
+/** The same list, under the name the panel uses when it groups the menu by paper. */
+export const PAPER_PRESETS: Preset[] = PRESETS
 
 /** The interface an algorithm is written against, as shown in the panel. */
 export const FORMAT_REFERENCE = `An algorithm is one Python file in this shape.

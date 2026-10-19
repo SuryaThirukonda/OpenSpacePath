@@ -440,7 +440,7 @@ export class SceneManager {
     this.focusId = ridingWith ?? s.scenario.mission?.stops[st.leg]?.satelliteId ?? null
     this.shipPixelsPerUnit = 15 * shipScale
     this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg, currentLeg: st.outside ? null : st.leg },
-      this.camera.position, h, fov, (v) => this.inertial.localToWorld(v))
+      this.camera, this.container.clientWidth || 1, h, fov, (v) => this.inertial.localToWorld(v))
 
     // burns: fire when the clock crosses one while playing, not when scrubbing across it
     if (Number.isFinite(this.prevT) && s.playing && s.t > this.prevT && s.t - this.prevT <= maxStep) {

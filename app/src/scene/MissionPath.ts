@@ -153,7 +153,7 @@ export class MissionPath {
         const s = leg.ride.samples
         const mid = s.r[Math.floor(s.r.length / 2)]
         const wait = leg.ride.t1 - leg.ride.t0
-        const txt = wait >= 3600 ? `wait ${(wait / 3600).toFixed(1)} h` : `wait ${(wait / 60).toFixed(0)} min`
+        const txt = wait >= 2 * 86400 ? `wait ${(wait / 86400).toFixed(wait >= 10 * 86400 ? 0 : 1)} d` : wait >= 3600 ? `wait ${(wait / 3600).toFixed(1)} h` : `wait ${(wait / 60).toFixed(0)} min`
         this.addMarker((leg.ride.t0 + leg.ride.t1) / 2, k, kmToScene({ x: mid[0], y: mid[1], z: mid[2] }), txt, color, false)
       }
     })
@@ -180,8 +180,9 @@ export class MissionPath {
    * to the selected leg, or else to the leg in play (`currentLeg`); the others are dim and unlabelled.
    */
   update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null; currentLeg: number | null },
-         cameraPos: THREE.Vector3, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3): void {
+         camera: THREE.PerspectiveCamera, viewportWidth: number, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3): void {
     if (!this.flat) return
+    const cameraPos = camera.position
     const k = flownCount(this.flat, t)
     for (const st of this.stretches) {
       const len = st.end - st.start
@@ -191,14 +192,35 @@ export class MissionPath {
       st.remaining.visible = opts.showRemaining && counts.remaining > 0
     }
     const focus = opts.selectedLeg ?? opts.currentLeg
+    const shown: Array<{ m: Marker; x: number; y: number; w: number }> = []
     for (const m of this.markers) {
       const passed = m.t <= t
       const dim = focus !== null && focus !== m.leg
       m.pointMat.opacity = (passed ? 0.35 : 1) * (dim ? 0.4 : 1)
       m.label.visible = opts.showLabels && !dim
-      const h = 16 * worldPerPixel(cameraPos.distanceTo(toWorld(m.position.clone())), viewportHeight, fovRad)
+      const world = toWorld(m.position.clone())
+      const h = 16 * worldPerPixel(cameraPos.distanceTo(world), viewportHeight, fovRad)
       m.label.scale.set(h * m.labelAspect, h, 1)
       ;(m.label.material as THREE.SpriteMaterial).opacity = passed ? 0.55 : 0.95
+      m.label.center.set(-0.08, 0.5)
+      if (m.label.visible) {
+        const p = world.project(camera)
+        if (p.z < 1) shown.push({ m, x: ((p.x + 1) / 2) * viewportWidth, y: ((1 - p.y) / 2) * viewportHeight, w: 16 * m.labelAspect })
+      }
+    }
+    // labels that would land on top of each other stack upwards, in time order, so each stays readable
+    shown.sort((a, b) => a.m.t - b.m.t)
+    const placed: Array<{ x: number; y: number; w: number }> = []
+    for (const s of shown) {
+      let row = 0
+      for (let tries = 0; tries < 6; tries++) {
+        const y = s.y - row * 18
+        const hit = placed.some((p) => Math.abs(p.x - s.x) < (p.w + s.w) / 2 && Math.abs(p.y - y) < 17)
+        if (!hit) break
+        row++
+      }
+      s.m.label.center.set(-0.08, 0.5 - row * 1.12)
+      placed.push({ x: s.x, y: s.y - row * 18, w: s.w })
     }
   }
 

@@ -126,11 +126,7 @@ Python was chosen because both papers' reference implementations and the transfe
 | Peel-and-Bound (paper 2, Algorithm 4) | shipped in a compact form: the restricted diagram gives the first route, then the exact diagram is explored depth first, each node peeled in turn and every child dropped whose exact cost so far plus the relaxed cost to go cannot beat the best route. Node splitting, constraint propagation and the phase-two bound strengthening of the paper are not reproduced. It stops after budget × n transfers and says whether the result is proven optimal within the bounds. |
 | UMM, CEGO (paper 1) | fit as written: samplers or surrogate models over permutations that call `tools.evaluate`; `numpy` and `scipy` are available. Not shipped. |
 
-Without the algorithm editor (section 6.1) these four are the only choices. With it, three more examples are included as starting points: greedy by cheapest transfer, greedy start with a swap local search, and exhaustive search for small instances.
-
-### 6.1 The algorithm editor is a build switch
-
-The text box, the file buttons, the format reference and the extra examples appear only when the app is built or served with `VITE_ALGORITHM_EDITOR=true` (a `.env` file in `app/`, the shell, or the Vercel project's environment). Off, which is the default and what the public site runs, the Algorithm section is a menu of the four paper algorithms above with a one-line description; no code is shown or typed, and an algorithm saved in the browser from an editor session is replaced by the first paper algorithm.
+These four are the only algorithms shipped; each is a complete file in the format, shown in the editor as a starting point for writing your own (since 2026-10-19 the editor is always present; an earlier build switch, `VITE_ALGORITHM_EDITOR`, is gone, as are three extra examples that were not from the papers).
 
 ### 6.2 The relaxed transfer is always two-burn
 

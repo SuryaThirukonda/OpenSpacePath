@@ -8,8 +8,7 @@ import { create } from 'zustand'
 import { DEFAULT_SOLVER } from '../mission/api'
 import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from '../mission/types'
 import { useStore } from '../store/store'
-import { ALGORITHM_EDITOR } from './config'
-import { PAPER_PRESETS, parseAlgorithm, PRESETS } from './format'
+import { parseAlgorithm, PRESETS } from './format'
 import { generateInstance, instanceToScenario, parseInstance } from './instance'
 import { customAsteroid, defaultSchedule, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, syncInstance, withOrbit, type PathEntry, type PathPlan } from './path'
 import type { OrbitalElements } from '../types'
@@ -162,13 +161,8 @@ function ensureScene(inst: ArpInstance, force = false): void {
 const saved = load()
 const firstPreset = PRESETS[0]
 
-/** The algorithm the tab starts with: what was saved, unless the editor is off and that was not one of the papers'. */
-function initialAlgorithm(): { presetId: string; source: string } {
-  if (ALGORITHM_EDITOR) return { presetId: saved.presetId ?? firstPreset.id, source: saved.source ?? firstPreset.source }
-  const allowed = PAPER_PRESETS.find((p) => p.id === saved.presetId) ?? PAPER_PRESETS[0]
-  return { presetId: allowed.id, source: allowed.source }
-}
-const initial = initialAlgorithm()
+/** The algorithm the tab starts with: what was being edited last time, else the first paper's first. */
+const initial = { presetId: saved.presetId ?? firstPreset.id, source: saved.source ?? firstPreset.source }
 
 export const useArp = create<ArpState>((set, get) => ({
   instance: saved.instance ?? null,
