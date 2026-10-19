@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { IconMinus, IconPlus } from './icons'
 import { ScrollArea } from './ScrollArea'
+import { applySideWidth, WIDTH_KEY } from './sideWidth'
 
 interface Props {
   /** Layout class: left, right, bottom. */
@@ -32,8 +33,47 @@ export function Panel({ position, title, icon, defaultOpen = true, children }: P
     return () => observer.disconnect()
   }, [position])
 
+  // the left panel's right edge is a handle: drag to widen or narrow it, double-click to reset
+  const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const el = ref.current
+    if (!el) return
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = el.getBoundingClientRect().width
+    const handle = e.currentTarget
+    handle.setPointerCapture(e.pointerId)
+    document.body.classList.add('resizing-side')
+    const move = (ev: PointerEvent) => applySideWidth(startW + ev.clientX - startX)
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      document.body.classList.remove('resizing-side')
+      try {
+        localStorage.setItem(WIDTH_KEY, String(Math.round(el.getBoundingClientRect().width)))
+      } catch {
+        // not persisted; the width still holds for this visit
+      }
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  }
+  const onResizeReset = () => {
+    applySideWidth(null)
+    try {
+      localStorage.removeItem(WIDTH_KEY)
+    } catch {
+      // nothing to forget
+    }
+  }
+
   return (
     <div ref={ref} className={`panel ${position}${open ? '' : ' collapsed'}`}>
+      {position === 'left' && open && (
+        <div className="panel-resize" role="separator" aria-orientation="vertical" aria-label="resize the dashboard" title="Drag to resize, double-click to reset"
+          onPointerDown={onResizeStart} onDoubleClick={onResizeReset} />
+      )}
       <div className="panel-header">
         <span className="panel-title">{icon}{title}</span>
         <button className="icon collapse" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={open ? `collapse ${title}` : `expand ${title}`}>

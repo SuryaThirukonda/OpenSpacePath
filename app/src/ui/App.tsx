@@ -10,6 +10,7 @@ import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
 import { IconAsteroid, IconLogo, IconRoute, IconSatellite } from './icons'
 import { isNarrowScreen } from './layout'
+import { restoreSideWidth } from './sideWidth'
 import { Panel } from './Panel'
 import { useArp } from '../arp/store'
 import { RoutingPanel } from './RoutingPanel'
@@ -92,6 +93,7 @@ function LeftTabs() {
 export function App() {
   useUrlSync()
   useKeys()
+  useEffect(() => restoreSideWidth(), [])
   return (
     <div className="app">
       <Viewport />
