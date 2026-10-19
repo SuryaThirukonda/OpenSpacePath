@@ -108,7 +108,10 @@ export function buildSpacecraft(): Model {
   b.tube(4.3, 4.8, 0.55, 0.55, grey, g)                        // docking adapter
   for (let k = 0; k < 4; k++) {
     const a = Math.PI / 4 + (k * Math.PI) / 2
-    b.box(1.0, 0.16, 0.16, 2.55, 0, -2.6, grey, g, a)          // array yoke
+    // the structure that carries each wing is drawn stout: a thin yoke vanished at the ship's size
+    // on screen and the panels seemed to float free of the body, and to drift as the ship turned
+    b.box(1.1, 0.5, 0.5, 2.55, 0, -2.6, white, g, a)           // array yoke
+    b.box(7.3, 0.3, 0.3, 6.45, 0, -2.78, grey, g, a)            // the boom the panels hang from
     for (let p = 0; p < 3; p++) b.box(2.2, 1.9, 0.06, 4.2 + 2.35 * p, 0, -2.6, solar, g, a) // three panels per wing
     b.box(0.42, 0.42, 0.42, 2.2, 0, -0.9, grey, g, (k * Math.PI) / 2) // reaction-control quad
   }

@@ -10,7 +10,7 @@ import { DEFAULT_EPOCH, PRESETS, satelliteFromPreset } from '../data/presets'
 import { emptyMission } from '../data/ships'
 import { satrecFor, sgp4Period } from '../propagation/sgp4Propagator'
 import { planMission } from '../mission/api'
-import type { MissionInput, MissionPlan, TransferMode } from '../mission/types'
+import { planStart, type MissionInput, type MissionPlan, type TransferMode } from '../mission/types'
 import type { Satellite, Scenario } from '../types'
 
 export type CameraRequestKind = 'body' | 'orbit' | 'reset' | 'ship' | 'all'
@@ -222,7 +222,10 @@ export const useStore = create<AppState>((set) => ({
     try {
       const plan = await planMission(s.scenario, mission)
       if (seq !== planSeq) return // a newer request superseded this one
-      set({ plan, planStatus: 'ready', planError: null, selectedLeg: null })
+      // a timeline shorter than the tour would wrap the clock, and the ship, back to the start mid-flight
+      const end = planStart(plan, mission.startT) + plan.totalTime
+      set((st) => ({ plan, planStatus: 'ready', planError: null, selectedLeg: null,
+                     scenario: st.scenario.spanSeconds < end ? { ...st.scenario, spanSeconds: end } : st.scenario }))
     } catch (e) {
       if (seq !== planSeq) return
       set({ plan: null, planStatus: 'error', planError: (e as Error).message })

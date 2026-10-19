@@ -24,6 +24,49 @@ export interface FlatPlan {
   tEnd: number
 }
 
+/**
+ * The largest angle at the central body between consecutive samples, about 1.2 degrees, so a
+ * revolution is drawn as a 300-gon. The planner samples each coast at a fixed count, which is
+ * sparse on a coast that circles the body several times: drawn as is, every lap was a different
+ * polygon and the path looked like a bundle of strands. Sub-samples come from the same cubic
+ * Hermite interpolation that places the ship, so the line passes through every position it takes.
+ */
+export const MAX_SAMPLE_ANGLE = (1.2 * Math.PI) / 180
+const MAX_SPLIT = 32
+
+/** How many pieces the interval between two samples is drawn in, from the angle it spans at the body. */
+export function splitCount(r0: ArrayLike<number>, r1: ArrayLike<number>, dt: number): number {
+  if (!(dt > 0)) return 1
+  const a0 = Math.hypot(r0[0], r0[1], r0[2])
+  const a1 = Math.hypot(r1[0], r1[1], r1[2])
+  if (a0 === 0 || a1 === 0) return 1
+  const c = (r0[0] * r1[0] + r0[1] * r1[1] + r0[2] * r1[2]) / (a0 * a1)
+  const angle = Math.acos(Math.min(1, Math.max(-1, c)))
+  return Math.min(MAX_SPLIT, Math.max(1, Math.ceil(angle / MAX_SAMPLE_ANGLE)))
+}
+
+/** Cubic Hermite between two states a time dt apart, at the fraction s of the way; position and velocity. */
+function hermite(p0: ArrayLike<number>, v0: ArrayLike<number>, p1: ArrayLike<number>, v1: ArrayLike<number>, dt: number, s: number): { r: number[]; v: number[] } {
+  const s2 = s * s
+  const s3 = s2 * s
+  const h00 = 2 * s3 - 3 * s2 + 1
+  const h10 = s3 - 2 * s2 + s
+  const h01 = -2 * s3 + 3 * s2
+  const h11 = s3 - s2
+  const d00 = 6 * s2 - 6 * s
+  const d10 = 3 * s2 - 4 * s + 1
+  const d01 = -6 * s2 + 6 * s
+  const d11 = 3 * s2 - 2 * s
+  const r = [0, 0, 0]
+  const v = [0, 0, 0]
+  for (let a = 0; a < 3; a++) {
+    const m0 = v0[a] * dt, m1 = v1[a] * dt
+    r[a] = h00 * p0[a] + h10 * m0 + h01 * p1[a] + h11 * m1
+    v[a] = (d00 * p0[a] + d10 * m0 + d01 * p1[a] + d11 * m1) / dt
+  }
+  return { r, v }
+}
+
 export function flattenPlan(plan: MissionPlan): FlatPlan {
   const parts: Array<{ t: number[]; r: number[][]; v: number[][]; leg: number; kind: 0 | 1 | 2 }> = []
   if (plan.launch && plan.launch.samples.t.length > 0) parts.push({ ...plan.launch.samples, leg: 0, kind: 2 })
@@ -32,29 +75,34 @@ export function flattenPlan(plan: MissionPlan): FlatPlan {
     for (const arc of leg.arcs) parts.push({ ...arc.samples, leg: k, kind: 0 })
     if (leg.ride && leg.ride.samples.t.length > 0) parts.push({ ...leg.ride.samples, leg: k, kind: 1 })
   })
-  const n = parts.reduce((s, p) => s + p.t.length, 0)
-  const out: FlatPlan = {
-    n, t: new Float64Array(n), r: new Float64Array(3 * n), v: new Float64Array(3 * n),
-    leg: new Uint16Array(n), kind: new Uint8Array(n), legStart: [], tStart: 0, tEnd: 0,
+  const t: number[] = [], r: number[] = [], v: number[] = [], leg: number[] = [], kind: number[] = []
+  const legStart: number[] = []
+  const push = (tt: number, rr: ArrayLike<number>, vv: ArrayLike<number>, lg: number, kd: number): void => {
+    t.push(tt); r.push(rr[0], rr[1], rr[2]); v.push(vv[0], vv[1], vv[2]); leg.push(lg); kind.push(kd)
   }
-  let i = 0
   let lastLeg = -1
   for (const p of parts) {
     if (p.leg !== lastLeg) {
-      out.legStart.push(i)
+      legStart.push(t.length)
       lastLeg = p.leg
     }
-    for (let k = 0; k < p.t.length; k++, i++) {
-      out.t[i] = p.t[k]
-      out.r[3 * i] = p.r[k][0]; out.r[3 * i + 1] = p.r[k][1]; out.r[3 * i + 2] = p.r[k][2]
-      out.v[3 * i] = p.v[k][0]; out.v[3 * i + 1] = p.v[k][1]; out.v[3 * i + 2] = p.v[k][2]
-      out.leg[i] = p.leg
-      out.kind[i] = p.kind
+    for (let k = 0; k < p.t.length; k++) {
+      push(p.t[k], p.r[k], p.v[k], p.leg, p.kind)
+      if (k + 1 >= p.t.length) continue
+      const dt = p.t[k + 1] - p.t[k]
+      const m = splitCount(p.r[k], p.r[k + 1], dt)
+      for (let q = 1; q < m; q++) {
+        const s = q / m
+        const h = hermite(p.r[k], p.v[k], p.r[k + 1], p.v[k + 1], dt, s)
+        push(p.t[k] + s * dt, h.r, h.v, p.leg, p.kind)
+      }
     }
   }
-  out.tStart = n ? out.t[0] : 0
-  out.tEnd = n ? out.t[n - 1] : 0
-  return out
+  const n = t.length
+  return {
+    n, t: Float64Array.from(t), r: Float64Array.from(r), v: Float64Array.from(v),
+    leg: Uint16Array.from(leg), kind: Uint8Array.from(kind), legStart, tStart: n ? t[0] : 0, tEnd: n ? t[n - 1] : 0,
+  }
 }
 
 /** Index of the last sample with time <= t (so at a burn instant the post-burn sample wins). */
@@ -96,25 +144,8 @@ export function shipStateAt(flat: FlatPlan, t: number): ShipState | null {
   const j = i + 1
   const dt = flat.t[j] - flat.t[i]
   if (dt <= 0 || flat.leg[i] !== flat.leg[j] && flat.kind[i] !== flat.kind[j]) return pick(i)
-  const s = (t - flat.t[i]) / dt
-  const s2 = s * s
-  const s3 = s2 * s
-  const h00 = 2 * s3 - 3 * s2 + 1
-  const h10 = s3 - 2 * s2 + s
-  const h01 = -2 * s3 + 3 * s2
-  const h11 = s3 - s2
-  const d00 = 6 * s2 - 6 * s
-  const d10 = 3 * s2 - 4 * s + 1
-  const d01 = -6 * s2 + 6 * s
-  const d11 = 3 * s2 - 2 * s
-  const r = [0, 0, 0]
-  const v = [0, 0, 0]
-  for (let a = 0; a < 3; a++) {
-    const p0 = flat.r[3 * i + a], p1 = flat.r[3 * j + a]
-    const m0 = flat.v[3 * i + a] * dt, m1 = flat.v[3 * j + a] * dt
-    r[a] = h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1
-    v[a] = (d00 * p0 + d10 * m0 + d01 * p1 + d11 * m1) / dt
-  }
+  const { r, v } = hermite(flat.r.subarray(3 * i, 3 * i + 3), flat.v.subarray(3 * i, 3 * i + 3),
+                           flat.r.subarray(3 * j, 3 * j + 3), flat.v.subarray(3 * j, 3 * j + 3), dt, (t - flat.t[i]) / dt)
   return {
     r: { x: r[0], y: r[1], z: r[2] }, v: { x: v[0], y: v[1], z: v[2] },
     leg: flat.leg[i], kind: kindName(flat.kind[i]), outside: false,

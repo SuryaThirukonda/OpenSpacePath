@@ -3,7 +3,7 @@ import { DEG } from '../../src/core/constants'
 import { period } from '../../src/core/elements'
 import { elementsToState, norm } from '../../src/core/kepler'
 import { BODY_BY_ID } from '../../src/data/bodies'
-import { flattenPlan, flownCount, sampleIndexAt, shipStateAt } from '../../src/mission/state'
+import { flattenPlan, flownCount, MAX_SAMPLE_ANGLE, sampleIndexAt, shipStateAt, splitCount } from '../../src/mission/state'
 import type { MissionPlan, Samples } from '../../src/mission/types'
 
 const mu = BODY_BY_ID.earth.mu
@@ -66,8 +66,11 @@ describe('mission state interpolation', () => {
   const flat = flattenPlan(fakePlan())
   const T = period(el.a, mu)
 
-  it('flattens arcs and rides in time order with leg starts', () => {
-    expect(flat.n).toBe(402)
+  it('flattens arcs and rides in time order with leg starts, keeping every planner sample', () => {
+    expect(flat.n).toBeGreaterThanOrEqual(402)
+    const times = new Set(Array.from(flat.t))
+    for (const tt of fakePlan().legs[0].arcs[0].samples.t) expect(times.has(tt)).toBe(true)
+    for (let i = 1; i < flat.n; i++) expect(flat.t[i]).toBeGreaterThanOrEqual(flat.t[i - 1])
     expect(flat.legStart).toEqual([0])
     expect(flat.tStart).toBe(0)
     expect(flat.tEnd).toBeCloseTo(T + 1800, 9)
@@ -100,5 +103,42 @@ describe('mission state interpolation', () => {
     expect(flownCount(flat, 0)).toBe(1)
     expect(flownCount(flat, T / 2)).toBeGreaterThan(90)
     expect(flownCount(flat, T + 1800)).toBe(flat.n)
+  })
+})
+
+describe('sparse planner samples are drawn densely', () => {
+  const T = period(el.a, mu)
+  // four revolutions with 12 samples a revolution: each lap drawn through those points alone would be a
+  // different dodecagon, which is what a long coast around the body looked like
+  const coarse: MissionPlan = {
+    legs: [{ toStop: 0, strategy: 'lambert2', tof: 4 * T, totalDv: 0, warnings: [], burns: [], arcs: [{ t0: 0, t1: 4 * T, samples: sampled(el, 0, 4 * T, 48) }] }],
+    totalDv: 0, totalTime: 4 * T, propellantLeft: 1, feasible: true,
+  }
+  const flat = flattenPlan(coarse)
+
+  it('splits each interval by the angle it spans at the body', () => {
+    expect(splitCount([7000, 0, 0], [7000, 0, 0], 10)).toBe(1)
+    expect(splitCount([7000, 0, 0], [7000 * Math.cos(0.2), 7000 * Math.sin(0.2), 0], 10)).toBe(Math.ceil(0.2 / MAX_SAMPLE_ANGLE))
+    expect(splitCount([7000, 0, 0], [0, 7000, 0], 10)).toBe(32) // a quarter turn in one interval is capped
+    expect(splitCount([7000, 0, 0], [0, 7000, 0], 0)).toBe(1)
+    expect(flat.n).toBeGreaterThan(48 * 20)
+    for (let i = 1; i < flat.n; i++) {
+      const a = [flat.r[3 * i - 3], flat.r[3 * i - 2], flat.r[3 * i - 1]], b = [flat.r[3 * i], flat.r[3 * i + 1], flat.r[3 * i + 2]]
+      const c = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (Math.hypot(...a) * Math.hypot(...b))
+      expect(Math.acos(Math.min(1, c))).toBeLessThanOrEqual(MAX_SAMPLE_ANGLE * 1.001)
+    }
+  })
+
+  it('places the extra points on the orbit, to a few metres, with the planner samples untouched', () => {
+    let worst = 0
+    for (let i = 0; i < flat.n; i++) {
+      const truth = elementsToState(el, mu, flat.t[i])
+      worst = Math.max(worst, norm({ x: flat.r[3 * i] - truth.r.x, y: flat.r[3 * i + 1] - truth.r.y, z: flat.r[3 * i + 2] - truth.r.z }))
+    }
+    expect(worst).toBeLessThan(2) // km, the cubic's error over a 30-degree step; a dodecagon's side sags 230 km
+    const s = shipStateAt(flat, T / 12)!
+    const truth = elementsToState(el, mu, T / 12)
+    expect(s.r.x).toBeCloseTo(truth.r.x, 6)
+    expect(flownCount(flat, 4 * T)).toBe(flat.n)
   })
 })
