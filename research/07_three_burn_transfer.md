@@ -29,7 +29,7 @@ That changes one thing in the sheet's structure. The sheet finds where the targe
 | η₂ from position matching, equation (39) | `sweep`, `eta2` |
 | Cost of burn 2, equation (40) | `sweep`, `dv2`, but as the vector change (see section 4 below) |
 | Time of flight, equations (41) to (45) | `_tof`, vectorised, elliptic and hyperbolic |
-| Inner loop over θ₂ and roots of f(θ₂) (10.1, 10.2) | `_Search.grid`: a sweep of θ₂ over up to six revolutions, sign changes bracketed and bisected |
+| Inner loop over θ₂ and roots of f(θ₂) (10.1, 10.2) | `_Search.grid`: a sweep of θ₂ over up to six revolutions (timing residual only), each sign change closed by the Illinois method (`_roots`, a bracketing regula falsi), the burns evaluated at the roots |
 | Selection within ΔV_max (10.3) | `grid`: the cheapest feasible root; `dv_max` is the optional cap |
 | Outer loop over (θ₁, ΔV₁), tangential versus radial (10.4) | `solve`: a grid over the burn-1 time fraction s and size for each family, the three best cells refined three times on finer grids |
 

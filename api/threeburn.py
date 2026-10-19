@@ -201,7 +201,9 @@ class _Setup:
         return cells
 
     # ---- burn 2 and the coast to the destination, for cells broadcast against dtheta = theta2 - theta1
-    def sweep(self, c, dtheta, sign):
+    def sweep(self, c, dtheta, sign, timing=False):
+        """Burn 2 and the coast for cells broadcast against dtheta. With `timing`, only the rendezvous
+        residual f and the validity are computed: the root search needs nothing else."""
         mu = self.mu
         theta2 = c["theta1"] + dtheta
         nu2 = theta2 - c["om1"]
@@ -210,7 +212,6 @@ class _Setup:
         denom = np.where(valid, denom, 1.0)
         r2 = c["p1"] / denom
         vr2 = np.sqrt(mu / c["p1"]) * c["e1"] * np.sin(nu2)
-        vt2 = c["h1"] / r2
         c2, s2 = np.cos(theta2), np.sin(theta2)
         Px, Py, Pz = self.P
         Pu = Px * c2 + Py * s2
@@ -218,7 +219,6 @@ class _Setup:
         perp = np.hypot(Pw, Pz)
         valid &= perp > 1e-9 * self.r_dest
         perp = np.where(valid, perp, 1.0)
-        cphi, sphi = sign * Pw / perp, sign * Pz / perp
         psi = np.arctan2(sign * perp, Pu)
         psi = np.where(psi < 0, psi + TWO_PI, psi)
         cpsi, spsi = np.cos(psi), np.sin(psi)
@@ -226,12 +226,20 @@ class _Setup:
         valid &= den2 > 1e-12
         den2 = np.where(valid, den2, 1.0)
         eta2 = np.sqrt(np.maximum((1 - cpsi) / den2, 0.0))
-        dv2 = np.sqrt(np.maximum((eta2 - 1) ** 2 * vr2 ** 2 + vt2 ** 2 * (eta2 ** 2 - 2 * eta2 * cphi + 1), 0.0))
         h2 = eta2 * c["h1"]
         p2 = eta2 ** 2 * c["p1"]
         vr2p = eta2 * vr2
         e2 = np.sqrt((p2 / r2 - 1) ** 2 + (h2 * vr2p / mu) ** 2)
         nu_node = np.arctan2(h2 * vr2p / mu, p2 / r2 - 1)
+        tB = _tof(c["p1"], c["e1"], c["theta1"] - c["om1"], dtheta, mu)
+        tC = _tof(p2, e2, nu_node, psi, mu)
+        f = c["s"] * self.T + tB + tC - self.T
+        valid &= np.isfinite(tB) & np.isfinite(tC)
+        if timing:
+            return dict(valid=valid, f=np.where(valid, f, np.nan))
+        vt2 = c["h1"] / r2
+        cphi, sphi = sign * Pw / perp, sign * Pz / perp
+        dv2 = np.sqrt(np.maximum((eta2 - 1) ** 2 * vr2 ** 2 + vt2 ** 2 * (eta2 ** 2 - 2 * eta2 * cphi + 1), 0.0))
         nu_dest = nu_node + psi
         # arrival velocity on orbit 2: radial along r_P, transverse along n2 x r_P
         nx, ny, nz = s2 * sphi, -c2 * sphi, cphi
@@ -242,12 +250,8 @@ class _Setup:
         vtan = k2 * (1 + e2 * np.cos(nu_dest))
         v3x, v3y, v3z = vrad * px + vtan * tx, vrad * py + vtan * ty, vrad * pz + vtan * tz
         dv3 = np.sqrt((self.vP[0] - v3x) ** 2 + (self.vP[1] - v3y) ** 2 + (self.vP[2] - v3z) ** 2)
-        tB = _tof(c["p1"], c["e1"], c["theta1"] - c["om1"], dtheta, mu)
-        tC = _tof(p2, e2, nu_node, psi, mu)
-        f = c["s"] * self.T + tB + tC - self.T
         rmin = np.minimum(_min_radius(c["p1"], c["e1"], c["theta1"] - c["om1"], dtheta, c["r1"], r2),
                           _min_radius(p2, e2, nu_node, psi, r2, self.r_dest))
-        valid &= np.isfinite(tB) & np.isfinite(tC)
         dv_sheet = c["dv1"] + np.abs(eta2 - 1) * np.sqrt(vr2 ** 2 + vt2 ** 2)   # equation (40) plus burn 1
         return dict(valid=valid, f=np.where(valid, f, np.nan), dv=c["dv1"] + dv2 + dv3, dv2=dv2, dv3=dv3, rmin=rmin,
                     judge=(c["dv1"] + dv2 + dv3) if SELECTION == "total" else dv_sheet,
@@ -257,6 +261,32 @@ class _Setup:
 
 def _gather(c, idx):
     return {k: v[idx] for k, v in c.items()}
+
+
+ROOT_ITERS = 24
+
+
+def _roots(fn, lo, hi, flo, fhi):
+    """Where fn changes sign inside each bracket [lo, hi] (fn(lo) = flo and fn(hi) = fhi, of opposite
+    signs), by the Illinois variant of regula falsi, vectorised over the brackets. Every step keeps a
+    bracket, so it lands where bisection would, in a fraction of the steps; a step that would leave
+    the bracket, or meets an invalid geometry, bisects instead."""
+    lo, hi, flo, fhi = (np.array(v, float) for v in (lo, hi, flo, fhi))
+    side = np.zeros(lo.shape, dtype=np.int8)   # -1: lo was kept last step, +1: hi was
+    for _ in range(ROOT_ITERS):
+        x = hi - fhi * (hi - lo) / (fhi - flo)
+        x = np.where(np.isfinite(x) & (x > lo) & (x < hi), x, 0.5 * (lo + hi))
+        fx = fn(x)
+        fx = np.where(np.isfinite(fx), fx, 0.0)
+        left = (fx * flo) <= 0           # the sign change lies in [lo, x]
+        flo = np.where(left & (side == -1), 0.5 * flo, flo)
+        fhi = np.where(~left & (side == 1), 0.5 * fhi, fhi)
+        hi, fhi = np.where(left, x, hi), np.where(left, fx, fhi)
+        lo, flo = np.where(left, lo, x), np.where(left, flo, fx)
+        side = np.where(left, -1, 1).astype(np.int8)
+        if np.all(hi - lo <= 1e-12):
+            break
+    return 0.5 * (lo + hi)
 
 
 class _Search:
@@ -281,25 +311,14 @@ class _Search:
         cells = {k: v[:, :, None] for k, v in c.items()}
         found = []
         for sign in (1.0, -1.0):
-            res = S.sweep(cells, dtheta[None, None, :], sign)
-            f = res["f"]
+            f = S.sweep(cells, dtheta[None, None, :], sign, timing=True)["f"]
             prod = f[..., :-1] * f[..., 1:]
             br = np.argwhere(prod < 0)
             if br.size == 0:
                 continue
             i, j, k = br[:, 0], br[:, 1], br[:, 2]
-            lo, hi = dtheta[k], dtheta[k + 1]
-            flo = f[i, j, k]
             sub = _gather(c, (i, j))
-            for _ in range(42):
-                mid = 0.5 * (lo + hi)
-                fm = S.sweep(sub, mid, sign)["f"]
-                fm = np.where(np.isfinite(fm), fm, 0.0)
-                left = (fm * flo) <= 0
-                hi = np.where(left, mid, hi)
-                lo = np.where(left, lo, mid)
-                flo = np.where(left, flo, fm)
-            root = 0.5 * (lo + hi)
+            root = _roots(lambda x: S.sweep(sub, x, sign, timing=True)["f"], dtheta[k], dtheta[k + 1], f[i, j, k], f[i, j, k + 1])
             at = S.sweep(sub, root, sign)
             good = at["valid"] & (np.abs(at["f"]) < 1e-3 * max(S.T, 1.0)) & (at["judge"] <= self.dv_max)
             if self.radius > 0:
