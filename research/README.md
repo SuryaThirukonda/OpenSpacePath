@@ -39,6 +39,7 @@ Each track document has the same structure: orientation, sources actually read (
 - `T3_4_pass_math.py` look angles, footprint and pass prediction checked against skyfield.
 - `T4_1_lambert.py` Lambert check against Curtis Example 5.2; `T4_3_porkchop.py` with `T4_3_porkchop.csv` and `T4_3_porkchop.png`, the computed 2026 to 2029 Earth-Mars porkchop; `T4_2_patched_conics.py` Hohmann, SOI and synodic numbers.
 - `weighted_sum_counterexample.py` the non-convex Pareto counterexample; `t6_2_network_size_estimate.py` the time-expanded network size estimate.
+- `gtoc11_catalogue.py` (2026-10-19) builds `api/data/gtoc11.npz`, the GTOC11 asteroid catalogue the routing papers sample, from the first paper's reproducibility package (Zenodo record 6034335, CC BY 4.0) with a stub-only unpickler, so none of the package's code runs.
 - `T7_design_math_check.py` and `T7_extra_checks.py` (2026-09-14) check every formula in `04_system_design.md` section 7, including a Lambert solver cross-check over 4,891 random cases; outputs saved beside them.
 
 `data/iss_tle_2026-09-01.txt` is the ISS element set used throughout (CelesTrak, epoch 2026-09-01).

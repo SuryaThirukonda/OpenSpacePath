@@ -241,6 +241,7 @@ class ArpBody(BaseModel):
 
 class ArpInstance(BaseModel):
     """An instance of the Asteroid Routing Problem: Earth, the asteroids, and the constants of the cost."""
+    name: str = ""
     mu: float = Field(default=132712440041.9, gt=0, description="km^3/s^2, the Sun")
     epoch: str = Field(description="ISO date of the mission start; times are days after it")
     earth: ArpBody
@@ -248,6 +249,9 @@ class ArpInstance(BaseModel):
     tauMax: float = Field(default=730.0, gt=0, description="longest wait before a transfer, days")
     tMax: float = Field(default=730.0, gt=1, description="longest transfer, days")
     timeWeight: float = Field(default=2.0 / 30.0, ge=0, description="km/s charged per day of mission")
+    innerStart: list[float] = Field(default=[0.0, 30.0], min_length=2, max_length=2, description="where the inner optimizer starts: [wait, flight] in days; the papers' text says (0, 30), their code (1, 30)")
+    innerTol: Optional[float] = Field(default=None, gt=0, description="SLSQP ftol of the inner optimizer; the papers' code uses 1e-4")
+    note: str = ""
 
 
 class ArpTransferRequest(BaseModel):

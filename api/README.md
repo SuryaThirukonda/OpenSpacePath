@@ -10,6 +10,7 @@ The planner behind the app's Mission and Routing tabs: Lambert rendezvous transf
 | `POST /api/lambert` | One Lambert solve: `{mu, r1, r2, tof, M?, prograde?, lowPath?, solver?}` → `{v1, v2}`. |
 | `GET /api/lambert/solvers` | The `lamberthub` solvers on offer, with the default, whether each is robust and a note on its accuracy. |
 | `POST /api/plan` | A whole tour: scenario body, epoch and satellites plus the mission (ship, start orbit, ordered stops with dwell and strategy). Returns every leg with burns, dense samples of each coast and ride, warnings and totals. `mission.solver` picks the Lambert solver (default `izzo2015`) and `mission.transfer` two or three burns (default `threeburn`). Schemas are in `models.py` and mirrored in `app/src/mission/types.ts`. |
+| `GET /api/arp/instance` | Instance `n_seed` of the routing papers: `?n=10&seed=42` → the instance (Earth and n GTOC11 asteroids with their elements at the mission start), ready for the other `arp` routes. |
 | `POST /api/arp/transfer` | The routing black box B(a, a', eta): `{instance, origin, target, eta, solver?, relaxed?, tauF?}` → wait, transfer time, cost and delta-v. |
 | `POST /api/arp/evaluate` | The cost f of a visiting order: `{instance, order, solver?, times?}` → the legs and totals. |
 | `POST /api/arp/plan` | The same, plus the route as a drawable plan (waits as rides, transfers as sampled arcs). |
@@ -28,6 +29,8 @@ Units: km, km/s, s, kg, N, rad. Times are simulated seconds since the scenario e
 ## Asteroid routing
 
 `arp.py` implements the problem of López-Ibáñez, Chicano and Gil-Merino (2022) and Rudich et al. (2024): bodies on heliocentric Kepler orbits, body 0 Earth and 1..n the asteroids; a transfer waits tau in [0, 730] days and flies t in [1, 730] days, chosen by SLSQP from (0, 30) on the two-burn cost, and costs delta-v plus 2 km/s per 30 days of tau + t. In `threeburn` mode the chosen times are flown with the three-burn rendezvous and its delta-v is charged, with the two-burn figure reported beside it. The relaxed variant does not charge the wait and is always the two-burn bound. The service never runs a visitor's algorithm: that happens in the browser, which asks these endpoints for transfers. `research/06_routing_algorithm_format.md` specifies the algorithm format.
+
+`catalogue.py` holds the papers' instance generator. `data/gtoc11.npz` (3.8 MB) is the GTOC11 asteroid catalogue, 83,453 orbits moved to the papers' mission start (2121-01-01, MJD 95739), taken from the first paper's reproducibility package (López-Ibáñez, Chicano, Gil-Merino 2022, Zenodo record 6034335, licence CC BY 4.0); `research/scripts/gtoc11_catalogue.py` built it from the package's `ast_orbits.pkl.gz` without executing any of the package's code. Instance `n_seed` draws the ids with `numpy.random.default_rng(seed).integers(1, 83454, size=n)` as the package does (with replacement), Earth is their Table 1 orbit and the constants their Table 2 values; the inner optimizer starts from their code's (1, 30) with tolerance 1e-4. `tests/test_arp_paper.py` reproduces the package's instance 10_42 results (greedy route and cost 391.308, random-search rows) to about 1e-5.
 
 ## Launching from the ground
 

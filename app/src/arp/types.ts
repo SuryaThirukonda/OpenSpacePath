@@ -27,6 +27,10 @@ export interface ArpInstance {
   tMax: number
   /** km/s charged per day of mission: 2 km/s per 30 days in the papers */
   timeWeight: number
+  /** where the inner optimizer starts, [wait, flight] in days; the papers' code uses [1, 30] */
+  innerStart?: [number, number]
+  /** SLSQP tolerance of the inner optimizer; the papers' code uses 1e-4 */
+  innerTol?: number
   /** where the asteroids came from, in a sentence */
   note?: string
 }

@@ -57,7 +57,7 @@ export function generateInstance(n: number, seed: number, epoch = ARP_EPOCH): Ar
     })
   }
   return {
-    name: `${n}_${seed}`, mu: getBody('sun').mu, epoch,
+    name: `synthetic ${n}_${seed}`, mu: getBody('sun').mu, epoch,
     earth: { id: `earth-${n}-${seed}`, name: 'Earth', elements: earthElements(Date.parse(epoch)) },
     asteroids, tauMax: 730, tMax: 730, timeWeight: TIME_WEIGHT,
     note: 'Synthetic main-belt-like orbits from a seed, not the GTOC11 catalogue the papers sample.',
@@ -116,6 +116,23 @@ export function parseInstance(text: string): ArpInstance | string {
   return {
     name: typeof src.name === 'string' ? src.name : `${asteroids.length}_imported`, mu: num(src.mu, sun.mu), epoch: src.epoch, earth, asteroids,
     tauMax: num(src.tauMax, 730), tMax: num(src.tMax, 730), timeWeight: typeof src.timeWeight === 'number' && src.timeWeight >= 0 ? src.timeWeight : TIME_WEIGHT,
+    ...(Array.isArray(src.innerStart) && src.innerStart.length === 2 && src.innerStart.every((v: unknown) => typeof v === 'number') ? { innerStart: [src.innerStart[0], src.innerStart[1]] as [number, number] } : {}),
+    ...(typeof src.innerTol === 'number' && src.innerTol > 0 ? { innerTol: src.innerTol } : {}),
     note: typeof src.note === 'string' ? src.note : 'Imported instance.',
   }
+}
+
+/**
+ * Instance n_seed as the papers draw it: n asteroids of the GTOC11 catalogue picked by their own
+ * generator. The catalogue lives with the planner, which answers with the instance.
+ */
+export async function fetchPaperInstance(n: number, seed: number): Promise<ArpInstance> {
+  const res = await fetch(`/api/arp/instance?n=${encodeURIComponent(n)}&seed=${encodeURIComponent(seed)}`)
+  if (!res.ok) {
+    const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
+    throw new Error(typeof detail === 'string' ? detail : `the planner answered HTTP ${res.status}`)
+  }
+  const inst = parseInstance(await res.text())
+  if (typeof inst === 'string') throw new Error(inst)
+  return inst
 }

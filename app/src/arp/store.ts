@@ -9,7 +9,7 @@ import { DEFAULT_SOLVER } from '../mission/api'
 import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from '../mission/types'
 import { useStore } from '../store/store'
 import { parseAlgorithm, PRESETS } from './format'
-import { generateInstance, instanceToScenario, parseInstance } from './instance'
+import { fetchPaperInstance, generateInstance, instanceToScenario, parseInstance } from './instance'
 import { customAsteroid, defaultSchedule, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, syncInstance, withOrbit, type PathEntry, type PathPlan } from './path'
 import type { OrbitalElements } from '../types'
 import { AlgorithmRunner } from './runner'
@@ -18,6 +18,8 @@ import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, Wo
 export type RunStatus = 'idle' | 'loading' | 'running' | 'done' | 'error' | 'stopped'
 export type PathStatus = 'idle' | 'loading' | 'done' | 'error'
 export type PathMode = 'form' | 'text'
+/** Where Generate takes its asteroids from: the papers' GTOC11 catalogue, or a synthetic belt. */
+export type InstanceSource = 'catalogue' | 'synthetic'
 
 const DAY = 86400
 const KEY = 'orbitlab.routing.v1'
@@ -33,6 +35,7 @@ interface Saved {
   path: PathPlan
   pathMode?: PathMode
   pathText?: string
+  instanceSource?: InstanceSource
 }
 
 function load(): Partial<Saved> {
@@ -47,7 +50,7 @@ function load(): Partial<Saved> {
 function save(s: ArpState): void {
   try {
     const v: Saved = { source: s.source, presetId: s.presetId, budget: s.budget, seed: s.seed, n: s.n, instanceSeed: s.instanceSeed, instance: s.instance,
-                       path: s.path, pathMode: s.pathMode, pathText: s.pathText }
+                       path: s.path, pathMode: s.pathMode, pathText: s.pathText, instanceSource: s.instanceSource }
     localStorage.setItem(KEY, JSON.stringify(v))
   } catch {
     // storage may be unavailable (private window); the tab works without it
@@ -64,6 +67,9 @@ export interface ArpState {
   instance: ArpInstance | null
   n: number
   instanceSeed: number
+  instanceSource: InstanceSource
+  /** a catalogue instance is being fetched */
+  generating: boolean
   presetId: string
   source: string
   budget: number
@@ -92,6 +98,7 @@ export interface ArpState {
 
   setN: (n: number) => void
   setInstanceSeed: (seed: number) => void
+  setInstanceSource: (source: InstanceSource) => void
   generate: () => void
   importInstance: (text: string) => string | null
   showInstance: () => void
@@ -130,6 +137,19 @@ const runner = new AlgorithmRunner()
 let showSeq = 0
 /** Counts runs, so a result that arrives after the next run began is dropped. */
 let runSeq = 0
+let generateSeq = 0
+
+/** Take an instance as the current one: every asteroid into the path with the default schedule, results cleared, scene rebuilt. */
+function adopt(inst: ArpInstance, n?: number): void {
+  const s = useArp.getState()
+  s.stop()
+  runSeq += 1
+  const path = defaultSchedule(inst.asteroids)   // every asteroid, with its orbit, in the path to tweak
+  useArp.setState({ instance: inst, ...(n ? { n } : {}), status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
+                    path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
+  save(useArp.getState())
+  ensureScene(inst, true)
+}
 let pathSeq = 0
 let textTimer: number | undefined
 let startedAt = 0
@@ -168,6 +188,8 @@ export const useArp = create<ArpState>((set, get) => ({
   instance: saved.instance ?? null,
   n: saved.n ?? 8,
   instanceSeed: saved.instanceSeed ?? 42,
+  instanceSource: saved.instanceSource === 'synthetic' ? 'synthetic' : 'catalogue',
+  generating: false,
   presetId: initial.presetId,
   source: initial.source,
   budget: saved.budget ?? 40,
@@ -192,26 +214,24 @@ export const useArp = create<ArpState>((set, get) => ({
 
   setN: (n) => { set({ n: Math.min(30, Math.max(2, Math.round(n) || 2)) }); save(get()) },
   setInstanceSeed: (instanceSeed) => { set({ instanceSeed: Math.round(instanceSeed) || 0 }); save(get()) },
+  setInstanceSource: (instanceSource) => { set({ instanceSource }); save(get()) },
   generate: () => {
-    get().stop()
-    runSeq += 1
-    const inst = generateInstance(get().n, get().instanceSeed)
-    const path = defaultSchedule(inst.asteroids)   // every generated asteroid, with its orbit, in the path to tweak
-    set({ instance: inst, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
-    save(get())
-    ensureScene(inst, true)
+    const { n, instanceSeed, instanceSource } = get()
+    if (instanceSource === 'synthetic') {
+      adopt(generateInstance(n, instanceSeed))
+      return
+    }
+    const seq = ++generateSeq
+    set({ generating: true, error: null })
+    fetchPaperInstance(n, instanceSeed).then(
+      (inst) => { if (seq === generateSeq) { set({ generating: false }); adopt(inst) } },
+      (e: Error) => { if (seq === generateSeq) set({ generating: false, status: 'error', error: `Could not fetch instance ${n}_${instanceSeed}: ${e.message}` }) },
+    )
   },
   importInstance: (text) => {
     const inst = parseInstance(text)
     if (typeof inst === 'string') return inst
-    get().stop()
-    runSeq += 1
-    const path = defaultSchedule(inst.asteroids)
-    set({ instance: inst, n: inst.asteroids.length, status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
-          path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
-    save(get())
-    ensureScene(inst, true)
+    adopt(inst, inst.asteroids.length)
     return null
   },
   showInstance: () => {

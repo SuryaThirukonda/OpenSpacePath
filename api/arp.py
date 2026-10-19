@@ -40,7 +40,7 @@ from .propagation import elements_state, propagate_universal
 
 DAY = 86400.0
 PENALTY = 1.0e4          # cost of a point where the Lambert solver finds nothing
-X0 = (0.0, 30.0)         # the papers start every inner optimization here
+# the inner optimization starts where the instance says (the papers' text: (0, 30) days; their code: (1, 30))
 # Tried in turn when the chosen solver has no solution at X0 (a 30-day transfer is hyperbolic,
 # which some solvers cannot do): direct transfers of increasing length with no wait.
 FALLBACK_STARTS = ((0.0, 90.0), (0.0, 150.0), (0.0, 220.0), (0.0, 300.0), (0.0, 400.0), (0.0, 550.0))
@@ -133,7 +133,7 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
             raise ValueError("a wait must be zero or more days and a transfer longer than zero days")
         x = np.array([float(fixed[0]), float(fixed[1])])
     else:
-        start = np.array(X0)
+        start = np.array([min(max(inst.innerStart[0], 0.0), tau_hi), min(max(inst.innerStart[1], 1.0), inst.tMax)])
         if cost(start) >= PENALTY:
             feasible = [np.array(c) for c in FALLBACK_STARTS if c[1] <= inst.tMax and cost(np.array(c)) < PENALTY]
             if not feasible:
@@ -145,6 +145,8 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
         # step and fewer iterations so one transfer cannot take seconds.
         robust = (solver or lambert.current_solver()) in lambert.ROBUST
         options = {"maxiter": 1000} if robust else {"maxiter": 150, "eps": 1e-3}
+        if inst.innerTol:
+            options["ftol"] = inst.innerTol
         res = minimize(cost, start, method="SLSQP", bounds=[(0.0, tau_hi), (1.0, inst.tMax)], options=options)
         x = np.array([min(max(res.x[0], 0.0), tau_hi), min(max(res.x[1], 1.0), inst.tMax)])
         if cost(x) > cost(start):

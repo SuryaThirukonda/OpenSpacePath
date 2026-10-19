@@ -38,6 +38,8 @@ export function RoutingPanel() {
   const instance = useArp((s) => s.instance)
   const n = useArp((s) => s.n)
   const instanceSeed = useArp((s) => s.instanceSeed)
+  const instanceSource = useArp((s) => s.instanceSource)
+  const generating = useArp((s) => s.generating)
   const presetId = useArp((s) => s.presetId)
   const source = useArp((s) => s.source)
   const budget = useArp((s) => s.budget)
@@ -101,12 +103,18 @@ export function RoutingPanel() {
         ) : (
           <p className="hint">The Asteroid Routing Problem: leave Earth's orbit and visit every asteroid once, as cheaply and quickly as possible. Generate an instance to begin; it replaces the current scene with a Sun-centred one.</p>
         )}
+        <label className="field"><span>asteroids from</span>
+          <select value={instanceSource} onChange={(e) => actions.setInstanceSource(e.target.value as 'catalogue' | 'synthetic')} disabled={busy || generating}>
+            <option value="catalogue">the GTOC11 catalogue, the papers' generator (instance n_seed)</option>
+            <option value="synthetic">a synthetic main belt from the seed</option>
+          </select>
+        </label>
         <div className="grid2">
           <label className="field"><span>asteroids</span><input type="number" min={2} max={30} value={n} onChange={(e) => actions.setN(num(e.target.value, n))} /></label>
           <label className="field"><span>seed</span><input type="number" value={instanceSeed} onChange={(e) => actions.setInstanceSeed(num(e.target.value, instanceSeed))} /></label>
         </div>
         <div className="row">
-          <button className={instance ? '' : 'primary'} onClick={actions.generate} disabled={busy}>{instance ? 'Generate again' : 'Generate instance'}</button>
+          <button className={instance ? '' : 'primary'} onClick={actions.generate} disabled={busy || generating}>{generating ? <><span className="spinner" aria-hidden="true" /> Fetching…</> : instance ? 'Generate again' : 'Generate instance'}</button>
           {instance && <button onClick={actions.showInstance} disabled={busy}>Show in scene</button>}
           <button onClick={() => instanceFile.current?.click()} disabled={busy}>Import</button>
           {instance && <button onClick={() => download(`arp-instance-${instance.name}.json`, JSON.stringify(instance, null, 2), 'application/json')}>Export</button>}

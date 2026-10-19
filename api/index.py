@@ -9,12 +9,12 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from . import arp, lambert
+from . import arp, catalogue, lambert
 from .mission import plan_mission
-from .models import (ArpEvaluateRequest, ArpEvaluation, ArpPathRequest, ArpPlanResponse, ArpTransfer, ArpTransferRequest, MissionPlan,
+from .models import (ArpEvaluateRequest, ArpEvaluation, ArpInstance, ArpPathRequest, ArpPlanResponse, ArpTransfer, ArpTransferRequest, MissionPlan,
                      PlanRequest)
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 app = FastAPI(title="Orbit Lab planner", version=VERSION)
 
@@ -71,6 +71,15 @@ def plan_route(req: PlanRequest) -> MissionPlan:
 def lambert_solvers() -> dict:
     """Every solver lamberthub ships; the default is Izzo (2015)."""
     return {"default": lambert.DEFAULT_SOLVER, "solvers": lambert.solver_info()}
+
+
+@app.get("/api/arp/instance", response_model=ArpInstance)
+def arp_instance(n: int = 10, seed: int = 42) -> ArpInstance:
+    """Instance n_seed of the papers: n asteroids drawn from the GTOC11 catalogue with their generator."""
+    try:
+        return catalogue.paper_instance(n, seed)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.post("/api/arp/transfer", response_model=ArpTransfer)

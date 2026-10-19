@@ -18,7 +18,7 @@ describe('routing instances', () => {
     const c = generateInstance(8, 43)
     expect(a).toEqual(b)
     expect(a.asteroids[0].elements.a).not.toBe(c.asteroids[0].elements.a)
-    expect(a.name).toBe('8_42')
+    expect(a.name).toBe('synthetic 8_42')
     expect(a.asteroids).toHaveLength(8)
     expect(new Set([a.earth.id, ...a.asteroids.map((x) => x.id)]).size).toBe(9)
     expect(seededRandom(5)()).toBe(seededRandom(5)())
