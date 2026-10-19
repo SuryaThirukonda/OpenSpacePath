@@ -26,7 +26,11 @@ evaluation stays affordable; with explicit times the three-burn transfer is solv
 """
 from __future__ import annotations
 
+import hashlib
 import math
+import threading
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -46,6 +50,41 @@ PENALTY = 1.0e4          # cost of a point where the Lambert solver finds nothin
 FALLBACK_STARTS = ((0.0, 90.0), (0.0, 150.0), (0.0, 220.0), (0.0, 300.0), (0.0, 400.0), (0.0, 550.0))
 FINAL_RIDE_DAYS = 30.0   # how long the drawn route stays with the last asteroid
 ARC_SAMPLES = 160
+# legs of one evaluation flown with three burns at once; the solves are numpy work that frees the GIL
+LEG_WORKERS = 4
+
+
+class _Memo:
+    """A bounded, thread-safe memo: the same transfer asked twice costs once while the process lives."""
+
+    def __init__(self, size: int):
+        self.size, self._d, self._lock = size, OrderedDict(), threading.Lock()
+        self.hits = self.misses = 0
+
+    def get(self, key):
+        with self._lock:
+            if key in self._d:
+                self._d.move_to_end(key)
+                self.hits += 1
+                return True, self._d[key]
+            self.misses += 1
+            return False, None
+
+    def put(self, key, value):
+        with self._lock:
+            self._d[key] = value
+            if len(self._d) > self.size:
+                self._d.popitem(last=False)
+
+
+# the chosen (tau, t) of a two-burn transfer, and the three-burn solution at given departure and arrival
+TIMES = _Memo(200_000)
+THREE = _Memo(50_000)
+
+
+def instance_key(inst: ArpInstance) -> str:
+    """Identifies an instance by its content: two requests carrying the same bodies share the memo."""
+    return hashlib.sha1(inst.model_dump_json(exclude={"name", "note"}).encode()).hexdigest()
 
 
 @dataclass
@@ -100,9 +139,10 @@ def _impulses(mu: float, origin: dict, target: dict, t_dep: float, tof: float, s
 
 def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: str | None = None,
              relaxed: bool = False, tau_f: float | None = None, fixed: tuple[float, float] | None = None,
-             mode: str = DEFAULT_TRANSFER, dv_max: float | None = None) -> Transfer:
+             mode: str = DEFAULT_TRANSFER, dv_max: float | None = None, key: str | None = None) -> Transfer:
     """B(a, a', eta), or B' when `relaxed`. With `fixed` = (tau, t) the times are taken as given.
-    `mode` says how the chosen times are flown: "lambert2" or "threeburn"."""
+    `mode` says how the chosen times are flown: "lambert2" or "threeburn". `key` is the instance's
+    memo key when the caller already has it."""
     if origin == target:
         raise ValueError("a transfer needs two different bodies")
     if mode not in ("lambert2", "threeburn"):
@@ -128,10 +168,13 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
         dv = float(np.linalg.norm(got[3]) + np.linalg.norm(got[4]))
         return dv + w * (float(x[1]) + (0.0 if relaxed else float(x[0])))
 
+    ikey = key or instance_key(inst)
     if fixed is not None:
         if not (math.isfinite(fixed[0]) and math.isfinite(fixed[1])) or fixed[0] < 0 or fixed[1] <= 0:
             raise ValueError("a wait must be zero or more days and a transfer longer than zero days")
         x = np.array([float(fixed[0]), float(fixed[1])])
+    elif (hit := TIMES.get((ikey, origin, target, round(eta, 9), solver or lambert.current_solver(), relaxed, tau_f)))[0]:
+        x = np.array(hit[1])
     else:
         start = np.array([min(max(inst.innerStart[0], 0.0), tau_hi), min(max(inst.innerStart[1], 1.0), inst.tMax)])
         if cost(start) >= PENALTY:
@@ -151,6 +194,7 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
         x = np.array([min(max(res.x[0], 0.0), tau_hi), min(max(res.x[1], 1.0), inst.tMax)])
         if cost(x) > cost(start):
             x = start  # never return a point worse than the start
+        TIMES.put((ikey, origin, target, round(eta, 9), solver or lambert.current_solver(), relaxed, tau_f), (float(x[0]), float(x[1])))
     got = detail(x)
     if got is None:
         raise ValueError(f"no Lambert solution from body {origin} to body {target} at day {eta + x[0]:.1f} for a {x[1]:.1f}-day transfer")
@@ -161,9 +205,13 @@ def transfer(inst: ArpInstance, origin: int, target: int, eta: float, solver: st
                    lambert.miss(mu, r1, v1, r2, x[1] * DAY), r1, v1, r2,
                    burns=[(t_dep, r1, dv1), (t_arr, r2, dv2)], arcs=[(t_dep, t_arr, r1, v1)])
     if mode == "threeburn":
-        va = v1 - dv1
-        vb = elements_state(b, mu, t_arr)[1]
-        tb = threeburn.solve(mu, r1, va, t_dep, r2, vb, t_arr, dv_max=dv_max if dv_max else math.inf)
+        tkey = (ikey, origin, target, round(t_dep, 3), round(t_arr, 3), dv_max)
+        found, tb = THREE.get(tkey)
+        if not found:
+            va = v1 - dv1
+            vb = elements_state(b, mu, t_arr)[1]
+            tb = threeburn.solve(mu, r1, va, t_dep, r2, vb, t_arr, dv_max=dv_max if dv_max else math.inf)
+            THREE.put(tkey, tb)
         if tb is None:
             if fixed is not None:
                 raise ValueError(f"no three-burn transfer from body {origin} to body {target} arrives on day {eta + x[0] + x[1]:.1f} "
@@ -198,15 +246,42 @@ def evaluate(inst: ArpInstance, order: list[int], solver: str | None = None, tim
     if times is not None and len(times) != len(order):
         raise ValueError("times needs one [wait, transfer] pair per leg")
     name = solver or lambert.current_solver()
-    legs: list[ArpTransfer] = []
-    raw: list[Transfer] = []
+    ikey = instance_key(inst)
+    # Each leg starts when the one before arrives, and those times come from the two-burn inner
+    # optimizer, so they are found first, leg by leg; the three-burn flights at those times are
+    # independent of each other and run side by side.
+    plan: list[tuple[int, int, float, tuple[float, float] | None]] = []
     eta, here = 0.0, 0
+    first: list[Transfer] = []
     for k, there in enumerate(order):
-        tr = transfer(inst, here, there, eta, solver=name, fixed=tuple(times[k]) if times is not None else None, mode=mode, dv_max=dv_max)
-        legs.append(tr.to_model(here, there, eta))
-        raw.append(tr)
-        eta += tr.tau + tr.t
+        given = tuple(times[k]) if times is not None else None
+        if given is None:
+            tr = transfer(inst, here, there, eta, solver=name, mode="lambert2", dv_max=dv_max, key=ikey)
+            first.append(tr)
+            given = (tr.tau, tr.t)
+        plan.append((here, there, eta, given))
+        eta += given[0] + given[1]
         here = there
+
+    def fly(k: int) -> Transfer:
+        here, there, eta, given = plan[k]
+        if mode == "lambert2" and times is None:
+            return first[k]
+        if times is None:
+            try:
+                return transfer(inst, here, there, eta, solver=name, fixed=given, mode=mode, dv_max=dv_max, key=ikey)
+            except ValueError:
+                tr = first[k]
+                tr.note = "no three-burn transfer at these times; flown with two burns"
+                return tr
+        return transfer(inst, here, there, eta, solver=name, fixed=given, mode=mode, dv_max=dv_max, key=ikey)
+
+    if mode == "threeburn" and len(plan) > 1:
+        with ThreadPoolExecutor(max_workers=min(LEG_WORKERS, len(plan))) as pool:
+            raw = list(pool.map(fly, range(len(plan))))
+    else:
+        raw = [fly(k) for k in range(len(plan))]
+    legs = [tr.to_model(plan[k][0], plan[k][1], plan[k][2]) for k, tr in enumerate(raw)]
     return ArpEvaluation(order=list(order), solver=name, transfer=mode, legs=legs, cost=sum(l.z for l in legs),
                          dv=sum(l.dv for l in legs), time=eta), raw
 
