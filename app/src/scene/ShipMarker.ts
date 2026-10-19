@@ -18,6 +18,7 @@ export class ShipMarker {
   private dropped = 0
   private ascent = false
   private riding = false
+  private labelBelow = false
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
@@ -78,7 +79,18 @@ export class ShipMarker {
   setRiding(riding: boolean): void {
     if (riding === this.riding) return
     this.riding = riding
-    this.label.center.set(-0.25, riding ? 1.7 : 0.5) // drop the label below the satellite's
+    this.placeLabel()
+  }
+
+  /** The label drops below the ship when another label (a body's) would sit on top of it. */
+  setLabelBelow(below: boolean): void {
+    if (below === this.labelBelow) return
+    this.labelBelow = below
+    this.placeLabel()
+  }
+
+  private placeLabel(): void {
+    this.label.center.set(-0.25, this.riding || this.labelBelow ? 1.7 : 0.5)
   }
 
   private applyPhase(): void {

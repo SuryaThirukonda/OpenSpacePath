@@ -176,12 +176,22 @@ export class SceneManager {
     const viewH = this.container.clientHeight || 1
     const fovRad = (this.camera.fov * Math.PI) / 180
     this.bodyMesh.updateLabels(this.camera.position, viewH, fovRad)
+    const shipOnScreen = this.ship && state.plan ? this.ship.group.getWorldPosition(new THREE.Vector3()).project(this.camera) : null
+    let labelCrowded = false
     for (const [id, v] of this.visuals) {
       if (!v.marker.group.visible) continue
       v.marker.group.getWorldPosition(this.scratch)
       const companion = state.plan !== null && id === this.companionId
       v.marker.updateScale(this.camera.position.distanceTo(this.scratch), viewH, fovRad, companion ? this.shipPixelsPerUnit : 0)
+      if (shipOnScreen && shipOnScreen.z < 1) {
+        // a body's label within a label's height of the ship's would cover it
+        const p = this.scratch.project(this.camera)
+        const dx = Math.abs(p.x - shipOnScreen.x) * (this.container.clientWidth || 1) / 2
+        const dy = Math.abs(p.y - shipOnScreen.y) * viewH / 2
+        if (p.z < 1 && dx < 90 && dy < 14) labelCrowded = true
+      }
     }
+    this.ship?.setLabelBelow(labelCrowded)
     this.renderer.render(this.scene, this.camera)
     this.raf = requestAnimationFrame(this.tick)
   }
@@ -439,7 +449,9 @@ export class SceneManager {
     this.companionId = this.managedCamera && mode === 'chase' ? ridingWith : null
     this.focusId = ridingWith ?? s.scenario.mission?.stops[st.leg]?.satelliteId ?? null
     this.shipPixelsPerUnit = 15 * shipScale
-    this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg, currentLeg: st.outside ? null : st.leg },
+    // the chase view sits among the lines: it shows what is still to come on this leg only
+    this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg, currentLeg: st.outside ? null : st.leg,
+      remainingOnlyLeg: this.managedCamera && mode === 'chase' && !st.outside ? st.leg : null },
       this.camera, this.container.clientWidth || 1, h, fov, (v) => this.inertial.localToWorld(v))
 
     // burns: fire when the clock crosses one while playing, not when scrubbing across it

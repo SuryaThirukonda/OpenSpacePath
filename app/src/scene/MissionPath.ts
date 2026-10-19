@@ -39,6 +39,7 @@ interface Marker {
 interface Stretch {
   start: number
   end: number
+  leg: number
   flown: Line2
   remaining: Line2
   flownGeo: LineGeometry
@@ -101,7 +102,7 @@ export class MissionPath {
         remaining.computeLineDistances()
         flown.frustumCulled = remaining.frustumCulled = false
         this.group.add(flown, remaining)
-        this.stretches.push({ start, end, flown, remaining, flownGeo, remainingGeo })
+        this.stretches.push({ start, end, leg: flat.leg[start], flown, remaining, flownGeo, remainingGeo })
       }
       start = end
     }
@@ -179,7 +180,7 @@ export class MissionPath {
    * Per-frame: split flown/remaining at t, size labels, and keep the clutter down: markers belong
    * to the selected leg, or else to the leg in play (`currentLeg`); the others are dim and unlabelled.
    */
-  update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null; currentLeg: number | null },
+  update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null; currentLeg: number | null; remainingOnlyLeg?: number | null },
          camera: THREE.PerspectiveCamera, viewportWidth: number, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3): void {
     if (!this.flat) return
     const cameraPos = camera.position
@@ -189,7 +190,7 @@ export class MissionPath {
       const counts = segmentCounts(len, Math.min(Math.max(k - st.start, 0), len))
       st.flownGeo.instanceCount = counts.flown
       st.remainingGeo.instanceCount = counts.remaining
-      st.remaining.visible = opts.showRemaining && counts.remaining > 0
+      st.remaining.visible = opts.showRemaining && counts.remaining > 0 && (opts.remainingOnlyLeg == null || st.leg === opts.remainingOnlyLeg)
     }
     const focus = opts.selectedLeg ?? opts.currentLeg
     const shown: Array<{ m: Marker; x: number; y: number; w: number }> = []
