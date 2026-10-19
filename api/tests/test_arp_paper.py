@@ -51,6 +51,9 @@ def test_instance_10_42_is_the_papers_instance():
         catalogue.paper_instance(0, 1)
 
 
+# The tolerance: SLSQP with the package's ftol=1e-4 stops at slightly different (tau, t) on different
+# scipy builds and CPUs (GitHub's runner differed from a laptop by 5.7e-5 on one random row), so the
+# costs agree to about 1e-4 relative, not to the last digit.
 def test_the_papers_greedy_route_and_costs_are_reproduced():
     """Greedy nearest neighbour on 10_42 gives the paper's route and fitness, and two of its random-search
     rows cost what the paper recorded, to a few parts in a million (poliastro versus lamberthub, same mathematics)."""
@@ -58,10 +61,10 @@ def test_the_papers_greedy_route_and_costs_are_reproduced():
     order = greedy_euclidean(inst)
     assert [k - 1 for k in order] == [1, 2, 4, 7, 9, 8, 6, 0, 5, 3]
     ev, _ = arp.evaluate(inst, order, mode="lambert2")
-    assert ev.cost == pytest.approx(391.308150064896, rel=2e-5)
+    assert ev.cost == pytest.approx(391.308150064896, rel=2e-4)
     for row, fitness in (("2 9 6 4 0 3 1 7 8 5", 563.0430559870999), ("9 5 3 0 8 4 2 1 6 7", 473.04937871438926)):
         got, _ = arp.evaluate(inst, [int(k) + 1 for k in row.split()], mode="lambert2")
-        assert got.cost == pytest.approx(fitness, rel=2e-5)
+        assert got.cost == pytest.approx(fitness, rel=2e-4)
 
 
 def test_the_instance_endpoint():
