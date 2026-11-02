@@ -52,11 +52,11 @@ export function chasePose(ship: THREE.Vector3, forward: THREE.Vector3, up: THREE
  * (the view direction stays exactly along the normal).
  */
 export function birdsEyePose(center: THREE.Vector3, normal: THREE.Vector3, radius: number, fovV: number, aspect: number,
-                             pole: THREE.Vector3, zoom = 1, bottomInset = 0): Pose {
+                             pole: THREE.Vector3, zoom = 1, bottomInset = 0, keepSide = false): Pose {
   const n = normal.clone()
   if (n.lengthSq() < 1e-12) n.copy(pole)
   n.normalize()
-  if (n.dot(pole) < 0) n.negate()
+  if (!keepSide && n.dot(pole) < 0) n.negate()   // keepSide: the caller has chosen which side to look from
   const inset = Math.min(Math.max(bottomInset, 0), 0.6)
   const tanV = Math.tan(fovV / 2)
   const halfV = Math.atan(tanV * (1 - inset))

@@ -104,3 +104,16 @@ describe('route plane normal', () => {
     expect(pathNormal(pos, 0, 1).length()).toBeCloseTo(1, 9)
   })
 })
+
+describe("bird's-eye side", () => {
+  it('looks from the side the caller chose when asked to keep it, and from the pole side otherwise', () => {
+    const center = new THREE.Vector3(0, 0, 0)
+    const fov = (45 * Math.PI) / 180
+    const below = new THREE.Vector3(1, -0.1, 0).normalize()   // a near-polar plane whose normal dips under the equator
+    const turned = birdsEyePose(center, below, 10, fov, 1, POLE)
+    expect(turned.position.y).toBeGreaterThan(0)
+    const kept = birdsEyePose(center, below, 10, fov, 1, POLE, 1, 0, true)
+    expect(kept.position.y).toBeLessThan(0)
+    expect(kept.position.clone().normalize().dot(below)).toBeCloseTo(1, 6)
+  })
+})

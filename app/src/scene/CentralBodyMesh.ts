@@ -22,6 +22,8 @@ export class CentralBodyMesh {
   private principal?: THREE.LineSegments
   private marker?: THREE.Group
   private markerKey = ''
+  /** A star seen from across its system is far below a pixel: a glow and its name mark it at any distance. */
+  private beacon?: { group: THREE.Group; points: THREE.Points; sprite: THREE.Sprite }
   /** Sprites kept at a constant size on screen: the pad label and the coordinate labels. */
   private labels: Array<{ sprite: THREE.Sprite; aspect: number }> = []
   private mapObjects: THREE.Object3D[] = []
@@ -64,6 +66,23 @@ export class CentralBodyMesh {
     })
     this.ring = new THREE.Mesh(ringGeo, ringMat)
     this.group.add(this.ring)
+
+    if (body.surface === 'star') {
+      const g = new THREE.Group()
+      const pg = new THREE.BufferGeometry()
+      pg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3))
+      const points = new THREE.Points(pg, new THREE.PointsMaterial({
+        size: 26, sizeAttenuation: false, map: getGlowTexture(), color: new THREE.Color(body.atmosphere ?? '#ffd27a'),
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.9,
+      }))
+      points.frustumCulled = false
+      const { sprite, aspect } = makeLabelSprite(body.name, '#ffe3a3')
+      sprite.center.set(-0.35, 0.5)
+      g.add(points, sprite)
+      this.group.add(g)
+      this.labels.push({ sprite, aspect })
+      this.beacon = { group: g, points, sprite }
+    }
 
     if (body.atmosphere) {
       const star = body.surface === 'star'
@@ -181,6 +200,14 @@ export class CentralBodyMesh {
       this.group.remove(o)
       o.geometry.dispose()
       ;(o.material as THREE.Material).dispose()
+    }
+    if (this.beacon) {
+      this.group.remove(this.beacon.group)
+      this.beacon.points.geometry.dispose()
+      ;(this.beacon.points.material as THREE.Material).dispose()
+      disposeSprite(this.beacon.sprite)
+      this.labels = this.labels.filter((l) => l.sprite !== this.beacon?.sprite)
+      this.beacon = undefined
     }
     this.sphere = this.grid = this.principal = undefined
     this.ring = undefined

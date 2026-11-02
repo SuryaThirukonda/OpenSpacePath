@@ -9,7 +9,7 @@ import { getGlowTexture, makeLabelTexture } from './textures'
 export class SatelliteMarker {
   readonly group = new THREE.Group()
   private readonly model: Model
-  private readonly kind: SatelliteKind
+  readonly kind: SatelliteKind
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite

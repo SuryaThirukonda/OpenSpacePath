@@ -35,7 +35,10 @@ export function makeLabelTexture(text: string, color: string): { tex: THREE.Text
   ctx.fillStyle = color
   ctx.fillText(text, 12, 22)
   const tex = new THREE.CanvasTexture(c)
+  // drawn in sRGB like the CSS colours it matches; without the tag the text and its backing render pale
+  tex.colorSpace = THREE.SRGBColorSpace
   tex.minFilter = THREE.LinearFilter
+  tex.generateMipmaps = false
   return { tex, aspect: w / 44 }
 }
 

@@ -122,3 +122,16 @@ describe('surface feature tables', () => {
     expect(JUPITER_GRS.lat).toBeLessThan(JUPITER_BANDS[seb].north)
   })
 })
+
+describe('a companion and the ship riding with it', () => {
+  it('leaves the ship clear of every kind of body it can ride with', async () => {
+    const { companionReach } = await import('../../src/scene/models')
+    // the old fixed offset was 3.2 ship units: inside Earth (radius 4) and an asteroid (3.75 along its long axis)
+    expect(companionReach('planet')).toBe(4)
+    expect(companionReach('asteroid')).toBeCloseTo(3.75, 9)
+    for (const kind of ['comsat', 'station', 'asteroid', 'planet'] as const) {
+      const offset = companionReach(kind) + 0.8 + 0.6   // what ShipMarker.setRiding uses: reach, half the ship, a gap
+      expect(offset - 0.8).toBeGreaterThan(companionReach(kind))
+    }
+  })
+})

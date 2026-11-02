@@ -247,6 +247,11 @@ export const SATELLITE_UNITS: Record<SatelliteKind, number> = { comsat: 1.5, sta
  */
 export const SATELLITE_COMPANION_UNITS: Record<SatelliteKind, number> = { comsat: 20.8 / SPACECRAFT_METRES_PER_UNIT, station: 7, asteroid: 6, planet: 8 }
 
+/** How far a companion reaches from its centre, in ship units: half its span, with the rock's ×1.25 stretch. */
+export function companionReach(kind: SatelliteKind): number {
+  return (SATELLITE_COMPANION_UNITS[kind] / 2) * (kind === 'asteroid' ? 1.25 : 1)
+}
+
 /** Box bus in gold foil, two solar wings along +-y (the orbit normal), reflectors and a horn toward +z (the body). */
 export function buildComsat(): Model {
   const b = new Builder()

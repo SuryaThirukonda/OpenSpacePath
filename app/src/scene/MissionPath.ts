@@ -56,6 +56,12 @@ export class MissionPath {
   private legSpheres: THREE.Sphere[] = []
   private legViews: RouteView[] = []
   private ascent: RouteView | null = null
+  /** scene-space positions and colours of the samples, kept for the segment that reaches the ship */
+  private pos: Float32Array | null = null
+  private col: Float32Array | null = null
+  /** from the last flown sample to the ship, so the solid line reaches the ship between samples */
+  private tail: Line2 | null = null
+  private tailGeo: LineGeometry | null = null
 
   setPlan(flat: FlatPlan, plan: MissionPlan): void {
     this.clear()
@@ -69,13 +75,26 @@ export class MissionPath {
       kmToScene({ x: flat.r[3 * i], y: flat.r[3 * i + 1], z: flat.r[3 * i + 2] }, v)
       pos[3 * i] = v.x; pos[3 * i + 1] = v.y; pos[3 * i + 2] = v.z
       c.set(flat.kind[i] === 2 ? ASCENT_COLOR : LEG_COLORS[flat.leg[i] % LEG_COLORS.length])
-      if (flat.kind[i] === 1) c.multiplyScalar(0.7) // rides a little dimmer than coasts
       col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b
     }
     // the coasts, each as its own pair of lines (flown, remaining). Rides are not drawn: the ship
-    // keeps station with a body then, and the body's own orbit already shows where it goes
+    // keeps station with a body then, and the body's own orbit already shows where it goes.
+    // Dashes are sized from the tour's own scale (5% of a typical radius), so they read the same
+    // around a planet and around the Sun, where fixed sizes would be far below a pixel
+    let rsum = 0
+    for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 200))) rsum += Math.hypot(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2])
+    const rTypical = Math.max(1e-3, rsum / Math.ceil(n / Math.max(1, Math.floor(n / 200))))
     this.flownMat = makeLineMaterial({ vertexColors: true, width: 3, opacity: 1 })
-    this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.45, dashed: { dashSize: 0.35, gapSize: 0.22 } })
+    this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.45, dashed: { dashSize: 0.05 * rTypical, gapSize: 0.032 * rTypical } })
+    this.pos = pos
+    this.col = col
+    this.tailGeo = new LineGeometry()
+    this.tailGeo.setPositions([0, 0, 0, 0, 0, 0])
+    this.tailGeo.setColors([1, 1, 1, 1, 1, 1])
+    this.tail = new Line2(this.tailGeo, this.flownMat)
+    this.tail.frustumCulled = false
+    this.tail.visible = false
+    this.group.add(this.tail)
     let start = 0
     while (start < n) {
       let end = start + 1
@@ -181,10 +200,12 @@ export class MissionPath {
    * to the selected leg, or else to the leg in play (`currentLeg`); the others are dim and unlabelled.
    */
   update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null; currentLeg: number | null; remainingOnlyLeg?: number | null },
-         camera: THREE.PerspectiveCamera, viewportWidth: number, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3): void {
+         camera: THREE.PerspectiveCamera, viewportWidth: number, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3,
+         ship: THREE.Vector3 | null = null): void {
     if (!this.flat) return
     const cameraPos = camera.position
     const k = flownCount(this.flat, t)
+    this.updateTail(k, ship)
     for (const st of this.stretches) {
       const len = st.end - st.start
       const counts = segmentCounts(len, Math.min(Math.max(k - st.start, 0), len))
@@ -209,9 +230,14 @@ export class MissionPath {
         if (p.z < 1) shown.push({ m, x: ((p.x + 1) / 2) * viewportWidth, y: ((1 - p.y) / 2) * viewportHeight, w: 16 * m.labelAspect })
       }
     }
-    // labels that would land on top of each other stack upwards, in time order, so each stays readable
+    // labels that would land on top of each other stack upwards, in time order, so each stays readable;
+    // the ship's own label is placed first, so a burn label beside the ship moves out of its way
     shown.sort((a, b) => a.m.t - b.m.t)
     const placed: Array<{ x: number; y: number; w: number }> = []
+    if (ship) {
+      const p = toWorld(ship.clone()).project(camera)
+      if (p.z < 1) placed.push({ x: ((p.x + 1) / 2) * viewportWidth + 50, y: ((1 - p.y) / 2) * viewportHeight, w: 100 })
+    }
     for (const s of shown) {
       let row = 0
       for (let tries = 0; tries < 6; tries++) {
@@ -223,6 +249,24 @@ export class MissionPath {
       s.m.label.center.set(-0.08, 0.5 - row * 1.12)
       placed.push({ x: s.x, y: s.y - row * 18, w: s.w })
     }
+  }
+
+  /** The segment from the last flown sample to the ship, while the ship is between two samples of one coast. */
+  private updateTail(k: number, ship: THREE.Vector3 | null): void {
+    const flat = this.flat
+    if (!this.tail || !this.tailGeo || !flat || !this.pos || !this.col) return
+    const i = k - 1
+    const inside = ship !== null && i >= 0 && i + 1 < flat.n && flat.kind[i] !== 1 && flat.kind[i] === flat.kind[i + 1] && flat.leg[i] === flat.leg[i + 1]
+    this.tail.visible = inside
+    if (!inside || !ship) return
+    const start = this.tailGeo.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute
+    const buf = start.data
+    buf.array.set([this.pos[3 * i], this.pos[3 * i + 1], this.pos[3 * i + 2], ship.x, ship.y, ship.z])
+    buf.needsUpdate = true
+    const cstart = this.tailGeo.getAttribute('instanceColorStart') as THREE.InterleavedBufferAttribute
+    const c = this.col
+    cstart.data.array.set([c[3 * i], c[3 * i + 1], c[3 * i + 2], c[3 * i], c[3 * i + 1], c[3 * i + 2]])
+    cstart.data.needsUpdate = true
   }
 
   legSphere(leg: number): THREE.Sphere | null {
@@ -245,6 +289,14 @@ export class MissionPath {
   }
 
   clear(): void {
+    if (this.tail) {
+      this.group.remove(this.tail)
+      this.tailGeo?.dispose()
+      this.tail = null
+      this.tailGeo = null
+    }
+    this.pos = null
+    this.col = null
     for (const st of this.stretches) {
       this.group.remove(st.flown, st.remaining)
       st.flownGeo.dispose()

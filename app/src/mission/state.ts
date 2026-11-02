@@ -143,7 +143,8 @@ export function shipStateAt(flat: FlatPlan, t: number): ShipState | null {
   if (i >= flat.n - 1 || t <= flat.t[0]) return pick(i)
   const j = i + 1
   const dt = flat.t[j] - flat.t[i]
-  if (dt <= 0 || flat.leg[i] !== flat.leg[j] && flat.kind[i] !== flat.kind[j]) return pick(i)
+  // no interpolation across a change of leg and kind at once: those samples share a time anyway
+  if (dt <= 0 || (flat.leg[i] !== flat.leg[j] && flat.kind[i] !== flat.kind[j])) return pick(i)
   const { r, v } = hermite(flat.r.subarray(3 * i, 3 * i + 3), flat.v.subarray(3 * i, 3 * i + 3),
                            flat.r.subarray(3 * j, 3 * j + 3), flat.v.subarray(3 * j, 3 * j + 3), dt, (t - flat.t[i]) / dt)
   return {

@@ -5,6 +5,15 @@ export class InertialAxes {
   readonly group = new THREE.Group()
   private lines: THREE.Line[] = []
 
+  dispose(): void {
+    for (const l of this.lines) {
+      this.group.remove(l)
+      l.geometry.dispose()
+      ;(l.material as THREE.Material).dispose()
+    }
+    this.lines = []
+  }
+
   setLength(len: number): void {
     for (const l of this.lines) {
       this.group.remove(l)

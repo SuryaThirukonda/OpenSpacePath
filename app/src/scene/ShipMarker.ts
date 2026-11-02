@@ -27,6 +27,10 @@ export class ShipMarker {
   private readonly target = new THREE.Quaternion()
   private readonly heading = new THREE.Vector3(0, 0, 1)
   private aimed = false
+  /** where the ship is drawn while riding: behind the body along the ride's direction, in ship units */
+  private readonly rideDir = new THREE.Vector3(0, 0, 1)
+  private offsetTarget = 0
+  private offsetNow = 0
 
   constructor(name: string, color: string) {
     this.spacecraft = buildSpacecraft()
@@ -75,8 +79,12 @@ export class ShipMarker {
     this.applyPhase()
   }
 
-  /** While the ship keeps station with a satellite it is drawn just behind it, not inside it. */
-  setRiding(riding: boolean): void {
+  /**
+   * While the ship keeps station with a satellite it is drawn just behind it, not inside it:
+   * `clearance` is how far, in ship units, the body it rides with reaches from its centre.
+   */
+  setRiding(riding: boolean, clearance = 2.4): void {
+    this.offsetTarget = riding ? clearance + 0.8 + 0.6 : 0   // the body's reach, half the ship, a gap
     if (riding === this.riding) return
     this.riding = riding
     this.placeLabel()
@@ -112,6 +120,10 @@ export class ShipMarker {
    */
   setState(position: THREE.Vector3, velocity: THREE.Vector3, aim: THREE.Vector3 | null, up: THREE.Vector3, dtMs: number, snap: boolean): void {
     this.group.position.copy(position)
+    // the ride offset follows the ride's own direction, not the nose that may be turning toward the
+    // next burn, and moves in and out over a fraction of a second instead of jumping
+    if (velocity.lengthSq() > 0) this.rideDir.copy(velocity).normalize()
+    this.offsetNow = snap ? this.offsetTarget : this.offsetNow + (this.offsetTarget - this.offsetNow) * (1 - Math.exp(-Math.min(dtMs, 100) / 140))
     const dir = aim && aim.lengthSq() > 0 ? aim : velocity
     if (dir.lengthSq() > 0) {
       orientationFrom(dir, up, this.target)
@@ -123,11 +135,6 @@ export class ShipMarker {
     this.attitude.forward(this.heading)
   }
 
-  /** How far the nose still is from where it should point, radians; 0 once a slew is over. */
-  slewRemaining(): number {
-    return 2 * Math.acos(Math.min(1, Math.abs(this.attitude.q.dot(this.target))))
-  }
-
   /**
    * Keep the vehicle a constant size on screen (15 px per model unit, times `factor`) and the
    * label constant. The close views pass a larger factor so the ship reads as an object, and
@@ -137,7 +144,10 @@ export class ShipMarker {
     const wpp = worldPerPixel(cameraDistance, viewportHeight, fovRad)
     const scale = wpp * 15 * factor
     this.model.scale.setScalar(scale)
-    this.model.position.copy(this.heading).multiplyScalar(this.riding ? -3.2 * scale : 0)
+    this.model.position.copy(this.rideDir).multiplyScalar(-this.offsetNow * scale)
+    // the label and the glow mark the ship where it is drawn, not the centre of the body it rides with
+    this.points.position.copy(this.model.position)
+    this.label.position.copy(this.model.position)
     this.points.visible = factor < 2
     const h = 18 * wpp
     this.label.scale.set(h * this.labelAspect, h, 1)

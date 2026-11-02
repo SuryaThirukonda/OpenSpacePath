@@ -53,11 +53,12 @@ export const PATH_FORMAT_REFERENCE = `A path is text in this shape; one line per
     Asteroid 1: a=3.2654 e=0.1823 i=6.72 raan=147.75 argp=296.07 M0=283.61 arrive=365 stay=30
     Asteroid 2: a=2.9651 e=0.0272 i=1.00 raan=111.98 argp=278.47 M0=228.47 arrive=760 stay=30
 
-- The first line is "ARP-PATH 1". "epoch:" is the mission start (ISO date); "departure:" the day the spacecraft leaves Earth's orbit.
+- The first line is "ARP-PATH 1". "departure:" is the day the spacecraft leaves Earth's orbit.
 - A stop is "name: key=value ...". The orbit: a in AU (or "a=4.9e8km"), e, and the angles i, raan, argp, M0 in degrees (or "i=0.12rad"), M0 at the epoch.
   Then arrive (the day the spacecraft must be there) and stay (days spent there before leaving). The keys may come in any order.
-- Optional: "mu:" in km^3/s^2 (the Sun when absent); "earth:" with the same orbit keys (JPL's Earth when absent); "id=" on a stop.
-- A stop whose name and orbit match an asteroid of the instance is that asteroid; any other orbit is a new body, drawn when the path is flown.
+- "epoch:", "mu:" and "earth:" lines are written for reference and skipped when read: a path is flown with the instance's start date, Sun and Earth.
+- Optional: "id=" on a stop.
+- A stop named like an asteroid of the instance is that asteroid, with the orbit written on its line; any other name is a new body, drawn when the path is flown.
 - Lines starting with # are comments. A file in this format, or the JSON the page used to export, can be imported.`
 
 const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'stop'
@@ -122,7 +123,7 @@ export function parsePathText(text: string, inst?: ArpInstance | null): PathPlan
     const key = line.slice(0, colon).trim()
     const value = line.slice(colon + 1).trim()
     const lower = key.toLowerCase()
-    if (lower === 'epoch' || lower === 'mu' || lower === 'earth') continue // kept with the instance, read by the file importer
+    if (lower === 'epoch' || lower === 'mu' || lower === 'earth') continue // for reference only: the instance supplies these
     if (lower === 'departure') {
       const d = Number(value.replace(/\s*(d|days?)$/i, ''))
       if (!Number.isFinite(d) || d < 0) return `departure must be a day number, zero or more, not "${value}"`

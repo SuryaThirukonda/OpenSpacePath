@@ -1,10 +1,11 @@
 /**
- * ARP instances: generating them, checking imported ones, and turning one into a scene.
+ * ARP instances: fetching the papers' own, generating synthetic ones, checking opened ones, and
+ * turning one into a scene.
  *
- * The papers draw their asteroids from the 83,453 of the GTOC11 competition. That catalogue is
- * not bundled here, so the generator makes main-belt-like orbits from a seed instead: the same
- * seed always gives the same instance, but its costs are not comparable with the papers' tables.
- * A real instance can be imported as JSON in the same shape.
+ * The papers draw their asteroids from the 83,453 of the GTOC11 competition. The planner holds
+ * that catalogue and serves instance n_seed exactly as the papers draw it (fetchPaperInstance).
+ * The synthetic generator here makes main-belt-like orbits from a seed instead: the same seed
+ * always gives the same instance, but its costs are not comparable with the papers' tables.
  */
 import { apiError, plannerFetch } from '../mission/http'
 import { validateElements } from '../core/elements'

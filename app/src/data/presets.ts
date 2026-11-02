@@ -9,7 +9,8 @@
  */
 import { DEG } from '../core/constants'
 import { semiMajorAxisFromPeriod, shapeFromAltitudes } from '../core/elements'
-import type { CentralBody, KeplerSatellite, OrbitalElements, TleSatellite } from '../types'
+import { trueToMean } from '../core/kepler'
+import type { CentralBody, KeplerSatellite, OrbitalElements } from '../types'
 
 /** Preset altitudes are stated for Earth; see presetElements. */
 export const PRESET_REFERENCE_RADIUS = 6378.137
@@ -75,7 +76,8 @@ export function presetElements(p: Preset, body: CentralBody): OrbitalElements {
     : shapeFromAltitudes(p.periAlt * scale, p.apoAlt * scale, body.radius)
   return {
     a: shape.a, e: shape.e,
-    i: p.i * DEG, raan: p.raan * DEG, argp: p.argp * DEG, M0: p.nu0 * DEG, // e is small or 0 for nu0 != 0 presets
+    // the presets give the true anomaly at the epoch; the elements hold the mean anomaly
+    i: p.i * DEG, raan: p.raan * DEG, argp: p.argp * DEG, M0: trueToMean(p.nu0 * DEG, shape.e),
   }
 }
 
@@ -95,10 +97,6 @@ export const ISS_TLE = {
   name: 'ISS (ZARYA)',
   line1: '1 25544U 98067A   26244.49851260  .00003910  00000+0  79223-4 0  9992',
   line2: '2 25544  51.6312 282.3953 0005055  96.4740 263.6824 15.48958602583585',
-}
-
-export function issTleSatellite(): TleSatellite {
-  return { id: newId('tle'), kind: 'tle', name: ISS_TLE.name, color: '#ffffff', line1: ISS_TLE.line1, line2: ISS_TLE.line2 }
 }
 
 /** Scenario epoch that matches the bundled TLE closely so both ISS models agree at t = 0. */

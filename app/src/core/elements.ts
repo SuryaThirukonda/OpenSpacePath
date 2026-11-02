@@ -34,11 +34,6 @@ export function semiMajorAxisFromPeriod(T: number, mu: number): number {
   return Math.cbrt(mu * (T / TWO_PI) ** 2)
 }
 
-/** Semi-major axis for a circular orbit at a given altitude, km. */
-export function semiMajorAxisFromAltitude(alt: number, bodyRadius: number): number {
-  return bodyRadius + alt
-}
-
 /** a and e from periapsis and apoapsis altitudes above the surface (km). */
 export function shapeFromAltitudes(periAlt: number, apoAlt: number, bodyRadius: number): { a: number; e: number } {
   const rp = bodyRadius + Math.min(periAlt, apoAlt)
@@ -69,7 +64,7 @@ export function altitudeFactor(from: Pick<CentralBody, 'radius'>, to: Pick<Centr
   return to.radius / from.radius
 }
 
-export interface ElementsValidation {
+interface ElementsValidation {
   ok: boolean
   problems: string[]
 }

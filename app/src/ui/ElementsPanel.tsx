@@ -3,7 +3,7 @@ import { apoapsisAltitude, periapsisAltitude, period } from '../core/elements'
 import { elementsToState, norm, trueAnomalyAt } from '../core/kepler'
 import { formatDuration } from '../core/time'
 import { getBody } from '../data/bodies'
-import { satrecFor, satrecToElements, sgp4Epoch, sgp4StateAt } from '../propagation/sgp4Propagator'
+import { satrecFor, satrecToElements, sgp4Epoch, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
 import { epochMs, selectedSatellite, useStore } from '../store/store'
 import { AU_KM } from '../arp/instance'
 import { isNarrowScreen } from './layout'
@@ -106,7 +106,7 @@ export function ElementsPanel() {
     } else {
       const el = satrecToElements(rec)
       const st = sgp4StateAt(rec, new Date(eMs + t * 1000))
-      const T = TWO_PI / (rec.no / 60)
+      const T = sgp4Period(rec)
       rows.push(
         { k: 'Model', v: 'SGP4 via satellite.js (TEME frame)' },
         { k: 'catalog no.', v: String(rec.satnum) },

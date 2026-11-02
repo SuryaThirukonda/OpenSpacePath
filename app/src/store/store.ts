@@ -54,7 +54,8 @@ export interface AppState {
   selectedId: string | null
   showAxes: boolean
   showLabels: boolean
-  cameraRequest: { kind: CameraRequestKind; seq: number } | null
+  /** keepMode: the request comes with a world switch and must not cancel the camera mode the world comes back with */
+  cameraRequest: { kind: CameraRequestKind; seq: number; keepMode?: boolean } | null
 
   /** The planner's last answer for scenario.mission, or null when inputs changed since. */
   plan: MissionPlan | null
@@ -176,7 +177,7 @@ export const useStore = create<AppState>((set) => ({
         : { scenario: world === 'asteroids' ? emptyAsteroidScenario(shared) : { ...defaultScenario(), ...shared }, t: 0, playing: false, selectedId: null,
             plan: null, planStatus: 'idle', planError: null, selectedLeg: null, cameraMode: 'free' }
       if (!next.plan && (next.cameraMode === 'chase' || next.cameraMode === 'birdseye')) next.cameraMode = 'free'
-      return { ...next, planStale: false, world, stashed: { ...s.stashed, [s.world]: stash }, cameraRequest: { kind: world === 'asteroids' ? 'all' : 'reset', seq: ++cameraSeq } }
+      return { ...next, planStale: false, world, stashed: { ...s.stashed, [s.world]: stash }, cameraRequest: { kind: world === 'asteroids' ? 'all' : 'reset', seq: ++cameraSeq, keepMode: true } }
     }),
   setLeftTab: (tab) => {
     useStore.getState().switchWorld(tab === 'asteroids' ? 'asteroids' : 'satellites')

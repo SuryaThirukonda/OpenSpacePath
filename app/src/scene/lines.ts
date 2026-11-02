@@ -1,13 +1,10 @@
 /**
  * Thick lines. WebGL draws plain lines one pixel wide whatever `linewidth` says, so orbit and
  * tour paths use three's Line2 (screen-space quads). Its material needs the viewport size to
- * turn a pixel width into geometry; every line material shares this one Vector2, which the
- * SceneManager updates on resize.
+ * turn a pixel width into geometry; Line2 sets it from the renderer's viewport before each draw.
  */
 import * as THREE from 'three'
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
-
-export const LINE_RESOLUTION = new THREE.Vector2(1, 1)
 
 export interface LineOptions {
   color?: string | number
@@ -30,7 +27,6 @@ export function makeLineMaterial(o: LineOptions): LineMaterial {
     gapSize: o.dashed?.gapSize ?? 1,
     depthWrite: false,
   })
-  m.resolution = LINE_RESOLUTION
   return m
 }
 

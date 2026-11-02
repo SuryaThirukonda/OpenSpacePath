@@ -20,8 +20,8 @@ import { MissionPath } from './MissionPath'
 import { ShipMarker } from './ShipMarker'
 import { CentralBodyMesh } from './CentralBodyMesh'
 import { kmScalarToScene, kmToScene, makeInertialGroup } from './frame'
-import { LINE_RESOLUTION } from './lines'
 import { OrbitPath } from './OrbitPath'
+import { companionReach } from './models'
 import { SatelliteMarker } from './SatelliteMarker'
 
 interface SatVisual {
@@ -30,7 +30,12 @@ interface SatVisual {
   marker: SatelliteMarker
   /** For TLE satellites: simulated time (s) at which the one-period path starts. */
   pathT0: number
+  /** wall time of the last path rebuild, so a fast clock does not rebuild a TLE path every frame */
+  builtAt: number
 }
+
+/** Visual keys by satellite record: records are immutable, so the key is worked out once per record, not per frame. */
+const keyCache = new WeakMap<Satellite, string>()
 
 export class SceneManager {
   private readonly renderer: THREE.WebGLRenderer
@@ -55,7 +60,7 @@ export class SceneManager {
   private ship: ShipMarker | null = null
   private flat: FlatPlan | null = null
   private planRef: MissionPlan | null = null
-  private firedBurns = new Set<number>()
+  private firedBurns = new Set<string>()
   private prevT = Number.NaN
   private followLeg = -1
 
@@ -78,10 +83,21 @@ export class SceneManager {
   private readonly upRef = new THREE.Vector3()
   private shipPixelsPerUnit = 0
   private readonly scratch = new THREE.Vector3()
+  private readonly scratch2 = new THREE.Vector3()
+  private readonly scratchV = new THREE.Vector3()
+  private readonly starfield: THREE.Points
+  private readonly sunLight: THREE.DirectionalLight
+  private readonly sunPoint: THREE.PointLight
+  /** the ship's label was moved below a body's last frame; it moves back only once clear by a margin */
+  private labelLow = false
+  private lastNormal: THREE.Vector3 | null = null
+  private shipName = ''
 
   constructor(container: HTMLElement) {
     this.container = container
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
+    // a logarithmic depth buffer: the scene spans metres-scale models to astronomical units, and with a
+    // linear one the coastlines, the grid and the ship's thin shells fight each other at distance
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', logarithmicDepthBuffer: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setClearColor(0x06080d, 1)
     container.appendChild(this.renderer.domElement)
@@ -94,10 +110,15 @@ export class SceneManager {
     this.renderer.domElement.addEventListener('wheel', this.onWheel, { passive: true })
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.35))
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6)
-    sun.position.set(1, 0.4, 0.6)
-    this.scene.add(sun)
-    this.scene.add(makeStarfield())
+    // around a planet the light comes from far away in a fixed direction; around the Sun it comes from the Sun
+    this.sunLight = new THREE.DirectionalLight(0xffffff, 1.6)
+    this.sunLight.position.set(1, 0.4, 0.6)
+    this.scene.add(this.sunLight)
+    this.sunPoint = new THREE.PointLight(0xffffff, 2.2, 0, 0)
+    this.sunPoint.visible = false
+    this.scene.add(this.sunPoint)
+    this.starfield = makeStarfield()
+    this.scene.add(this.starfield)
 
     this.inertial.add(this.bodyMesh.group)
     this.inertial.add(this.axes.group)
@@ -145,7 +166,6 @@ export class SceneManager {
     const w = this.container.clientWidth || 1
     const h = this.container.clientHeight || 1
     this.renderer.setSize(w, h, false)
-    LINE_RESOLUTION.set(w, h)
     this.insetAt = -Infinity
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
@@ -182,25 +202,31 @@ export class SceneManager {
 
     this.axes.group.visible = state.showAxes
     if (!this.managedCamera) this.controls.update()
+    this.camera.updateMatrixWorld()   // projections below use this frame's camera, not last frame's
+    // the stars are infinitely far: they travel with the camera, so orbiting never shows parallax or the shell's edge
+    this.starfield.position.copy(this.camera.position)
     // everything held at a constant size on screen is sized last, once the camera for this frame is final
     const viewH = this.container.clientHeight || 1
     const fovRad = (this.camera.fov * Math.PI) / 180
     this.bodyMesh.updateLabels(this.camera.position, viewH, fovRad)
-    const shipOnScreen = this.ship && state.plan ? this.ship.group.getWorldPosition(new THREE.Vector3()).project(this.camera) : null
+    const shipOnScreen = this.ship && state.plan && state.showLabels ? this.ship.group.getWorldPosition(this.scratch2).project(this.camera) : null
     let labelCrowded = false
+    // a body's label within a label's height of the ship's would cover it; once moved, the ship's
+    // label comes back only when clear by a margin, so it does not flicker at the threshold
+    const reachY = this.labelLow ? 24 : 16
     for (const [id, v] of this.visuals) {
       if (!v.marker.group.visible) continue
       v.marker.group.getWorldPosition(this.scratch)
       const companion = state.plan !== null && id === this.companionId
       v.marker.updateScale(this.camera.position.distanceTo(this.scratch), viewH, fovRad, companion ? this.shipPixelsPerUnit : 0)
-      if (shipOnScreen && shipOnScreen.z < 1) {
-        // a body's label within a label's height of the ship's would cover it
+      if (shipOnScreen && shipOnScreen.z < 1 && !companion) {
         const p = this.scratch.project(this.camera)
         const dx = Math.abs(p.x - shipOnScreen.x) * (this.container.clientWidth || 1) / 2
-        const dy = Math.abs(p.y - shipOnScreen.y) * viewH / 2
-        if (p.z < 1 && dx < 90 && dy < 14) labelCrowded = true
+        const dy = (p.y - shipOnScreen.y) * viewH / 2   // positive: the body is above the ship on screen
+        if (p.z < 1 && dx < 96 && Math.abs(dy) < reachY && dy > -6) labelCrowded = true
       }
     }
+    this.labelLow = labelCrowded
     this.ship?.setLabelBelow(labelCrowded)
     this.renderer.render(this.scene, this.camera)
     this.raf = requestAnimationFrame(this.tick)
@@ -217,6 +243,9 @@ export class SceneManager {
       this.controls.maxDistance = kmScalarToScene(body.frameDistance) * 60
       this.camera.near = R * 0.01
       this.camera.updateProjectionMatrix()
+      const heliocentric = body.id === 'sun'
+      this.sunPoint.visible = heliocentric
+      this.sunLight.visible = !heliocentric
       for (const v of this.visuals.values()) v.key = '' // force path rebuild in the new field
     }
     const date = new Date(epochMs(s) + s.t * 1000)
@@ -236,13 +265,17 @@ export class SceneManager {
       if (!isRenderable(sat, body.id)) continue
       live.add(sat.id)
       let v = this.visuals.get(sat.id)
-      const key = visualKey(sat, body.id)
+      let key = keyCache.get(sat)
+      if (key === undefined || !key.startsWith(`${body.id}|`)) {
+        key = visualKey(sat, body.id)
+        keyCache.set(sat, key)
+      }
       if (v && v.key !== key && v.key !== '') {
         this.removeVisual(sat.id)
         v = undefined
       }
       if (!v) {
-        v = { key, path: new OrbitPath(sat.color), marker: new SatelliteMarker(sat.name, sat.color, sat.kind === 'kepler' ? sat.shape : undefined), pathT0: s.t }
+        v = { key, path: new OrbitPath(sat.color), marker: new SatelliteMarker(sat.name, sat.color, sat.kind === 'kepler' ? sat.shape : undefined), pathT0: s.t, builtAt: 0 }
         this.inertial.add(v.path.line)
         this.inertial.add(v.marker.group)
         this.visuals.set(sat.id, v)
@@ -255,7 +288,7 @@ export class SceneManager {
       const state = this.stateOf(sat, body, s.t, date)
       if (state) {
         v.marker.group.visible = true
-        v.marker.setState(kmToScene(state.r), new THREE.Vector3(state.v.x, state.v.y, state.v.z))
+        v.marker.setState(kmToScene(state.r, this.scratch), this.scratchV.set(state.v.x, state.v.y, state.v.z))
       } else {
         v.marker.group.visible = false
       }
@@ -263,7 +296,11 @@ export class SceneManager {
         const rec = satrecFor(sat)
         if (rec) {
           const T = sgp4Period(rec)
-          if (Math.abs(s.t - v.pathT0) > T * 0.5) this.rebuildPath(v, sat, body, s.t, date)
+          const now = performance.now()
+          if (Math.abs(s.t - v.pathT0) > T * 0.5 && now - v.builtAt > 250) {
+            v.builtAt = now
+            this.rebuildPath(v, sat, body, s.t, date)
+          }
         }
       }
       const selected = sat.id === s.selectedId
@@ -347,8 +384,10 @@ export class SceneManager {
   /** Frame a bounding sphere (in inertial-local coordinates), viewing from above the orbit plane. */
   private frameSphere(sphere: THREE.Sphere, sat?: Satellite): void {
     const center = this.inertial.localToWorld(sphere.center.clone())
-    const fov = (this.camera.fov * Math.PI) / 180
-    const dist = (sphere.radius * 1.25) / Math.sin(fov / 2)
+    // fit the sphere in the narrower of the two half-angles, so a portrait screen does not cut it at the sides
+    const halfV = (this.camera.fov * Math.PI) / 360
+    const halfH = Math.atan(Math.tan(halfV) * this.camera.aspect)
+    const dist = (sphere.radius * 1.25) / Math.sin(Math.min(halfV, halfH))
     let dir = new THREE.Vector3(0.5, 0.6, 0.65)
     if (sat?.kind === 'kepler') {
       // Angular momentum direction in the inertial frame, then into world coordinates.
@@ -373,8 +412,15 @@ export class SceneManager {
       if (s.plan) {
         this.flat = flattenPlan(s.plan)
         this.missionPath.setPlan(this.flat, s.plan)
+        const name = s.scenario.mission?.ship.name ?? 'Ship'
+        if (this.ship && name !== this.shipName) {
+          this.inertial.remove(this.ship.group)
+          this.ship.dispose()
+          this.ship = null
+        }
         if (!this.ship) {
-          this.ship = new ShipMarker(s.scenario.mission?.ship.name ?? 'Ship', '#ffffff')
+          this.ship = new ShipMarker(name, '#ffffff')
+          this.shipName = name
           this.inertial.add(this.ship.group)
         }
         const start = s.scenario.mission?.start
@@ -391,9 +437,9 @@ export class SceneManager {
       }
     }
     // Which camera is in charge. A framing request (Frame body, Frame tour, ...) takes it back from a managed view.
-    const pending = s.cameraRequest !== null && s.cameraRequest.seq !== this.lastCameraSeq
+    const pending = s.cameraRequest !== null && s.cameraRequest.seq !== this.lastCameraSeq && !s.cameraRequest.keepMode
     let mode = s.cameraMode
-    if (pending && (mode === 'chase' || mode === 'birdseye')) {
+    if (pending && (mode === 'chase' || mode === 'birdseye' || mode === 'follow')) {
       s.setCameraMode('free')
       mode = 'free'
     }
@@ -423,21 +469,33 @@ export class SceneManager {
     }
     const st = shipStateAt(this.flat, s.t)
     if (!st) return
-    const pos = kmToScene(st.r)
+    const ridingWith = st.kind !== 'ride' ? null
+      : s.plan.prelude && s.t <= s.plan.prelude.t1 ? s.plan.prelude.satelliteId
+      : (s.plan.legs[st.leg]?.ride?.satelliteId ?? null)
+    // while riding, the ship is where its companion is drawn: the plan samples a long dwell coarsely,
+    // and its interpolation would drift from the body's own propagation
+    const companionVisual = ridingWith ? this.visuals.get(ridingWith) : undefined
+    const pos = companionVisual?.marker.group.visible ? companionVisual.marker.group.position.clone() : kmToScene(st.r)
     const vel = new THREE.Vector3(st.v.x, st.v.y, st.v.z)
     // ease the managed cameras only while time flows; a scrub or a jump snaps them
     const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
     const continuous = Number.isFinite(this.prevT) && Math.abs(s.t - this.prevT) <= maxStep
     // the nose points along the next burn while one is near, else along the flight; belly to the body
     const burn = this.burnNear(s.plan, s.t)
-    const aim = burn ? this.aim.set(burn.dv[0], burn.dv[1], burn.dv[2]) : null
+    let aim = burn ? this.aim.set(burn.dv[0], burn.dv[1], burn.dv[2]) : null
+    if (st.kind === 'ascent') {
+      // a rocket points along its velocity over the ground, not the inertial one, which on the pad is
+      // just the body's spin, sideways; below a few tens of m/s it stands up, along the local vertical
+      const w = TWO_PI / getBody(s.scenario.bodyId).rotationPeriod
+      const rel = this.aim.set(st.v.x + w * st.r.y, st.v.y - w * st.r.x, st.v.z)
+      aim = rel.length() > 0.05 ? rel : this.aim.set(st.r.x, st.r.y, st.r.z)
+    }
     this.upRef.copy(pos).normalize()
     this.ship.setState(pos, vel, aim, this.upRef, dtMs, !continuous)
     this.ship.setLabelVisible(s.showLabels)
     // the launch vehicle sheds a stage at each separation; once in orbit the spacecraft flies on
     const dropped = s.plan.launch ? s.plan.launch.events.filter((e) => e.label.includes('separation') && e.t <= s.t).length : 0
     this.ship.setPhase(st.kind === 'ascent', dropped)
-    this.ship.setRiding(st.kind === 'ride')
     const worldPos = this.inertial.localToWorld(pos.clone())
     const fov = (this.camera.fov * Math.PI) / 180
     const h = this.container.clientHeight || 1
@@ -451,24 +509,25 @@ export class SceneManager {
     const shipScale = this.managedCamera ? (mode === 'chase' ? 3.5 : 1.5) : 1
     this.ship.updateScale(dist, h, fov, shipScale)
     // the satellite drawn at the ship's scale is the one the ship is riding with; a target still far
-    // ahead stays a marker, or it would loom over the scene at a fixed size on screen
-    const ridingWith = st.kind !== 'ride' ? null
-      : s.plan.prelude && s.t <= s.plan.prelude.t1 ? s.plan.prelude.satelliteId
-      : (s.plan.legs[st.leg]?.ride?.satelliteId ?? null)
-    // only the chase view, which sits next to the ship, draws that body at the ship's scale
+    // ahead stays a marker, or it would loom over the scene at a fixed size on screen. Only the chase
+    // view, which sits next to the ship, draws that body at the ship's scale, and the ship then rides
+    // clear of it
     this.companionId = this.managedCamera && mode === 'chase' ? ridingWith : null
+    const companionKind = this.companionId ? this.visuals.get(this.companionId)?.marker.kind : undefined
+    this.ship.setRiding(st.kind === 'ride', companionKind ? companionReach(companionKind) : undefined)
     this.focusId = ridingWith ?? s.scenario.mission?.stops[st.leg]?.satelliteId ?? null
     this.shipPixelsPerUnit = 15 * shipScale
     // the chase view sits among the lines: it shows what is still to come on this leg only
+    this.camera.updateMatrixWorld()
     this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg, currentLeg: st.outside ? null : st.leg,
       remainingOnlyLeg: this.managedCamera && mode === 'chase' && !st.outside ? st.leg : null },
-      this.camera, this.container.clientWidth || 1, h, fov, (v) => this.inertial.localToWorld(v))
+      this.camera, this.container.clientWidth || 1, h, fov, (v) => this.inertial.localToWorld(v), st.kind === 'ride' ? null : pos)
 
     // burns: fire when the clock crosses one while playing, not when scrubbing across it
     if (Number.isFinite(this.prevT) && s.playing && s.t > this.prevT && s.t - this.prevT <= maxStep) {
       s.plan.legs.forEach((leg, li) =>
         leg.burns.forEach((b, bi) => {
-          const key = li * 10 + bi
+          const key = `${li}:${bi}`
           if (this.prevT < b.t && b.t <= s.t && !this.firedBurns.has(key)) {
             this.firedBurns.add(key)
             const exhaust = new THREE.Vector3(-b.dv[0], -b.dv[1], -b.dv[2])
@@ -520,6 +579,7 @@ export class SceneManager {
         const d = Math.max((sphere.radius * 1.2) / Math.sin(fov / 2), kmScalarToScene(getBody(s.scenario.bodyId).radius) * 3)
         const dir = this.camera.position.clone().sub(this.controls.target).normalize()
         if (dir.lengthSq() === 0) dir.set(0.5, 0.6, 0.65).normalize()
+        this.controls.maxDistance = Math.max(this.controls.maxDistance, d * 6)
         this.controls.target.copy(worldPos)
         this.camera.position.copy(worldPos).add(dir.multiplyScalar(d))
         return
@@ -564,7 +624,12 @@ export class SceneManager {
     if (!view) return
     const center = this.inertial.localToWorld(view.sphere.center.clone())
     const normal = view.normal.clone().applyQuaternion(this.inertial.quaternion)
-    const pose = birdsEyePose(center, normal, view.sphere.radius, fov, this.camera.aspect, WORLD_POLE, this.viewZoom, this.bottomInset(nowMs))
+    // a near-polar leg's normal can point either way of the pole; keep looking from the side used for the
+    // last leg, so the view does not flip into its mirror image between legs
+    const pole = this.lastNormal && Math.abs(normal.dot(WORLD_POLE)) < 0.3 ? this.lastNormal : WORLD_POLE
+    if (normal.dot(pole) < 0) normal.negate()
+    this.lastNormal = normal.clone()
+    const pose = birdsEyePose(center, normal, view.sphere.radius, fov, this.camera.aspect, WORLD_POLE, this.viewZoom, this.bottomInset(nowMs), true)
     const a = this.birdReady ? 1 - Math.exp(-dtMs / 260) : 1
     this.camera.position.lerp(pose.position, a)
     this.birdTarget.lerp(pose.target, a)
@@ -585,8 +650,12 @@ export class SceneManager {
     this.missionPath.dispose()
     this.burnEffect.dispose()
     this.ship?.dispose()
+    this.axes.dispose()
+    this.starfield.geometry.dispose()
+    ;(this.starfield.material as THREE.Material).dispose()
     this.controls.dispose()
     this.renderer.dispose()
+    this.renderer.forceContextLoss()   // hot reloads and remounts would otherwise pile up WebGL contexts
     this.renderer.domElement.remove()
   }
 }

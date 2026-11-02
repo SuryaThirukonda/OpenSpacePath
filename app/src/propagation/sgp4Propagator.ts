@@ -15,7 +15,7 @@ export const MU_WGS72 = 398600.8
 
 export type Satrec = satellite.SatRec
 
-export interface TleParseResult {
+interface TleParseResult {
   ok: boolean
   satrec?: Satrec
   error?: string
@@ -62,6 +62,8 @@ export function parseTle(line1: string, line2: string): TleParseResult {
 }
 
 const cache = new Map<string, Satrec>()
+/** A catalogue of TLEs would otherwise grow the cache without end; the oldest entries leave first. */
+const CACHE_LIMIT = 500
 
 /** Cached satrec for a TLE satellite (twoline2satrec is cheap but the cache keeps the RAF loop tidy). */
 export function satrecFor(sat: TleSatellite): Satrec | null {
@@ -72,6 +74,7 @@ export function satrecFor(sat: TleSatellite): Satrec | null {
     if (!res.ok || !res.satrec) return null
     rec = res.satrec
     cache.set(key, rec)
+    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value as string)
   }
   return rec
 }

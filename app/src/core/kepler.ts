@@ -110,11 +110,6 @@ export function elementsToState(el: OrbitalElements, mu: number, t: number): Sta
   return stateFromTrueAnomaly(p, el.e, el.i, el.raan, el.argp, nu, mu)
 }
 
-/** Position only, km, inertial frame. */
-export function elementsToPosition(el: OrbitalElements, mu: number, t: number): Vec3 {
-  return elementsToState(el, mu, t).r
-}
-
 export function norm(v: Vec3): number {
   return Math.hypot(v.x, v.y, v.z)
 }
