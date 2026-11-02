@@ -4,7 +4,6 @@ import type { EvaluationRow } from '../arp/types'
 /** Series colours for a dark surface, checked for colour-vision separation and contrast against the panel. */
 const BEST = '#3987e5'
 const EACH = '#d95926'
-const SURFACE = '#0d121d'
 const H = 150
 const M = { left: 44, right: 50, top: 10, bottom: 24 }
 
@@ -105,10 +104,10 @@ export function ConvergenceChart({ rows, onPick }: { rows: EvaluationRow[]; onPi
         <text x={width - M.right} y={H - 6} textAnchor="end" className="tick">{n} evaluations</text>
         {active && <line x1={x(active.index)} x2={x(active.index)} y1={M.top} y2={H - M.bottom} className="crosshair" />}
         {data.map((d) => (
-          <circle key={d.index} cx={x(d.index)} cy={y(d.cost)} r={active === d ? r + 1.5 : r} fill={EACH} stroke={SURFACE} strokeWidth="2" />
+          <circle key={d.index} cx={x(d.index)} cy={y(d.cost)} r={active === d ? r + 1.5 : r} fill={EACH} className="ring" strokeWidth="2" />
         ))}
         <path d={step} fill="none" stroke={BEST} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-        <circle cx={x(last.index)} cy={y(last.best ?? last.cost)} r="4" fill={BEST} stroke={SURFACE} strokeWidth="2" />
+        <circle cx={x(last.index)} cy={y(last.best ?? last.cost)} r="4" fill={BEST} className="ring" strokeWidth="2" />
         <text x={x(last.index) + 8} y={y(last.best ?? last.cost)} dy="0.32em" className="end-label">{fmt(last.best ?? last.cost)}</text>
       </svg>
       {active && (

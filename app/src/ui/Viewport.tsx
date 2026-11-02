@@ -20,6 +20,8 @@ export function Viewport() {
       queueMicrotask(() => setFailure(message))   // after the effect, so the notice is an ordinary update
       return
     }
+    // Development only: lets an automated check read the scene (the ship's heading, for one)
+    if (import.meta.env.DEV) Object.assign(window as object, { __orbitLabScene: mgr })
     return () => mgr.dispose()
   }, [])
   return (

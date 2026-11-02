@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore, type CameraMode } from '../store/store'
-import { IconAxes, IconBird, IconCamera, IconChase, IconFrame, IconGlobe, IconLink, IconOrbit, IconTag } from './icons'
+import { IconAxes, IconBird, IconCamera, IconChase, IconFrame, IconGlobe, IconLink, IconMoon, IconOrbit, IconSun, IconTag } from './icons'
+import { setTheme, useTheme } from './theme'
 
 /** The camera modes, as the View menu offers them. Follow, Chase and Bird's-eye need a tour or a route. */
 const CAMERAS: Array<[CameraMode, string, string]> = [
@@ -67,8 +69,19 @@ export function CameraButtons() {
           <IconLink /><span>{copied ? 'Copied' : 'Copy link'}</span>
         </button>
         <span className="visually-hidden" role="status">{copied ? 'Link copied' : ''}</span>
+        <ThemeButton />
       </div>
     </div>
+  )
+}
+
+function ThemeButton() {
+  const theme = useTheme()
+  const next = theme === 'dark' ? 'light' : 'dark'
+  return (
+    <button className="tool" onClick={() => setTheme(next)} title={`Switch to the ${next} theme`}>
+      {theme === 'dark' ? <IconSun /> : <IconMoon />}<span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+    </button>
   )
 }
 
@@ -82,25 +95,30 @@ function ViewMenu() {
   const showBurnLabels = useStore((s) => s.showBurnLabels)
   const { setCameraMode, toggleRemaining, toggleBurnLabels, requestCamera } = useStore.getState()
   const [open, setOpen] = useState(false)
-  const [place, setPlace] = useState<CSSProperties>({})
+  const [placement, setPlace] = useState<CSSProperties>({})
   const box = useRef<HTMLDivElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
 
-  // The toolbar may scroll sideways on a narrow screen, which would clip a dropdown, so the menu is
-  // placed against the window: below the button, or above it when the toolbar sits at the bottom.
-  const toggle = () => {
+  // The toolbar may scroll sideways on a narrow screen and clips what overflows it, so the menu is
+  // rendered into <body> and placed against the window: under the button (or over it when the
+  // toolbar sits at the bottom), its right edge on the button's, and always inside the window.
+  const place = () => {
     const r = button.current?.getBoundingClientRect()
-    if (r) {
-      const width = Math.min(300, window.innerWidth - 16)
-      const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))
-      setPlace(r.top > window.innerHeight / 2 ? { left, width, bottom: window.innerHeight - r.top + 6 } : { left, width, top: r.bottom + 6 })
-    }
+    if (!r) return
+    const width = Math.min(340, window.innerWidth - 16)
+    const left = Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))
+    setPlace(r.top > window.innerHeight / 2 ? { left, width, bottom: window.innerHeight - r.top + 6 } : { left, width, top: r.bottom + 6 })
+  }
+  const toggle = () => {
+    if (!open) place()
     setOpen(!open)
   }
 
   useEffect(() => {
     if (!open) return
-    const onDown = (e: PointerEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false) }
+    const inside = (n: Node) => !!(box.current?.contains(n) || menu.current?.contains(n))
+    const onDown = (e: PointerEvent) => { if (!inside(e.target as Node)) setOpen(false) }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setOpen(false)
@@ -109,9 +127,11 @@ function ViewMenu() {
     }
     window.addEventListener('pointerdown', onDown)
     window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', place)
     return () => {
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', place)
     }
   }, [open])
 
@@ -124,8 +144,8 @@ function ViewMenu() {
         title="Camera and tour drawing">
         <Icon /><span>View: {label}</span>
       </button>
-      {open && (
-        <div className="menu" role="group" aria-label="camera and tour drawing" style={place}>
+      {open && createPortal(
+        <div ref={menu} className="menu" role="group" aria-label="camera and tour drawing" style={placement}>
           <div className="menu-title">Camera</div>
           <div className="seg menu-seg" role="radiogroup" aria-label="camera">
             {CAMERAS.map(([mode, name]) => (
@@ -140,7 +160,8 @@ function ViewMenu() {
             <button className={showBurnLabels ? 'toggle on' : 'toggle'} aria-pressed={showBurnLabels} onClick={toggleBurnLabels} disabled={!hasPlan}>Burn labels</button>
             <button onClick={() => requestCamera('ship')} disabled={!hasPlan}>Frame tour</button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

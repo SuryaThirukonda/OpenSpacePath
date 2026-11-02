@@ -39,6 +39,8 @@ export const IconUp = (p: P) => <Icon size={12} {...p}><path d="M12 19V5M6 11l6-
 export const IconDown = (p: P) => <Icon size={12} {...p}><path d="M12 5v14M6 13l6 6 6-6" /></Icon>
 export const IconSatellite = (p: P) => <Icon {...p}><rect x="9" y="9" width="6" height="6" rx="1" transform="rotate(45 12 12)" /><path d="M5.5 5.5l3 3M15.5 15.5l3 3M4 9l5-5M15 20l5-5" /></Icon>
 export const IconAsteroid = (p: P) => <Icon {...p}><path d="M9 3l6 1 5 5-1 7-6 5-7-2-3-6 2-6z" /><path d="M9 9h.01M14 13h.01" /></Icon>
+export const IconSun = (p: P) => <Icon {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" /></Icon>
+export const IconMoon = (p: P) => <Icon {...p}><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" /></Icon>
 export const IconFrame = (p: P) => <Icon {...p}><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></Icon>
 export const IconCamera = (p: P) => <Icon {...p}><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.4" /></Icon>
 export const IconRoute = (p: P) => <Icon {...p}><circle cx="5" cy="18" r="2" /><circle cx="19" cy="6" r="2" /><path d="M7 18h6a4 4 0 0 0 0-8h-2a4 4 0 0 1 0-8" transform="translate(0 2)" /></Icon>

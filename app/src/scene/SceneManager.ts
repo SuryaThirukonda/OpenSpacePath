@@ -10,7 +10,7 @@ import { getBody } from '../data/bodies'
 import { keplerPathSamples, keplerStateAt } from '../propagation/keplerPropagator'
 import { gmst, satrecFor, sgp4PathSamples, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
 import { flattenPlan, shipStateAt, type FlatPlan, type ShipState } from '../mission/state'
-import type { Burn, MissionPlan } from '../mission/types'
+import type { MissionPlan } from '../mission/types'
 import { epochMs, isRenderable, useStore, type AppState, type CameraMode } from '../store/store'
 import type { CentralBody, Satellite, StateVector } from '../types'
 import { InertialAxes } from './AxesHelper'
@@ -62,6 +62,7 @@ export class SceneManager {
   private planRef: MissionPlan | null = null
   private firedBurns = new Set<string>()
   private prevT = Number.NaN
+  private prevKind: ShipState['kind'] | null = null
   private followLeg = -1
 
   // camera views: in chase and bird's-eye the scene owns the camera and OrbitControls stand down
@@ -475,23 +476,26 @@ export class SceneManager {
     // while riding, the ship is where its companion is drawn: the plan samples a long dwell coarsely,
     // and its interpolation would drift from the body's own propagation
     const companionVisual = ridingWith ? this.visuals.get(ridingWith) : undefined
-    const pos = companionVisual?.marker.group.visible ? companionVisual.marker.group.position.clone() : kmToScene(st.r)
-    const vel = new THREE.Vector3(st.v.x, st.v.y, st.v.z)
+    const withCompanion = companionVisual?.marker.group.visible === true
+    const pos = withCompanion ? companionVisual.marker.group.position.clone() : kmToScene(st.r)
+    // and it moves as its companion does, so it points the way the companion is going
+    const vel = withCompanion ? companionVisual.marker.velocity.clone() : new THREE.Vector3(st.v.x, st.v.y, st.v.z)
     // ease the managed cameras only while time flows; a scrub or a jump snaps them
     const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
     const continuous = Number.isFinite(this.prevT) && Math.abs(s.t - this.prevT) <= maxStep
-    // the nose points along the next burn while one is near, else along the flight; belly to the body
-    const burn = this.burnNear(s.plan, s.t)
-    let aim = burn ? this.aim.set(burn.dv[0], burn.dv[1], burn.dv[2]) : null
+    // the nose points the way the ship is moving; a rocket, the way it moves over the ground, which on
+    // the pad is straight up rather than the body's spin
+    const forward = this.aim.copy(vel)
     if (st.kind === 'ascent') {
-      // a rocket points along its velocity over the ground, not the inertial one, which on the pad is
-      // just the body's spin, sideways; below a few tens of m/s it stands up, along the local vertical
       const w = TWO_PI / getBody(s.scenario.bodyId).rotationPeriod
-      const rel = this.aim.set(st.v.x + w * st.r.y, st.v.y - w * st.r.x, st.v.z)
-      aim = rel.length() > 0.05 ? rel : this.aim.set(st.r.x, st.r.y, st.r.z)
+      forward.set(st.v.x + w * st.r.y, st.v.y - w * st.r.x, st.v.z)
+      if (forward.length() < 0.05) forward.set(st.r.x, st.r.y, st.r.z)
     }
+    // the direction of flight jumps at a burn and at a change of segment; the ship swings onto it there
+    const kicked = continuous && (st.kind !== this.prevKind || this.burnBetween(s.plan, this.prevT, s.t))
+    this.prevKind = st.kind
     this.upRef.copy(pos).normalize()
-    this.ship.setState(pos, vel, aim, this.upRef, dtMs, !continuous)
+    this.ship.setState(pos, forward, this.upRef, dtMs, !continuous, kicked)
     this.ship.setLabelVisible(s.showLabels)
     // the launch vehicle sheds a stage at each separation; once in orbit the spacecraft flies on
     const dropped = s.plan.launch ? s.plan.launch.events.filter((e) => e.label.includes('separation') && e.t <= s.t).length : 0
@@ -530,7 +534,7 @@ export class SceneManager {
           const key = `${li}:${bi}`
           if (this.prevT < b.t && b.t <= s.t && !this.firedBurns.has(key)) {
             this.firedBurns.add(key)
-            const exhaust = new THREE.Vector3(-b.dv[0], -b.dv[1], -b.dv[2])
+            const exhaust = this.ship!.nose(new THREE.Vector3()).negate()
             const wallMs = s.scenario.rate <= 60 ? Math.max(400, (b.duration / s.scenario.rate) * 1000) : 800
             this.burnEffect.trigger(exhaust, wallMs, nowMs)
           }
@@ -540,31 +544,21 @@ export class SceneManager {
     if (s.t < this.prevT) this.firedBurns.clear() // scrubbed back: burns can fire again
     // powered ascent: the engines stay lit for the whole interval
     if (s.plan.launch && s.playing && st.kind === 'ascent' && s.plan.launch.burnIntervals.some((b) => b.t0 <= s.t && s.t < b.t1)) {
-      this.burnEffect.sustain(vel.clone().negate(), nowMs)
+      this.burnEffect.sustain(this.ship.nose(new THREE.Vector3()).negate(), nowMs)
     }
     this.prevT = s.t
     this.ship.exhaustPosition(this.burnEffect.group.position)
+    // the flame leaves the tail, wherever the nose has turned since it lit
+    if (this.burnEffect.active) this.burnEffect.point(this.ship.nose(this.scratchV).negate())
     this.burnEffect.update(nowMs, dist * shipScale, h, fov)
   }
 
-  /**
-   * The burn the ship should be pointing at: one within its window around `t`, the window being a
-   * share of the leg's flight time before the burn (turning to it) and after (turning back).
-   */
-  private burnNear(plan: MissionPlan, t: number): Burn | null {
-    let best: Burn | null = null
-    let bestGap = Infinity
-    for (const leg of plan.legs) {
-      const pre = 0.06 * Math.max(leg.tof, 1)
-      const post = 0.04 * Math.max(leg.tof, 1)
-      for (const b of leg.burns) {
-        if (t < b.t - pre || t > b.t + post || b.magnitude <= 0) continue
-        const gap = Math.abs(t - b.t)
-        if (gap < bestGap) { best = b; bestGap = gap }
-      }
-    }
-    return best
+  /** Whether the clock passed a burn between `t0` and `t1`, in either direction. */
+  private burnBetween(plan: MissionPlan, t0: number, t1: number): boolean {
+    const lo = Math.min(t0, t1), hi = Math.max(t0, t1)
+    return plan.legs.some((leg) => leg.burns.some((b) => b.magnitude > 0 && lo < b.t && b.t <= hi))
   }
+
 
   /** Follow: keep the ship at the controls' target while it coasts and carry the camera along; the user can still orbit and zoom. */
   private followCamera(s: AppState, st: ShipState, worldPos: THREE.Vector3, fov: number): void {

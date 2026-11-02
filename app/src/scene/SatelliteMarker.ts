@@ -10,6 +10,8 @@ export class SatelliteMarker {
   readonly group = new THREE.Group()
   private readonly model: Model
   readonly kind: SatelliteKind
+  /** the body's velocity at the last update, in the parent's frame (km/s) */
+  readonly velocity = new THREE.Vector3()
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
@@ -48,6 +50,7 @@ export class SatelliteMarker {
    */
   setState(position: THREE.Vector3, velocity?: THREE.Vector3): void {
     this.group.position.copy(position)
+    if (velocity) this.velocity.copy(velocity)
     if (!velocity || position.lengthSq() === 0 || this.kind === 'asteroid' || this.kind === 'planet') return // rocks have no attitude to hold
     this.z.copy(position).normalize().negate()
     this.y.copy(velocity).cross(position)

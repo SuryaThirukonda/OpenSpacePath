@@ -1,6 +1,6 @@
 /**
  * Engine flare shown when the ship burns: an additive glow sprite and a short cone of exhaust
- * pointing opposite to the delta-v. It runs on wall-clock time so a 20 s burn is visible even at
+ * out of the ship's tail. It runs on wall-clock time so a 20 s burn is visible even at
  * one simulated day per second.
  */
 import * as THREE from 'three'
@@ -43,6 +43,11 @@ export class BurnEffect {
     if (!this.group.visible || nowMs >= this.endMs) this.startMs = nowMs - 300
     this.endMs = nowMs + 300
     this.group.visible = true
+  }
+
+  /** Turn the exhaust to `exhaustDir` (unit vector in the parent frame), as the ship turns. */
+  point(exhaustDir: THREE.Vector3): void {
+    this.cone.quaternion.setFromUnitVectors(UP, exhaustDir.clone().normalize().negate())
   }
 
   get active(): boolean {

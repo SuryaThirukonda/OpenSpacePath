@@ -8,6 +8,9 @@ import { warmPlanner } from './mission/api'
 import { useArp } from './arp/store'
 import { openTab } from './ui/tabs'
 import { linkFromLocation } from './url/urlState'
+import { initTheme } from './ui/theme'
+
+initTheme()
 
 const link = linkFromLocation(location.search)
 if (link?.world === 'asteroids') {

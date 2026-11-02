@@ -25,8 +25,11 @@ export class ShipMarker {
   private readonly labelAspect: number
   private readonly attitude = new Attitude()
   private readonly target = new THREE.Quaternion()
+  private readonly lastTarget = new THREE.Quaternion()
   private readonly heading = new THREE.Vector3(0, 0, 1)
   private aimed = false
+  /** true while the nose swings onto a new direction of flight after a burn */
+  private turning = false
   /** where the ship is drawn while riding: behind the body along the ride's direction, in ship units */
   private readonly rideDir = new THREE.Vector3(0, 0, 1)
   private offsetTarget = 0
@@ -113,26 +116,43 @@ export class ShipMarker {
   }
 
   /**
-   * Position in the parent's (inertial) frame, and where the nose should point: along `aim` when
-   * given (a burn is near), else along the velocity; `up` is the belly-down reference, away from
-   * the body. The ship turns there at a bounded rate over `dtMs` of wall time, or at once when
-   * `snap` (time jumped).
+   * Position in the parent's (inertial) frame and the direction of flight: the nose points along
+   * `forward` (the velocity, or for a rocket its velocity over the ground) at all times, with
+   * `up`, away from the body, as the belly-down reference. The direction of flight only jumps at a
+   * burn or a change of segment (`kicked`): the ship then swings onto it at a bounded rate over
+   * `dtMs` of wall time, turning with the orbit as it goes, and holds it exactly from then on.
+   * `snap` (time jumped) takes the new direction at once.
    */
-  setState(position: THREE.Vector3, velocity: THREE.Vector3, aim: THREE.Vector3 | null, up: THREE.Vector3, dtMs: number, snap: boolean): void {
+  setState(position: THREE.Vector3, forward: THREE.Vector3, up: THREE.Vector3, dtMs: number, snap: boolean, kicked: boolean): void {
     this.group.position.copy(position)
-    // the ride offset follows the ride's own direction, not the nose that may be turning toward the
-    // next burn, and moves in and out over a fraction of a second instead of jumping
-    if (velocity.lengthSq() > 0) this.rideDir.copy(velocity).normalize()
+    // the ride offset moves in and out over a fraction of a second instead of jumping
+    if (forward.lengthSq() > 0) this.rideDir.copy(forward).normalize()
     this.offsetNow = snap ? this.offsetTarget : this.offsetNow + (this.offsetTarget - this.offsetNow) * (1 - Math.exp(-Math.min(dtMs, 100) / 140))
-    const dir = aim && aim.lengthSq() > 0 ? aim : velocity
-    if (dir.lengthSq() > 0) {
-      orientationFrom(dir, up, this.target)
-      if (snap || !this.aimed) this.attitude.snap(this.target)
-      else this.attitude.advance(this.target, Math.min(dtMs, 100) / 1000)
+    if (forward.lengthSq() > 0) {
+      orientationFrom(forward, up, this.target)
+      if (snap || !this.aimed) {
+        this.attitude.snap(this.target)
+        this.turning = false
+      } else {
+        if (kicked) this.turning = true
+        if (this.turning) {
+          // follow the orbit's own turn, but not the burn's jump: that is the turn to make
+          if (!kicked) this.attitude.carry(this.lastTarget, this.target)
+          this.attitude.advance(this.target, Math.min(dtMs, 100) / 1000)
+          if (this.attitude.angleTo(this.target) < 0.01) this.turning = false
+        }
+        if (!this.turning) this.attitude.snap(this.target)
+      }
+      this.lastTarget.copy(this.target)
       this.aimed = true
     }
     this.model.quaternion.copy(this.attitude.q)
     this.attitude.forward(this.heading)
+  }
+
+  /** The direction the nose points, in the parent's frame. */
+  nose(out: THREE.Vector3): THREE.Vector3 {
+    return out.copy(this.heading)
   }
 
   /**

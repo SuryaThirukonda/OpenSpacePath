@@ -14,7 +14,8 @@ export interface AttitudeLimits {
   gain: number
 }
 
-export const SHIP_ATTITUDE: AttitudeLimits = { maxRate: 2.4, maxAccel: 6.0, gain: 5.0 }
+/** brisk: the ship only slews after a burn, and should be back on its direction of flight within a second */
+export const SHIP_ATTITUDE: AttitudeLimits = { maxRate: 4.0, maxAccel: 16.0, gain: 8.0 }
 
 const FORWARD = new THREE.Vector3(0, 0, 1)
 const UP = new THREE.Vector3(0, 1, 0)
@@ -80,6 +81,21 @@ export class Attitude {
       this.step.setFromAxisAngle(this.axis.lengthSq() > 0 ? this.axis : this.rate.clone().normalize(), turn)
       this.q.premultiply(this.step).normalize()
     }
+  }
+
+  /**
+   * Turn along with a target that is itself turning, from `from` to `to`: the orbit's own curve,
+   * so a slew in progress removes only the remaining error and never lags behind the flight.
+   */
+  carry(from: THREE.Quaternion, to: THREE.Quaternion): void {
+    this.inv.copy(from).invert()
+    this.step.copy(to).multiply(this.inv)
+    this.q.premultiply(this.step).normalize()
+  }
+
+  /** The angle, in radians, between the current orientation and `target`. */
+  angleTo(target: THREE.Quaternion): number {
+    return 2 * Math.acos(Math.min(1, Math.abs(this.q.dot(target))))
   }
 
   /** The direction the nose points. */

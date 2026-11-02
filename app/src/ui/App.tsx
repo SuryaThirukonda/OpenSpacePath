@@ -102,7 +102,6 @@ export function App() {
   return (
     <div className="app">
       <Viewport />
-      <div className="vignette" aria-hidden="true" />
       <Panel position="left" title="Orbit Lab" icon={<IconLogo />} defaultOpen={!isNarrowScreen()}>
         <LeftTabs />
       </Panel>

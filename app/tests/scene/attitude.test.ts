@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { Attitude, orientationFrom } from '../../src/scene/attitude'
+import { Attitude, orientationFrom, SHIP_ATTITUDE } from '../../src/scene/attitude'
 
 const angleBetween = (a: THREE.Quaternion, b: THREE.Quaternion) => 2 * Math.acos(Math.min(1, Math.abs(a.dot(b))))
 
@@ -52,5 +52,28 @@ describe('the ship turns like a vehicle', () => {
     const before = att.q.clone()
     att.advance(orientationFrom(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)), 0)
     expect(att.q.equals(before)).toBe(true)
+  })
+
+  it('swings onto a new direction of flight within a second while the orbit keeps turning', () => {
+    // the direction of flight turns at 3 rad/s of wall time (a low orbit played fast); a burn then
+    // knocks it 90 degrees off. Carrying the orbit's turn, the slew only has the 90 degrees to remove
+    const att = new Attitude(SHIP_ATTITUDE)
+    const up = new THREE.Vector3(0, 1, 0)
+    const dirAt = (a: number) => new THREE.Vector3(Math.sin(a), 0, Math.cos(a))
+    const dt = 1 / 60
+    let last = orientationFrom(dirAt(0), up)
+    att.snap(last)
+    let settled = -1
+    for (let k = 1; k <= 120; k++) {
+      const a = 3 * k * dt + Math.PI / 2          // the burn's 90 degrees, then the orbit's turn
+      const target = orientationFrom(dirAt(a), up)
+      if (k > 1) att.carry(last, target)            // not the burn's jump itself
+      att.advance(target, dt)
+      last = target
+      if (settled < 0 && att.angleTo(target) < 0.01) settled = k * dt
+    }
+    expect(settled).toBeGreaterThan(0.2)
+    expect(settled).toBeLessThan(1.0)
+    expect(att.angleTo(last)).toBeLessThan(0.01)     // and it stays on it
   })
 })
