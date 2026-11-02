@@ -51,6 +51,7 @@ export function MissionPanel() {
     <div className="form mission">
       <Section title="Start" summary={startSummary}>
         <select
+          aria-label="where the tour starts"
           value={mission.start.kind === 'satellite' ? mission.start.id : mission.start.kind === 'launch' ? 'launch' : 'parking'}
           onChange={(e) => update({
             start: e.target.value === 'parking' ? emptyMission(scenario).start
@@ -71,6 +72,7 @@ export function MissionPanel() {
 
       <Section title="Ship" defaultOpen={false} summary={`${mission.ship.name} · ${dv.toFixed(1)} km/s`}>
         <select
+          aria-label="ship"
           value={SHIP_PRESETS.find((p) => p.ship.name === mission.ship.name)?.id ?? 'custom'}
           onChange={(e) => {
             const p = SHIP_PRESETS.find((x) => x.id === e.target.value)
@@ -162,10 +164,12 @@ export function MissionPanel() {
                 key={l.toStop}
                 className={selectedLeg === l.toStop ? 'selected' : ''}
                 style={{ '--leg': LEG_COLORS[l.toStop % LEG_COLORS.length] } as CSSProperties}
-                onClick={() => { selectLeg(selectedLeg === l.toStop ? null : l.toStop); requestCamera('ship') }}
               >
-                <div className="leg-head"><b>Leg {l.toStop + 1}</b><span className="leg-to">to {nameOf(mission.stops[l.toStop]?.satelliteId ?? '')}</span><span className="leg-dv">{l.totalDv.toFixed(3)} km/s</span></div>
-                <div className="hint">{l.strategy === 'threeburn' ? 'three-burn' : 'Lambert'} · {l.burns.length} burns · TOF {formatDuration(l.tof)} · departs t = {formatDuration(l.arcs[0]?.t0 ?? l.burns[0]?.t ?? 0)}</div>
+                <button className="leg-pick" aria-pressed={selectedLeg === l.toStop} title="Select this leg and frame it"
+                  onClick={() => { selectLeg(selectedLeg === l.toStop ? null : l.toStop); requestCamera('ship') }}>
+                  <span className="leg-head"><b>Leg {l.toStop + 1}</b><span className="leg-to">to {nameOf(mission.stops[l.toStop]?.satelliteId ?? '')}</span><span className="leg-dv">{l.totalDv.toFixed(3)} km/s</span></span>
+                  <span className="hint">{l.strategy === 'threeburn' ? 'three-burn' : 'Lambert'} · {l.burns.length} burns · TOF {formatDuration(l.tof)} · departs t = {formatDuration(l.arcs[0]?.t0 ?? l.burns[0]?.t ?? 0)}</span>
+                </button>
                 {l.warnings.map((w, k) => <div key={k} className="error">{w}</div>)}
               </li>
             ))}

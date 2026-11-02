@@ -21,32 +21,31 @@ export function SatelliteList() {
         {sats.map((s) => {
           const T = isRenderable(s, bodyId) ? satellitePeriod(s, bodyId) : null
           return (
-            <li
-              key={s.id}
-              className={s.id === selectedId ? 'selected' : ''}
-              onClick={() => select(s.id === selectedId ? null : s.id)}
-              onDoubleClick={() => {
-                select(s.id)
-                requestCamera('orbit')
-              }}
-              title="Click to select, double-click to frame"
-            >
-              <span className="swatch" style={{ background: s.color, color: s.color }} />
-              <span className="sat-main">
-                <span className="satname">{s.name}</span>
-                <span className="sat-meta">
-                  {s.kind === 'tle' ? 'SGP4' : 'Kepler'}
-                  {T ? ` · ${formatDuration(T)}` : ''}
-                  {!isRenderable(s, bodyId) ? ' · hidden' : ''}
+            <li key={s.id} className={s.id === selectedId ? 'selected' : ''}>
+              <button
+                className="sat-pick"
+                aria-pressed={s.id === selectedId}
+                onClick={() => select(s.id === selectedId ? null : s.id)}
+                onDoubleClick={() => {
+                  select(s.id)
+                  requestCamera('orbit')
+                }}
+                title="Click to select, double-click to frame"
+              >
+                <span className="swatch" style={{ background: s.color, color: s.color }} />
+                <span className="sat-main">
+                  <span className="satname">{s.name}</span>
+                  <span className="sat-meta">
+                    {s.kind === 'tle' ? 'SGP4' : 'Kepler'}
+                    {T ? ` · ${formatDuration(T)}` : ''}
+                    {!isRenderable(s, bodyId) ? ' · hidden' : ''}
+                  </span>
                 </span>
-              </span>
-              {stopIndex(s.id).length > 0 && <span className="badge" title="stop in the mission tour">stop {stopIndex(s.id).join(', ')}</span>}
+                {stopIndex(s.id).length > 0 && <span className="badge" title="stop in the mission tour">stop {stopIndex(s.id).join(', ')}</span>}
+              </button>
               <button
                 className="icon remove"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  remove(s.id)
-                }}
+                onClick={() => remove(s.id)}
                 aria-label={`remove ${s.name}`}
               >
                 <IconX />

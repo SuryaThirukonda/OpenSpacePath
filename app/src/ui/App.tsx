@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
-import { satellitesWorldCounts, useStore } from '../store/store'
-import { openTab } from './tabs'
+import { satellitesWorldCounts, useStore, type LeftTab } from '../store/store'
+import { arrowTabs, openTab } from './tabs'
 import { scenarioToSearch } from '../url/urlState'
 import { BodySelector } from './BodySelector'
 import { CameraButtons } from './CameraButtons'
@@ -43,9 +43,12 @@ function useUrlSync() {
 function useKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      if (e.code === 'Space') {
+      if (e.code !== 'Space' || e.defaultPrevented || e.repeat) return
+      // Space belongs to whatever has focus (a button, a field, the chart); it plays and pauses only
+      // when focus is on the page itself or the scene
+      const el = e.target as HTMLElement | null
+      const free = !el || el === document.body || el.tagName === 'CANVAS' || el.classList.contains('viewport')
+      if (free) {
         e.preventDefault()
         useStore.getState().togglePlaying()
       }
@@ -60,19 +63,21 @@ function LeftTabs() {
   const sats = useStore((s) => satellitesWorldCounts(s).satellites)
   const stops = useStore((s) => satellitesWorldCounts(s).stops)
   const setTab = openTab
+  const order: LeftTab[] = ['satellites', 'mission', 'asteroids']
   return (
     <>
-      <div className="tabs main-tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'satellites'} className={tab === 'satellites' ? 'tab active' : 'tab'} onClick={() => setTab('satellites')}>
+      <div className="tabs main-tabs" role="tablist" aria-label="what the panel shows" onKeyDown={(e) => arrowTabs(e, order, tab, setTab)}>
+        <button role="tab" id="tab-satellites" aria-controls="left-tabpanel" tabIndex={tab === 'satellites' ? 0 : -1} aria-selected={tab === 'satellites'} className={tab === 'satellites' ? 'tab active' : 'tab'} onClick={() => setTab('satellites')}>
           <IconSatellite /> Satellites <span className="pill">{sats}</span>
         </button>
-        <button role="tab" aria-selected={tab === 'mission'} className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>
+        <button role="tab" id="tab-mission" aria-controls="left-tabpanel" tabIndex={tab === 'mission' ? 0 : -1} aria-selected={tab === 'mission'} className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>
           <IconRoute /> Mission {stops > 0 && <span className="pill">{stops}</span>}
         </button>
-        <button role="tab" aria-selected={tab === 'asteroids'} className={tab === 'asteroids' ? 'tab active' : 'tab'} onClick={() => setTab('asteroids')}>
+        <button role="tab" id="tab-asteroids" aria-controls="left-tabpanel" tabIndex={tab === 'asteroids' ? 0 : -1} aria-selected={tab === 'asteroids'} className={tab === 'asteroids' ? 'tab active' : 'tab'} onClick={() => setTab('asteroids')}>
           <IconAsteroid /> Asteroids
         </button>
       </div>
+      <div id="left-tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="tabpanel">
       {tab === 'asteroids' ? (
         <RoutingPanel />
       ) : tab === 'satellites' ? (
@@ -85,6 +90,7 @@ function LeftTabs() {
       ) : (
         <MissionPanel />
       )}
+      </div>
     </>
   )
 }

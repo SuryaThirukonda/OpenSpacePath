@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { IconMinus, IconPlus } from './icons'
 import { ScrollArea } from './ScrollArea'
 import { applySideWidth, WIDTH_KEY } from './sideWidth'
@@ -59,6 +59,17 @@ export function Panel({ position, title, icon, defaultOpen = true, children }: P
     handle.addEventListener('pointerup', stop)
     handle.addEventListener('pointercancel', stop)
   }
+  const onResizeKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const el = ref.current
+    if (!el || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
+    e.preventDefault()
+    applySideWidth(el.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 24 : -24))
+    try {
+      localStorage.setItem(WIDTH_KEY, String(Math.round(el.getBoundingClientRect().width)))
+    } catch {
+      // not persisted
+    }
+  }
   const onResizeReset = () => {
     applySideWidth(null)
     try {
@@ -71,8 +82,9 @@ export function Panel({ position, title, icon, defaultOpen = true, children }: P
   return (
     <div ref={ref} className={`panel ${position}${open ? '' : ' collapsed'}`}>
       {position === 'left' && open && (
-        <div className="panel-resize" role="separator" aria-orientation="vertical" aria-label="resize the dashboard" title="Drag to resize, double-click to reset"
-          onPointerDown={onResizeStart} onDoubleClick={onResizeReset} />
+        <div className="panel-resize" role="separator" aria-orientation="vertical" aria-label="width of the dashboard" title="Drag to resize, double-click to reset; arrow keys when focused"
+          tabIndex={0}
+          onPointerDown={onResizeStart} onDoubleClick={onResizeReset} onKeyDown={onResizeKey} />
       )}
       <div className="panel-header">
         <h2 className="panel-title">{icon}{title}</h2>

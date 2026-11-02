@@ -13,6 +13,7 @@ import { IconDown, IconPlus, IconUp, IconX } from './icons'
 import { Section } from './Section'
 import { SolverSelect } from './SolverSelect'
 import { TransferSelect } from './TransferSelect'
+import { arrowTabs } from './tabs'
 import { useSolvers } from './useSolvers'
 
 const num = (v: string, fallback: number) => (Number.isFinite(Number(v)) && v !== '' ? Number(v) : fallback)
@@ -64,9 +65,9 @@ export function RoutingPanel() {
         <TransferSelect />
         <SolverSelect />
       </Section>
-      <div className="tabs sub-tabs" role="tablist" aria-label="what to do with the instance">
-        <button role="tab" id="arp-tab-path" aria-controls="arp-panel" aria-selected={view === 'path'} className={view === 'path' ? 'tab active' : 'tab'} onClick={() => setView('path')}>Plan a path</button>
-        <button role="tab" id="arp-tab-run" aria-controls="arp-panel" aria-selected={view === 'run'} className={view === 'run' ? 'tab active' : 'tab'} onClick={() => setView('run')}>Run an algorithm</button>
+      <div className="tabs sub-tabs" role="tablist" aria-label="what to do with the instance" onKeyDown={(e) => arrowTabs(e, ['path', 'run'], view, setView)}>
+        <button role="tab" id="arp-tab-path" aria-controls="arp-panel" tabIndex={view === 'path' ? 0 : -1} aria-selected={view === 'path'} className={view === 'path' ? 'tab active' : 'tab'} onClick={() => setView('path')}>Plan a path</button>
+        <button role="tab" id="arp-tab-run" aria-controls="arp-panel" tabIndex={view === 'run' ? 0 : -1} aria-selected={view === 'run'} className={view === 'run' ? 'tab active' : 'tab'} onClick={() => setView('run')}>Run an algorithm</button>
       </div>
       <div id="arp-panel" role="tabpanel" aria-labelledby={view === 'path' ? 'arp-tab-path' : 'arp-tab-run'} className="form">
         {!instance

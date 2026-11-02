@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { DEG, RAD, wrapTwoPi } from '../core/constants'
 import { apoapsisAltitude, periapsisAltitude, period, shapeFromAltitudes, validateElements } from '../core/elements'
 import { trueToMean, meanToTrue } from '../core/kepler'
@@ -67,12 +67,20 @@ export function SatelliteForm() {
   const [error, setError] = useState<string | null>(null)
 
   const body = getBody(bodyId)
-  useEffect(() => {
+  // Follow the selection: a Keplerian satellite fills the Elements fields. Choosing another
+  // satellite opens the Elements mode; a satellite this form just added from a preset does not,
+  // so adding several presets in a row stays on Preset. Adjusted while rendering, not in an effect.
+  const [seen, setSeen] = useState<{ key: string; id: string | null }>({ key: '', id: null })
+  const [stayOnMode, setStayOnMode] = useState(false)
+  const viewKey = selected?.kind === 'kepler' ? `${selected.id}|${body.radius}|${Object.values(selected.elements).join(',')}` : `none|${selected?.id ?? ''}`
+  if (viewKey !== seen.key) {
+    setSeen({ key: viewKey, id: selected?.id ?? null })
     if (selected?.kind === 'kepler') {
       setF(fieldsFromSatellite(selected, body.radius))
-      setMode('elements')
+      if (selected.id !== seen.id && !stayOnMode) setMode('elements')
     }
-  }, [selected, body.radius])
+    if (stayOnMode) setStayOnMode(false)
+  }
 
   const presets = PRESETS
 
@@ -111,6 +119,7 @@ export function SatelliteForm() {
   function submitPreset() {
     const p = PRESETS.find((x) => x.id === presetId)
     if (!p) return
+    setStayOnMode(true)
     addSatellite(satelliteFromPreset(p, body))
     setError(null)
   }
@@ -145,9 +154,9 @@ export function SatelliteForm() {
 
   return (
     <Section title={selected?.kind === 'kepler' ? 'Edit or add satellite' : 'Add satellite'}>
-      <div className="tabs">
+      <div className="tabs" role="radiogroup" aria-label="how to describe the orbit">
         {(['preset', 'elements', 'tle'] as Mode[]).map((m) => (
-          <button key={m} className={mode === m ? 'tab active' : 'tab'} onClick={() => setMode(m)}>
+          <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? 'tab active' : 'tab'} onClick={() => setMode(m)}>
             {m === 'preset' ? 'Preset' : m === 'elements' ? 'Elements' : 'TLE'}
           </button>
         ))}
@@ -155,7 +164,7 @@ export function SatelliteForm() {
 
       {mode === 'preset' && (
         <div className="form">
-          <select value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+          <select value={presetId} aria-label="preset orbit" onChange={(e) => setPresetId(e.target.value)}>
             {presets.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -190,7 +199,8 @@ export function SatelliteForm() {
                 className={'swatch-btn' + (f.color === c ? ' on' : '')}
                 style={{ background: c }}
                 onClick={() => setF({ ...f, color: c })}
-                aria-label={c}
+                aria-label={`colour ${c}`}
+                aria-pressed={f.color === c}
               />
             ))}
           </div>
@@ -210,6 +220,7 @@ export function SatelliteForm() {
           <textarea
             rows={4}
             spellCheck={false}
+            aria-label="two-line element set: an optional name line, then lines 1 and 2"
             placeholder={'ISS (ZARYA)\n1 25544U 98067A   26244.49851260 ...\n2 25544  51.6312 282.3953 ...'}
             value={tleText}
             onChange={(e) => setTleText(e.target.value)}
