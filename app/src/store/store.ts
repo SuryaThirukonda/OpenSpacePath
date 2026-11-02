@@ -60,6 +60,8 @@ export interface AppState {
   plan: MissionPlan | null
   planStatus: PlanStatus
   planError: string | null
+  /** a plan was shown and an edit has put it out of date */
+  planStale: boolean
   cameraMode: CameraMode
   showRemaining: boolean
   showBurnLabels: boolean
@@ -125,7 +127,8 @@ function invalidPlan() {
   planSeq++
   planAbort?.abort()
   planAbort = null
-  return { plan: null, planStatus: 'idle' as PlanStatus, planError: null, selectedLeg: null }
+  const stale = useStore.getState().plan !== null || useStore.getState().planStale
+  return { plan: null, planStatus: 'idle' as PlanStatus, planError: null, selectedLeg: null, planStale: stale }
 }
 
 /** The asteroid world before anything is generated: the Sun alone, at the papers' epoch. */
@@ -147,12 +150,13 @@ export const useStore = create<AppState>((set) => ({
   plan: null,
   planStatus: 'idle',
   planError: null,
+  planStale: false,
   cameraMode: 'follow',
   showRemaining: true,
   showBurnLabels: true,
   selectedLeg: null,
 
-  loadScenario: (sc) => set({ scenario: sc, t: 0, selectedId: sc.satellites[0]?.id ?? null, plan: null, planStatus: 'idle', planError: null }),
+  loadScenario: (sc) => set({ scenario: sc, t: 0, selectedId: sc.satellites[0]?.id ?? null, plan: null, planStatus: 'idle', planError: null, planStale: false }),
   switchWorld: (world) =>
     set((s) => {
       if (s.world === world) return {}
@@ -172,7 +176,7 @@ export const useStore = create<AppState>((set) => ({
         : { scenario: world === 'asteroids' ? emptyAsteroidScenario(shared) : { ...defaultScenario(), ...shared }, t: 0, playing: false, selectedId: null,
             plan: null, planStatus: 'idle', planError: null, selectedLeg: null, cameraMode: 'free' }
       if (!next.plan && (next.cameraMode === 'chase' || next.cameraMode === 'birdseye')) next.cameraMode = 'free'
-      return { ...next, world, stashed: { ...s.stashed, [s.world]: stash }, cameraRequest: { kind: world === 'asteroids' ? 'all' : 'reset', seq: ++cameraSeq } }
+      return { ...next, planStale: false, world, stashed: { ...s.stashed, [s.world]: stash }, cameraRequest: { kind: world === 'asteroids' ? 'all' : 'reset', seq: ++cameraSeq } }
     }),
   setLeftTab: (tab) => {
     useStore.getState().switchWorld(tab === 'asteroids' ? 'asteroids' : 'satellites')
@@ -237,7 +241,7 @@ export const useStore = create<AppState>((set) => ({
   setTransfer: (transfer) => set((s) => ({ scenario: { ...s.scenario, transfer }, ...invalidPlan() })),
   loadRoute: (mission, plan) => {
     invalidPlan() // a planner request still in flight must not overwrite this
-    set((s) => ({ scenario: { ...s.scenario, mission }, plan, planStatus: 'ready', planError: null, selectedLeg: null }))
+    set((s) => ({ scenario: { ...s.scenario, mission }, plan, planStatus: 'ready', planError: null, selectedLeg: null, planStale: false }))
   },
   requestPlan: async () => {
     const s = useStore.getState()
@@ -256,7 +260,7 @@ export const useStore = create<AppState>((set) => ({
       if (seq !== planSeq) return // a newer request, or an edit, superseded this one
       // a timeline shorter than the tour would wrap the clock, and the ship, back to the start mid-flight
       const end = planStart(plan, mission.startT) + plan.totalTime
-      set((st) => ({ plan, planStatus: 'ready', planError: null, selectedLeg: null,
+      set((st) => ({ plan, planStatus: 'ready', planError: null, selectedLeg: null, planStale: false,
                      scenario: st.scenario.spanSeconds < end ? { ...st.scenario, spanSeconds: end } : st.scenario }))
     } catch (e) {
       if (seq !== planSeq) return

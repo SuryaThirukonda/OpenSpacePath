@@ -75,14 +75,17 @@ export function Panel({ position, title, icon, defaultOpen = true, children }: P
           onPointerDown={onResizeStart} onDoubleClick={onResizeReset} />
       )}
       <div className="panel-header">
-        <span className="panel-title">{icon}{title}</span>
+        <h2 className="panel-title">{icon}{title}</h2>
         <button className="icon collapse" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={open ? `collapse ${title}` : `expand ${title}`}>
           {open ? <IconMinus /> : <IconPlus />}
         </button>
       </div>
-      {open && (position === 'bottom'
-        ? <div className="panel-body">{children}</div>
-        : <ScrollArea className="panel-scroll" contentClassName="panel-body">{children}</ScrollArea>)}
+      {/* collapsed panels keep their contents mounted, hidden, so nothing typed or opened is lost */}
+      <div className="panel-content" hidden={!open}>
+        {position === 'bottom'
+          ? <div className="panel-body">{children}</div>
+          : <ScrollArea className="panel-scroll" contentClassName="panel-body">{children}</ScrollArea>}
+      </div>
     </div>
   )
 }

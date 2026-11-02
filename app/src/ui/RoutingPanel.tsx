@@ -23,37 +23,116 @@ function download(name: string, text: string, type: string): void {
   a.href = url
   a.download = name
   a.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 const bodyName = (inst: ArpInstance, k: number) => (k === 0 ? inst.earth.name || 'Earth' : inst.asteroids[k - 1]?.name || `Asteroid ${k}`)
 const years = (days: number) => (days >= 730 ? `${(days / 365.25).toFixed(2)} y` : `${days.toFixed(0)} d`)
 
+/** A key per path entry that stays with the entry when rows move: its asteroid, made unique if it appears twice. */
+function entryKeys(entries: PathEntry[]): string[] {
+  const seen = new Map<string, number>()
+  return entries.map((e) => {
+    const n = seen.get(e.asteroid.id) ?? 0
+    seen.set(e.asteroid.id, n + 1)
+    return n ? `${e.asteroid.id}#${n}` : e.asteroid.id
+  })
+}
+
 /**
- * Routing tab: write an algorithm for the Asteroid Routing Problem in the standard format, run
- * it on an instance, and watch what it does. The algorithm runs in this browser; each transfer
- * it asks about is computed by the planner with the chosen Lambert solver.
+ * Asteroids tab. The instance and the transfer are shared; below them the tab is split in two:
+ * write and fly a path by hand, or run an algorithm in the standard format. The action of the half
+ * that is open (Fly or Run) is pinned to the bottom of the panel, so it is never a long scroll away.
  */
 export function RoutingPanel() {
+  const instance = useArp((s) => s.instance)
+  const view = useArp((s) => s.view)
+  const status = useArp((s) => s.status)
+  const pathStatus = useArp((s) => s.pathStatus)
+  const solver = useStore((s) => s.scenario.solver ?? DEFAULT_SOLVER)
+  const transfer = useStore((s) => s.scenario.transfer ?? DEFAULT_TRANSFER)
+  const solvers = useSolvers()
+  const busy = status === 'running' || status === 'loading'
+  const flying = pathStatus === 'loading'
+  const setView = useArp.getState().setView
+
+  return (
+    <div className="form routing">
+      <InstanceSection busy={busy || flying} />
+      <Section id="asteroids-transfer" title="Transfer" defaultOpen={false} summary={`${transferName(transfer)} · ${solvers.find((x) => x.id === solver)?.name ?? solver}`}>
+        <p className="hint">Used for every transfer on this tab: flying your path, and each transfer an algorithm asks for.</p>
+        <TransferSelect />
+        <SolverSelect />
+      </Section>
+      <div className="tabs sub-tabs" role="tablist" aria-label="what to do with the instance">
+        <button role="tab" id="arp-tab-path" aria-controls="arp-panel" aria-selected={view === 'path'} className={view === 'path' ? 'tab active' : 'tab'} onClick={() => setView('path')}>Plan a path</button>
+        <button role="tab" id="arp-tab-run" aria-controls="arp-panel" aria-selected={view === 'run'} className={view === 'run' ? 'tab active' : 'tab'} onClick={() => setView('run')}>Run an algorithm</button>
+      </div>
+      <div id="arp-panel" role="tabpanel" aria-labelledby={view === 'path' ? 'arp-tab-path' : 'arp-tab-run'} className="form">
+        {!instance
+          ? <p className="hint">Generate or open an instance above; its asteroids are what a path visits and what an algorithm routes.</p>
+          : view === 'path' ? <PathView instance={instance} locked={busy} /> : <RunView instance={instance} />}
+      </div>
+      {instance && (view === 'path' ? <FlyBar locked={busy} /> : <RunBar />)}
+    </div>
+  )
+}
+
+function InstanceSection({ busy }: { busy: boolean }) {
   const instance = useArp((s) => s.instance)
   const n = useArp((s) => s.n)
   const instanceSeed = useArp((s) => s.instanceSeed)
   const instanceSource = useArp((s) => s.instanceSource)
   const generating = useArp((s) => s.generating)
-  const presetId = useArp((s) => s.presetId)
-  const source = useArp((s) => s.source)
-  const budget = useArp((s) => s.budget)
-  const seed = useArp((s) => s.seed)
-  const status = useArp((s) => s.status)
-  const message = useArp((s) => s.message)
-  const error = useArp((s) => s.error)
-  const log = useArp((s) => s.log)
-  const evaluations = useArp((s) => s.evaluations)
-  const transfers = useArp((s) => s.transfers)
-  const result = useArp((s) => s.result)
-  const resultNote = useArp((s) => s.resultNote)
-  const shown = useArp((s) => s.shown)
-  const elapsedMs = useArp((s) => s.elapsedMs)
+  const actions = useArp.getState()
+  const file = useRef<HTMLInputElement>(null)
+  return (
+    <Section id="asteroids-instance" title="Instance" defaultOpen={!instance} summary={instance ? `${instance.name}, ${instance.asteroids.length} asteroids` : 'none yet'}>
+      {instance ? (
+        <p className="hint"><b>{instance.name}</b>: Earth and {instance.asteroids.length} asteroids, starting {instance.epoch.slice(0, 10)}. {instance.note}</p>
+      ) : (
+        <p className="hint">The Asteroid Routing Problem: leave Earth's orbit and visit every asteroid once, as cheaply and quickly as possible. Generate an instance to begin; it replaces the scene with a Sun-centred one.</p>
+      )}
+      <label className="field"><span>asteroids from</span>
+        <select value={instanceSource} onChange={(e) => actions.setInstanceSource(e.target.value as 'catalogue' | 'synthetic')} disabled={busy || generating}>
+          <option value="catalogue">the GTOC11 catalogue, the papers' generator (instance n_seed)</option>
+          <option value="synthetic">a synthetic main belt from the seed</option>
+        </select>
+      </label>
+      <div className="grid2">
+        <label className="field"><span>asteroids</span><input type="number" min={2} max={30} value={n} onChange={(e) => actions.setN(num(e.target.value, n))} /></label>
+        <label className="field"><span>instance seed</span><input type="number" value={instanceSeed} onChange={(e) => actions.setInstanceSeed(num(e.target.value, instanceSeed))} /></label>
+      </div>
+      <div className="row">
+        <button className={instance ? '' : 'primary'} onClick={actions.generate} disabled={busy || generating}>{generating ? <><span className="spinner" aria-hidden="true" /> Fetching…</> : instance ? 'Generate again' : 'Generate instance'}</button>
+        {instance && <button onClick={actions.showInstance} disabled={busy}>Show in scene</button>}
+        <button onClick={() => file.current?.click()} disabled={busy} title="An instance saved from this page, as JSON">Open…</button>
+        {instance && <button onClick={() => download(`arp-instance-${instance.name}.json`, JSON.stringify(instance, null, 2), 'application/json')} title="The instance as JSON">Save…</button>}
+        <input ref={file} type="file" accept=".json,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importInstance(text); if (bad) useArp.setState({ error: `Could not open the instance: ${bad}` }) })} />
+      </div>
+    </Section>
+  )
+}
+
+function readFile(e: ChangeEvent<HTMLInputElement>, use: (text: string) => void): void {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (file) file.text().then(use, () => useArp.setState({ error: `Could not read ${file.name}` }))
+}
+
+/** What stops the path from being flown, whichever way it is written. */
+function usePathProblems(instance: ArpInstance): string[] {
+  const path = useArp((s) => s.path)
+  const pathMode = useArp((s) => s.pathMode)
+  const text = useArp((s) => s.pathText)
+  if (pathMode === 'text') {
+    const parsed = parsePath(text, instance)
+    return typeof parsed === 'string' ? [parsed] : pathProblems(parsed)
+  }
+  return pathProblems(path)
+}
+
+function PathView({ instance, locked }: { instance: ArpInstance; locked: boolean }) {
   const path = useArp((s) => s.path)
   const pathStatus = useArp((s) => s.pathStatus)
   const pathError = useArp((s) => s.pathError)
@@ -61,32 +140,132 @@ export function RoutingPanel() {
   const pathInst = useArp((s) => s.pathInstance)
   const pathMode = useArp((s) => s.pathMode)
   const pathTextValue = useArp((s) => s.pathText)
+  const result = useArp((s) => s.result)
   const actions = useArp.getState()
-  const solver = useStore((s) => s.scenario.solver ?? DEFAULT_SOLVER)
-  const transfer = useStore((s) => s.scenario.transfer ?? DEFAULT_TRANSFER)
-  const solvers = useSolvers()
-  const instanceFile = useRef<HTMLInputElement>(null)
-  const sourceFile = useRef<HTMLInputElement>(null)
-  const pathFileInput = useRef<HTMLInputElement>(null)
-  const textCheck = pathMode === 'text' && instance ? parsePath(pathTextValue, instance) : null
-  const problems = instance ? (pathMode === 'text' ? (typeof textCheck === 'string' ? [textCheck] : []) : pathProblems(path)) : []
-  const flying = pathStatus === 'loading'
-  const stops = pathMode === 'text' && textCheck && typeof textCheck !== 'string' ? textCheck.entries.length : path.entries.length
+  const file = useRef<HTMLInputElement>(null)
+  const problems = usePathProblems(instance)
+  const off = pathStatus === 'loading' || locked
+  const textCheck = pathMode === 'text' ? parsePath(pathTextValue, instance) : null
+  const keys = entryKeys(path.entries)
+  const nameAt = (i: number) => path.entries[i]?.asteroid.name || `asteroid ${i + 1}`
 
+  return (
+    <>
+      <p className="hint">Each asteroid with its orbit, the day to arrive and how long to stay. From those the planner knows every departure and flight time and flies the path exactly as written.</p>
+      {locked && <p className="hint caution">An algorithm is running on this instance; the path can be edited when it ends.</p>}
+      <div className="row">
+        <div className="seg path-mode" role="radiogroup" aria-label="how to write the path">
+          <button role="radio" aria-checked={pathMode === 'form'} className={pathMode === 'form' ? 'on' : ''} onClick={() => actions.setPathMode('form')} disabled={off}>Rows</button>
+          <button role="radio" aria-checked={pathMode === 'text'} className={pathMode === 'text' ? 'on' : ''} onClick={() => actions.setPathMode('text')} disabled={off}>Text</button>
+        </div>
+        <label className="inline-field"><span>leave Earth, day</span>
+          <input type="number" min={0} step="any" value={path.departure} disabled={off || pathMode === 'text'} onChange={(e) => actions.setPath({ ...path, departure: num(e.target.value, path.departure) })} />
+        </label>
+      </div>
+      {pathMode === 'text' ? (
+        <>
+          <textarea
+            className="code path-text" value={pathTextValue} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={10}
+            aria-label={`path, ${PATH_FORMAT_NAME} ${PATH_FORMAT_VERSION}`} onChange={(e) => actions.setPathText(e.target.value)} readOnly={off}
+          />
+          {typeof textCheck === 'string'
+            ? <p className="format bad">{textCheck}</p>
+            : <p className="format ok">Valid {PATH_FORMAT_NAME} {PATH_FORMAT_VERSION}: {textCheck?.entries.length ?? 0} stop{textCheck?.entries.length === 1 ? '' : 's'}{textCheck && textCheck.entries.some((e) => !instance.asteroids.some((a) => a.id === e.asteroid.id)) ? ', some with orbits of their own' : ''}</p>}
+          <Section id="path-format" title="Path format" defaultOpen={false}>
+            <pre className="reference">{PATH_FORMAT_REFERENCE}</pre>
+          </Section>
+        </>
+      ) : (
+        <ol className="stops path-list" aria-label="path">
+          {path.entries.map((en, i) => (
+            <li key={keys[i]} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
+              <div className="row entry-head">
+                <span className="stop-index">{i + 1}</span>
+                <select value={en.asteroid.id} disabled={off} aria-label={`asteroid at stop ${i + 1}`} onChange={(e) => { if (e.target.value === '__own') actions.makeEntryCustom(i); else { const a = instance.asteroids.find((x) => x.id === e.target.value); if (a) actions.updateEntry(i, { asteroid: a }) } }}>
+                  {instance.asteroids.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
+                  {!instance.asteroids.some((a) => a.id === en.asteroid.id) && <option value={en.asteroid.id}>{en.asteroid.name || en.asteroid.id} (own orbit)</option>}
+                  <option value="__own">an orbit of its own…</option>
+                </select>
+                <button className="icon" onClick={() => actions.moveEntry(i, -1)} aria-label={`move ${nameAt(i)} up`} disabled={i === 0 || off}><IconUp /></button>
+                <button className="icon" onClick={() => actions.moveEntry(i, 1)} aria-label={`move ${nameAt(i)} down`} disabled={i === path.entries.length - 1 || off}><IconDown /></button>
+                <button className="icon remove" onClick={() => actions.removeEntry(i)} aria-label={`remove ${nameAt(i)}`} disabled={off}><IconX /></button>
+              </div>
+              <div className="entry-times">
+                <label className="inline-field"><span>arrive, day</span><input type="number" min={0} step="any" value={en.arrival} disabled={off} onChange={(e) => actions.updateEntry(i, { arrival: num(e.target.value, en.arrival) })} /></label>
+                <label className="inline-field"><span>stay, days</span><input type="number" min={0} step="any" value={en.delay} disabled={off} onChange={(e) => actions.updateEntry(i, { delay: num(e.target.value, en.delay) })} /></label>
+              </div>
+              <OrbitFields entry={en} own={!instance.asteroids.some((a) => a.id === en.asteroid.id)} disabled={off} onChange={(el, name) => actions.setEntryOrbit(i, el, name)} />
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="row">
+        {pathMode === 'form' && <button onClick={actions.addEntry} disabled={off} title="The next asteroid of the instance, or a new orbit once they are all in the path"><IconPlus /> Add asteroid</button>}
+        {result && <button onClick={actions.pathFromResult} disabled={off} title="Copy the last run's route, with its arrival days and waits, into the path">From last run</button>}
+        <button onClick={() => file.current?.click()} disabled={off} title="A path in the text format, or the JSON this page saved before">Open…</button>
+        {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.txt`, pathText(instance, path), 'text/plain')} title="The path in the text format">Save…</button>}
+        <input ref={file} type="file" accept=".txt,.json,text/plain,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importPath(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Could not open the path: ${bad}` }) })} />
+      </div>
+      {problems.length > 0 && pathMode === 'form' && <div className="format bad" id="path-problems">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
+      {pathStatus === 'error' && pathError && <pre className="trace" role="alert">{pathError}</pre>}
+      {pathStatus === 'done' && pathResult && pathInst && (
+        <Section id="path-result" title="Flown path" summary={`cost ${pathResult.cost.toFixed(1)}`}>
+          <RouteSummary instance={pathInst} ev={pathResult} />
+        </Section>
+      )}
+    </>
+  )
+}
+
+/** The pinned action of the path half: fly it, or say why it cannot be flown yet. */
+function FlyBar({ locked }: { locked: boolean }) {
+  const instance = useArp((s) => s.instance)
+  const pathStatus = useArp((s) => s.pathStatus)
+  const transfer = useStore((s) => s.scenario.transfer ?? DEFAULT_TRANSFER)
+  const problems = usePathProblems(instance!)
+  const flying = pathStatus === 'loading'
+  const why = locked ? 'wait for the running algorithm to end' : problems.length === 1 ? problems[0] : problems.length > 1 ? `${problems.length} things to fix above` : ''
+  return (
+    <div className="action-bar">
+      <button className="primary big" onClick={() => void useArp.getState().flyPath()} disabled={flying || locked || problems.length > 0} aria-describedby={why ? 'fly-why' : undefined}>
+        {flying ? <><span className="spinner" aria-hidden="true" /> Flying…</> : `Fly path, ${transferName(transfer)}`}
+      </button>
+      {why && !flying && <span className="hint" id="fly-why">{why}</span>}
+    </div>
+  )
+}
+
+function RunView({ instance }: { instance: ArpInstance }) {
+  const presetId = useArp((s) => s.presetId)
+  const source = useArp((s) => s.source)
+  const budget = useArp((s) => s.budget)
+  const seed = useArp((s) => s.seed)
+  const status = useArp((s) => s.status)
+  const error = useArp((s) => s.error)
+  const log = useArp((s) => s.log)
+  const evaluations = useArp((s) => s.evaluations)
+  const result = useArp((s) => s.result)
+  const resultNote = useArp((s) => s.resultNote)
+  const shown = useArp((s) => s.shown)
+  const actions = useArp.getState()
+  const file = useRef<HTMLInputElement>(null)
+  const tabFree = useRef(false)
   const header = parseAlgorithm(source)
   const busy = status === 'running' || status === 'loading'
-  const best = evaluations.length ? evaluations[evaluations.length - 1].best : null
   const complete = evaluations.filter((r) => r.complete).length
   const shownKey = shown?.order.join(' ')
 
-  const readFile = (e: ChangeEvent<HTMLInputElement>, use: (text: string) => void) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (file) void file.text().then(use)
-  }
-  /** Tab indents instead of leaving the editor; Escape first, then Tab, moves on. */
+  /** Tab indents instead of leaving the editor; after Escape, the next Tab moves on as usual. */
   const onEditorKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Tab' || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return
+    if (e.key === 'Escape') {
+      tabFree.current = true
+      return
+    }
+    if (e.key !== 'Tab') {
+      tabFree.current = false
+      return
+    }
+    if (tabFree.current || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return
     e.preventDefault()
     const el = e.currentTarget
     const { selectionStart: a, selectionEnd: b, value } = el
@@ -96,107 +275,8 @@ export function RoutingPanel() {
   const showRow = (row: EvaluationRow) => void actions.showRoute(row.order, row.times, `evaluation ${row.index}`)
 
   return (
-    <div className="form routing">
-      <Section title="Instance" summary={instance ? `${instance.asteroids.length} asteroids, ${instance.name}` : 'none yet'}>
-        {instance ? (
-          <p className="hint"><b>{instance.name}</b>: Earth and {instance.asteroids.length} asteroids, starting {instance.epoch.slice(0, 10)}. {instance.note}</p>
-        ) : (
-          <p className="hint">The Asteroid Routing Problem: leave Earth's orbit and visit every asteroid once, as cheaply and quickly as possible. Generate an instance to begin; it replaces the current scene with a Sun-centred one.</p>
-        )}
-        <label className="field"><span>asteroids from</span>
-          <select value={instanceSource} onChange={(e) => actions.setInstanceSource(e.target.value as 'catalogue' | 'synthetic')} disabled={busy || generating}>
-            <option value="catalogue">the GTOC11 catalogue, the papers' generator (instance n_seed)</option>
-            <option value="synthetic">a synthetic main belt from the seed</option>
-          </select>
-        </label>
-        <div className="grid2">
-          <label className="field"><span>asteroids</span><input type="number" min={2} max={30} value={n} onChange={(e) => actions.setN(num(e.target.value, n))} /></label>
-          <label className="field"><span>seed</span><input type="number" value={instanceSeed} onChange={(e) => actions.setInstanceSeed(num(e.target.value, instanceSeed))} /></label>
-        </div>
-        <div className="row">
-          <button className={instance ? '' : 'primary'} onClick={actions.generate} disabled={busy || generating}>{generating ? <><span className="spinner" aria-hidden="true" /> Fetching…</> : instance ? 'Generate again' : 'Generate instance'}</button>
-          {instance && <button onClick={actions.showInstance} disabled={busy}>Show in scene</button>}
-          <button onClick={() => instanceFile.current?.click()} disabled={busy}>Import</button>
-          {instance && <button onClick={() => download(`arp-instance-${instance.name}.json`, JSON.stringify(instance, null, 2), 'application/json')}>Export</button>}
-          <input ref={instanceFile} type="file" accept=".json,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importInstance(text); if (bad) useArp.setState({ error: `Import failed: ${bad}` }) })} />
-        </div>
-      </Section>
-
-      <Section title="Path" summary={stops ? `${stops} asteroid${stops === 1 ? '' : 's'}${pathResult && pathStatus === 'done' ? `, delta-v ${pathResult.dv.toFixed(1)} km/s` : ''}` : 'none yet'}>
-        <p className="hint">The route, written by hand: each asteroid with its orbit, the day to arrive there and how long to stay. From those the planner knows every departure and flight time and flies the path exactly, with the transfer chosen below.</p>
-        {instance ? (
-          <>
-            <div className="seg path-mode" role="radiogroup" aria-label="how to write the path">
-              <button role="radio" aria-checked={pathMode === 'form'} className={pathMode === 'form' ? 'on' : ''} onClick={() => actions.setPathMode('form')} disabled={flying}>Rows</button>
-              <button role="radio" aria-checked={pathMode === 'text'} className={pathMode === 'text' ? 'on' : ''} onClick={() => actions.setPathMode('text')} disabled={flying}>Text</button>
-            </div>
-            {pathMode === 'text' ? (
-              <>
-                <textarea
-                  className="code path-text" value={pathTextValue} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={10}
-                  aria-label={`path, ${PATH_FORMAT_NAME} ${PATH_FORMAT_VERSION}`} onChange={(e) => actions.setPathText(e.target.value)} readOnly={flying}
-                />
-                {typeof textCheck === 'string'
-                  ? <p className="format bad">{textCheck}</p>
-                  : <p className="format ok">Valid {PATH_FORMAT_NAME} {PATH_FORMAT_VERSION}: {textCheck?.entries.length ?? 0} stop{textCheck?.entries.length === 1 ? '' : 's'}{textCheck && textCheck.entries.some((e) => !instance.asteroids.some((a) => a.id === e.asteroid.id)) ? ', some with orbits of their own' : ''}</p>}
-                <Section title="Path format" defaultOpen={false}>
-                  <pre className="reference">{PATH_FORMAT_REFERENCE}</pre>
-                </Section>
-              </>
-            ) : (
-              <>
-            <label className="field"><span>leave Earth on day</span><input type="number" min={0} step="any" value={path.departure} disabled={flying} onChange={(e) => actions.setPath({ ...path, departure: num(e.target.value, path.departure) })} /></label>
-            <ol className="stops path-list">
-              {path.entries.map((en, i) => (
-                <li key={i} style={{ '--leg': LEG_COLORS[i % LEG_COLORS.length] } as CSSProperties}>
-                  <div className="row">
-                    <span className="stop-index">{i + 1}</span>
-                    <select value={en.asteroid.id} disabled={flying} aria-label={`asteroid ${i + 1}`} onChange={(e) => { if (e.target.value === '__own') actions.makeEntryCustom(i); else { const a = instance.asteroids.find((x) => x.id === e.target.value); if (a) actions.updateEntry(i, { asteroid: a }) } }}>
-                      {instance.asteroids.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
-                      {!instance.asteroids.some((a) => a.id === en.asteroid.id) && <option value={en.asteroid.id}>{en.asteroid.name || en.asteroid.id} (own orbit)</option>}
-                      <option value="__own">an orbit of its own…</option>
-                    </select>
-                    <button className="icon" onClick={() => actions.moveEntry(i, -1)} aria-label="move up" disabled={i === 0 || flying}><IconUp /></button>
-                    <button className="icon" onClick={() => actions.moveEntry(i, 1)} aria-label="move down" disabled={i === path.entries.length - 1 || flying}><IconDown /></button>
-                    <button className="icon remove" onClick={() => actions.removeEntry(i)} aria-label="remove" disabled={flying}><IconX /></button>
-                  </div>
-                  <div className="grid2">
-                    <label className="field"><span>arrive on day</span><input type="number" min={0} step="any" value={en.arrival} disabled={flying} onChange={(e) => actions.updateEntry(i, { arrival: num(e.target.value, en.arrival) })} /></label>
-                    <label className="field"><span>stay, days</span><input type="number" min={0} step="any" value={en.delay} disabled={flying} onChange={(e) => actions.updateEntry(i, { delay: num(e.target.value, en.delay) })} /></label>
-                  </div>
-                  <OrbitFields entry={en} own={!instance.asteroids.some((a) => a.id === en.asteroid.id)} disabled={flying} onChange={(el, name) => actions.setEntryOrbit(i, el, name)} />
-                </li>
-              ))}
-            </ol>
-              </>
-            )}
-            <div className="row">
-              {pathMode === 'form' && <button onClick={actions.addEntry} disabled={flying} title="The next asteroid of the instance, or a new orbit once they are all in the path"><IconPlus /> Add asteroid</button>}
-              {result && <button onClick={actions.pathFromResult} disabled={flying} title="Copy the last run's route, with its arrival days and waits, into the path">From last run</button>}
-              <button onClick={() => pathFileInput.current?.click()} disabled={flying} title="A file in the path format, or the JSON this page exported before">Open file</button>
-              {path.entries.length > 0 && <button onClick={() => download(`arp-path-${instance.name}.txt`, pathText(instance, path), 'text/plain')}>Save file</button>}
-              <input ref={pathFileInput} type="file" accept=".txt,.json,text/plain,application/json" hidden onChange={(e) => readFile(e, (text) => { const bad = actions.importPath(text); if (bad) useArp.setState({ pathStatus: 'error', pathError: `Import failed: ${bad}` }) })} />
-            </div>
-            {pathMode === 'form' && problems.length > 0 && path.entries.length > 0 && <div className="format bad">{problems.map((m, k) => <p key={k}>{m}</p>)}</div>}
-            <div className="plan-bar">
-              <button className="primary big" onClick={() => void actions.flyPath()} disabled={flying || problems.length > 0}>
-                {flying ? <><span className="spinner" aria-hidden="true" /> Flying…</> : `Fly path, ${transferName(transfer)}`}
-              </button>
-            </div>
-            {pathStatus === 'error' && pathError && <pre className="trace" role="alert">{pathError}</pre>}
-            {pathStatus === 'done' && pathResult && pathInst && <RouteSummary instance={pathInst} ev={pathResult} />}
-          </>
-        ) : (
-          <p className="hint">Generate or import an instance first; its asteroids are what a path can visit.</p>
-        )}
-      </Section>
-
-      <Section title="Transfer" defaultOpen={false} summary={`${transferName(transfer)} · ${solvers.find((s) => s.id === solver)?.name ?? solver}`}>
-        <TransferSelect />
-        <SolverSelect />
-      </Section>
-
-      <Section title="Algorithm" summary={header.name}>
+    <>
+      <Section id="algorithm" title="Algorithm" summary={header.name}>
         <label className="field"><span>start from</span>
           <select value={presetId} onChange={(e) => actions.choosePreset(e.target.value)} disabled={busy}>
             {([1, 2] as const).map((paper) => (
@@ -209,48 +289,36 @@ export function RoutingPanel() {
         </label>
         <textarea
           className="code" value={source} spellCheck={false} autoCapitalize="off" autoCorrect="off" wrap="off" rows={16}
-          aria-label="algorithm source, Python" onChange={(e) => actions.setSource(e.target.value)} onKeyDown={onEditorKey} readOnly={busy}
+          aria-label="algorithm source, Python" aria-describedby="editor-keys" onChange={(e) => actions.setSource(e.target.value)} onKeyDown={onEditorKey} readOnly={busy}
         />
+        <p className="hint" id="editor-keys">Tab indents. Press Escape, then Tab, to leave the editor.</p>
         {header.ok
           ? <p className="format ok">Valid {FORMAT_NAME} {FORMAT_VERSION}: “{header.name}”</p>
           : <div className="format bad">{header.errors.map((m, k) => <p key={k}>{m}</p>)}</div>}
         <div className="grid2">
           <label className="field"><span>budget, route evaluations</span><input type="number" min={1} max={2000} value={budget} onChange={(e) => actions.setBudget(num(e.target.value, budget))} disabled={busy} /></label>
-          <label className="field"><span>random seed</span><input type="number" value={seed} onChange={(e) => actions.setSeed(num(e.target.value, seed))} disabled={busy} /></label>
+          <label className="field"><span>run seed</span><input type="number" value={seed} onChange={(e) => actions.setSeed(num(e.target.value, seed))} disabled={busy} /></label>
         </div>
         <div className="row">
-          <button onClick={() => sourceFile.current?.click()} disabled={busy}>Open .py</button>
-          <button onClick={() => download(`${header.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'algorithm'}.py`, source, 'text/x-python')}>Save .py</button>
-          <input ref={sourceFile} type="file" accept=".py,text/x-python,text/plain" hidden onChange={(e) => readFile(e, actions.setSource)} />
+          <button onClick={() => file.current?.click()} disabled={busy} title="A Python file in the standard format">Open…</button>
+          <button onClick={() => download(`${header.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'algorithm'}.py`, source, 'text/x-python')} title="The algorithm as a .py file">Save…</button>
+          <input ref={file} type="file" accept=".py,text/x-python,text/plain" hidden onChange={(e) => readFile(e, actions.setSource)} />
         </div>
-        <Section title="Format reference" defaultOpen={false}>
+        <Section id="format-reference" title="Format reference" defaultOpen={false}>
           <pre className="reference">{FORMAT_REFERENCE}</pre>
         </Section>
       </Section>
 
-      <div className="plan-bar">
-        <button className="primary big" onClick={actions.run} disabled={!instance || busy || !header.ok}>
-          {busy ? <><span className="spinner" aria-hidden="true" /> {status === 'loading' ? 'Loading Python…' : 'Running…'}</> : 'Run'}
-        </button>
-        {busy && <button onClick={actions.stop}>Stop</button>}
-        {!instance && <span className="hint">Generate an instance first.</span>}
-      </div>
-      {(busy || status !== 'idle') && (
-        <p className="hint status" role="status">
-          {message}{' '}
-          {(busy || evaluations.length > 0 || transfers > 0) && <>{transfers} transfers asked, {evaluations.length} routes evaluated{best !== null ? `, best ${best.toFixed(2)}` : ''}{elapsedMs > 0 ? `, ${(elapsedMs / 1000).toFixed(1)} s` : ''}.</>}
-        </p>
-      )}
       {resultNote && status === 'done' && <p className="hint">{resultNote}</p>}
       {error && <pre className="trace" role="alert">{error}</pre>}
       {log.length > 0 && (
-        <Section title="Log" count={log.length} defaultOpen={false}>
+        <Section id="run-log" title="Log" count={log.length} defaultOpen={false}>
           <pre className="reference log">{log.join('\n')}</pre>
         </Section>
       )}
 
-      {instance && (result || evaluations.length > 0) && (
-        <Section title="Result">
+      {(result || evaluations.length > 0) && (
+        <Section id="run-result" title="Result">
           {result && <RouteSummary instance={instance} ev={result} />}
           {shown && <p className="hint">In the scene: {shown.label}, cost {shown.cost.toFixed(2)}.</p>}
           {complete > 0 && (
@@ -268,14 +336,45 @@ export function RoutingPanel() {
                   </li>
                 ))}
               </ol>
-              {evaluations.length > 150 && <p className="hint">The latest 150 of {evaluations.length} are listed; the chart and the exported run have all of them.</p>}
+              {evaluations.length > 150 && <p className="hint">The latest 150 of {evaluations.length} are listed; the chart and the saved run have all of them.</p>}
             </>
           )}
           <div className="row">
             {result && <button onClick={() => void actions.showRoute(result.order, result.legs.map((l) => [l.tau, l.t]), 'final route', true)}>Replay final route</button>}
-            <button onClick={() => { const rec = actions.record(); if (rec) download(`arp-run-${rec.instance.name}.json`, JSON.stringify(rec, null, 2), 'application/json') }}>Export run</button>
+            <button onClick={() => { const rec = actions.record(); if (rec) download(`arp-run-${rec.instance.name}.json`, JSON.stringify(rec, null, 2), 'application/json') }} title="Everything about this run, as JSON">Save run…</button>
           </div>
         </Section>
+      )}
+    </>
+  )
+}
+
+/** The pinned action of the algorithm half: Run and Stop, with what the run is doing. */
+function RunBar() {
+  const source = useArp((s) => s.source)
+  const status = useArp((s) => s.status)
+  const message = useArp((s) => s.message)
+  const evaluations = useArp((s) => s.evaluations)
+  const transfers = useArp((s) => s.transfers)
+  const elapsedMs = useArp((s) => s.elapsedMs)
+  const actions = useArp.getState()
+  const ok = parseAlgorithm(source).ok
+  const busy = status === 'running' || status === 'loading'
+  const best = evaluations.length ? evaluations[evaluations.length - 1].best : null
+  return (
+    <div className="action-bar">
+      <div className="row">
+        <button className="primary big" onClick={actions.run} disabled={busy || !ok}>
+          {busy ? <><span className="spinner" aria-hidden="true" /> {status === 'loading' ? 'Loading Python…' : 'Running…'}</> : 'Run'}
+        </button>
+        {busy && <button onClick={actions.stop}>Stop</button>}
+        {!ok && !busy && <span className="hint">The algorithm is not in the standard format.</span>}
+      </div>
+      {(busy || status !== 'idle') && (
+        <p className="hint status" role="status">
+          {message}{' '}
+          {(busy || evaluations.length > 0 || transfers > 0) && <>{transfers} transfers, {evaluations.length} routes{best !== null ? `, best ${best.toFixed(2)}` : ''}{elapsedMs > 0 ? `, ${(elapsedMs / 1000).toFixed(1)} s` : ''}.</>}
+        </p>
       )}
     </div>
   )

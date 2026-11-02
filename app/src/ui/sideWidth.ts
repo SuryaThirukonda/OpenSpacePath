@@ -2,6 +2,8 @@
  * The width of the left dashboard, which the user drags: a CSS variable the panel and the
  * toolbar both read, remembered in this browser.
  */
+import { isNarrowScreen } from './layout'
+
 export const WIDTH_KEY = 'orbitlab.sideWidth'
 const MIN_W = 260
 
@@ -18,12 +20,25 @@ export function applySideWidth(px: number | null): void {
   else root.setProperty('--side-w', `${Math.round(Math.min(Math.max(px, MIN_W), maxSideWidth()))}px`)
 }
 
-/** The width saved last time, applied once when the app loads. */
-export function restoreSideWidth(): void {
+function savedWidth(): number | null {
   try {
     const saved = Number(localStorage.getItem(WIDTH_KEY))
-    if (saved >= MIN_W && window.innerWidth > 680) applySideWidth(saved)
+    return saved >= MIN_W ? saved : null
   } catch {
-    // storage may be unavailable; the default width is fine
+    return null   // storage may be unavailable; the default width is fine
   }
+}
+
+/** On a phone the panel is a full-width sheet, so a saved desktop width does not apply. */
+function fit(): void {
+  const saved = savedWidth()
+  if (saved === null || isNarrowScreen()) applySideWidth(null)
+  else applySideWidth(saved)
+}
+
+/** Apply the width saved last time, and keep it within the window as the window is resized or turned. Returns the cleanup. */
+export function restoreSideWidth(): () => void {
+  fit()
+  window.addEventListener('resize', fit)
+  return () => window.removeEventListener('resize', fit)
 }

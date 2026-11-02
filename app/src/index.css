@@ -82,12 +82,14 @@ body.resizing-side .panel, body.resizing-side canvas { pointer-events: none; }
 .panel.bottom.collapsed { right: auto; }
 
 .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; }
-.panel-title { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; color: var(--accent); text-transform: uppercase; }
+.panel-title { margin: 0; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; color: var(--accent); text-transform: uppercase; }
 .panel-title svg { filter: drop-shadow(0 0 6px rgba(124, 245, 255, 0.6)); }
 /* The timeline has no header row while open: its collapse button sits in the corner. */
 .panel.bottom:not(.collapsed) .panel-header { position: absolute; top: 6px; right: 8px; z-index: 1; }
 .panel.bottom:not(.collapsed) .panel-title { display: none; }
 
+.panel-content { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.panel-content[hidden] { display: none; }
 .panel-scroll { flex: 1 1 auto; margin: 10px -8px 0 0; }
 .panel-body { display: flex; flex-direction: column; gap: 10px; padding-bottom: 2px; }
 .panel.bottom .panel-body { gap: 8px; }
@@ -124,7 +126,8 @@ body.resizing-side .panel, body.resizing-side canvas { pointer-events: none; }
 }
 .sec-head:hover { color: var(--text); border: none; background: none; }
 .sec-chevron { flex: none; transition: transform 0.15s; color: var(--faint); }
-.sec.open > .sec-head .sec-chevron { transform: rotate(90deg); color: var(--accent); }
+.sec-h { margin: 0; font: inherit; }
+.sec.open > .sec-h > .sec-head .sec-chevron { transform: rotate(90deg); color: var(--accent); }
 .sec-title { flex: none; }
 .sec-summary { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .sec-body { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
@@ -285,6 +288,22 @@ pre.log { max-height: 160px; }
 .transfer .seg { display: flex; }
 .transfer .seg button { flex: 1; }
 .path-list select { flex: 1; min-width: 0; }
+.sub-tabs .tab { min-height: 28px; font-weight: 600; }
+.inline-field { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.inline-field span { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.inline-field input { width: 76px; min-width: 0; }
+.entry-times { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.entry-head { flex-wrap: nowrap; }
+/* the open half's action, pinned to the bottom of the left panel's scroll */
+.action-bar {
+  position: sticky; bottom: 0; z-index: 2; display: flex; flex-direction: column; gap: 4px;
+  margin: 2px -4px 0; padding: 8px 4px 6px; border-top: 1px solid var(--line);
+  background: linear-gradient(to bottom, rgba(12, 17, 28, 0.92), rgba(10, 14, 23, 0.98));
+}
+.action-bar > .row { flex-wrap: nowrap; }
+.action-bar .hint { margin: 0; }
+.action-bar > .hint:not(.status) { font-size: 11.5px; }
+.scroll:has(.action-bar) > .scroll-view { --fade-bottom: 0px; }
 .path-mode { display: flex; }
 details.orbit { display: flex; flex-direction: column; gap: 6px; }
 details.orbit summary { cursor: pointer; list-style: none; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
@@ -331,11 +350,24 @@ textarea.path-text { min-height: 150px; }
 
 /* ---------------------------------------------------------------- toolbar */
 .panel.topright {
-  top: var(--gap); right: calc(var(--right-w) + var(--gap) * 2);
+  --right-used: var(--right-w);
+  top: var(--gap); right: calc(var(--right-used) + var(--gap) * 2);
   display: flex; gap: 4px 0; padding: 5px 6px; flex-wrap: wrap; justify-content: flex-end;
-  max-width: calc(100vw - var(--side-w) - var(--right-w) - var(--gap) * 5);
+  max-width: calc(100vw - var(--side-w) - var(--right-used) - var(--gap) * 5);
 }
+/* a collapsed Elements panel is only a tab wide, so the toolbar can use the room it left */
+:root:has(.panel.right.collapsed) .panel.topright { --right-used: 170px; }
 .tool-group { display: flex; gap: 3px; padding: 0 6px; border-right: 1px solid var(--line); }
+.menu-wrap { display: flex; }
+.menu {
+  position: fixed; z-index: 30; display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  background: rgba(12, 18, 30, 0.97); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+.menu-title { font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted); }
+.menu .menu-seg { display: flex; }
+.menu .menu-seg button { flex: 1; padding: 2px 6px; }
+.menu .hint { margin: 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .tool-group:first-child { padding-left: 0; }
 .tool-group:last-child { padding-right: 0; border-right: none; }
 .tool { min-height: 28px; padding: 4px 9px; background: transparent; border-color: transparent; color: var(--muted); }
@@ -423,7 +455,7 @@ textarea.path-text { min-height: 150px; }
 }
 
 /* Phone: panels become full-width sheets that share whatever height the timeline and the
-   control strip leave, and they start collapsed (see isNarrowScreen in Panel.tsx). */
+   control strip leave, and they start collapsed (NARROW_PX in ui/layout.ts must match 680). */
 @media (max-width: 680px) {
   .panel-resize { display: none; }
   :root {
@@ -447,6 +479,10 @@ textarea.path-text { min-height: 150px; }
   .clock { min-width: 0; margin-left: auto; }
   .clock-utc { font-size: 13px; }
   .seg button { padding: 2px 7px; }
+  /* one scroll per sheet: the editor and references stay short instead of scrolling inside it */
+  textarea.code { min-height: 140px; max-height: 38vh; }
+  pre.reference, pre.trace { max-height: 200px; }
+  .evals { max-height: 150px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

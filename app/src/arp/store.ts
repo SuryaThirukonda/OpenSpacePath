@@ -20,6 +20,8 @@ import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, Wo
 export type RunStatus = 'idle' | 'loading' | 'running' | 'done' | 'error' | 'stopped'
 export type PathStatus = 'idle' | 'loading' | 'done' | 'error'
 export type PathMode = 'form' | 'text'
+/** The Asteroids tab's two halves: write and fly a path, or run an algorithm. */
+export type ArpView = 'path' | 'run'
 /** Where Generate takes its asteroids from: the papers' GTOC11 catalogue, or a synthetic belt. */
 export type InstanceSource = 'catalogue' | 'synthetic'
 
@@ -38,6 +40,7 @@ interface Saved {
   pathMode?: PathMode
   pathText?: string
   instanceSource?: InstanceSource
+  view?: ArpView
 }
 
 function load(): Partial<Saved> {
@@ -73,7 +76,7 @@ function savedPath(x: unknown): PathPlan {
 function save(s: ArpState): void {
   try {
     const v: Saved = { source: s.source, presetId: s.presetId, budget: s.budget, seed: s.seed, n: s.n, instanceSeed: s.instanceSeed, instance: s.instance,
-                       path: s.path, pathMode: s.pathMode, pathText: s.pathText, instanceSource: s.instanceSource }
+                       path: s.path, pathMode: s.pathMode, pathText: s.pathText, instanceSource: s.instanceSource, view: s.view }
     localStorage.setItem(KEY, JSON.stringify(v))
   } catch {
     // storage may be unavailable (private window); the tab works without it
@@ -118,6 +121,9 @@ export interface ArpState {
   /** the path is edited as rows, or as text in the standard format */
   pathMode: PathMode
   pathText: string
+  view: ArpView
+
+  setView: (view: ArpView) => void
 
   setN: (n: number) => void
   setInstanceSeed: (seed: number) => void
@@ -243,6 +249,9 @@ export const useArp = create<ArpState>((set, get) => ({
   pathInstance: null,
   pathMode: saved.pathMode === 'text' ? 'text' : 'form',
   pathText: typeof saved.pathText === 'string' ? saved.pathText : '',
+  view: saved.view === 'run' ? 'run' : 'path',
+
+  setView: (view) => { set({ view }); save(get()) },
 
   setN: (n) => { set({ n: Math.min(30, Math.max(2, Math.round(n) || 2)) }); save(get()) },
   setInstanceSeed: (instanceSeed) => { set({ instanceSeed: Math.round(instanceSeed) || 0 }); save(get()) },
@@ -465,7 +474,10 @@ export const useArp = create<ArpState>((set, get) => ({
   },
   pathFromResult: () => {
     const { instance, result } = get()
-    if (instance && result) get().setPath(pathFromEvaluation(instance, result))
+    if (instance && result) {
+      get().setPath(pathFromEvaluation(instance, result))
+      get().setView('path')
+    }
   },
   importPath: (text) => {
     const path = parsePath(text, get().instance)

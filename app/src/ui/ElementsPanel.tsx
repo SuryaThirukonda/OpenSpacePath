@@ -5,6 +5,7 @@ import { formatDuration } from '../core/time'
 import { getBody } from '../data/bodies'
 import { satrecFor, satrecToElements, sgp4Epoch, sgp4StateAt } from '../propagation/sgp4Propagator'
 import { epochMs, selectedSatellite, useStore } from '../store/store'
+import { AU_KM } from '../arp/instance'
 import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
 
@@ -35,10 +36,13 @@ export function ElementsPanel() {
   const bodyId = useStore((s) => s.scenario.bodyId)
   const t = useStore((s) => s.t)
   const eMs = useStore(epochMs)
+  const world = useStore((s) => s.world)
   if (!sat) {
     return (
       <Panel position="right" title="Elements" defaultOpen={!isNarrowScreen()}>
-        <p className="hint empty">Select a satellite in the list, or click one in the scene, to see its elements and live state.</p>
+        <p className="hint empty">{world === 'asteroids'
+          ? 'Click an asteroid or Earth in the scene to see its orbit around the Sun and where it is now.'
+          : 'Select a satellite in the list on the Satellites tab, or click one in the scene, to see its elements and live state.'}</p>
       </Panel>
     )
   }
@@ -47,7 +51,32 @@ export function ElementsPanel() {
   const tiles: Tile[] = []
   const deg = (x: number) => `${(wrapTwoPi(x) * RAD).toFixed(3)} deg`
 
-  if (sat.kind === 'kepler') {
+  if (sat.kind === 'kepler' && bodyId === 'sun') {
+    // around the Sun: distances in AU and periods in days or years, not altitudes above its surface
+    const el = sat.elements
+    const st = elementsToState(el, body.mu, t)
+    const r = norm(st.r)
+    const T = period(el.a, body.mu)
+    const au = (km: number) => `${(km / AU_KM).toFixed(4)} AU`
+    const days = T / 86400
+    tiles.push({ k: 'from Sun', v: (r / AU_KM).toFixed(3), unit: 'AU' }, { k: 'speed', v: norm(st.v).toFixed(2), unit: 'km/s' },
+               days >= 730 ? { k: 'period', v: (days / 365.25).toFixed(2), unit: 'y' } : { k: 'period', v: days.toFixed(0), unit: 'd' })
+    rows.push(
+      { k: 'Model', v: 'two-body Keplerian, heliocentric' },
+      { k: 'a', v: au(el.a) },
+      { k: 'e', v: el.e.toFixed(5) },
+      { k: 'i', v: deg(el.i) },
+      { k: 'RAAN', v: deg(el.raan) },
+      { k: 'arg. perihelion', v: deg(el.argp) },
+      { k: 'true anomaly now', v: deg(trueAnomalyAt(el, body.mu, t)) },
+      { k: 'mean anomaly now', v: deg(el.M0 + (TWO_PI / T) * t) },
+      { k: 'period', v: `${days.toFixed(1)} d (${(days / 365.25).toFixed(3)} y)` },
+      { k: 'perihelion', v: au(el.a * (1 - el.e)) },
+      { k: 'aphelion', v: au(el.a * (1 + el.e)) },
+      { k: 'distance now', v: au(r) },
+      { k: 'speed', v: `${norm(st.v).toFixed(4)} km/s` },
+    )
+  } else if (sat.kind === 'kepler') {
     const el = sat.elements
     const st = elementsToState(el, body.mu, t)
     const r = norm(st.r)
