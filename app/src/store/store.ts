@@ -27,6 +27,9 @@ export type PlanStatus = 'idle' | 'loading' | 'ready' | 'error'
  */
 export type World = 'satellites' | 'asteroids'
 
+/** The left panel's tabs. Satellites and Mission show the satellites world, Asteroids the asteroids world. */
+export type LeftTab = 'satellites' | 'mission' | 'asteroids'
+
 export interface WorldStash {
   scenario: Scenario
   t: number
@@ -43,6 +46,8 @@ export interface AppState {
   scenario: Scenario
   world: World
   stashed: Partial<Record<World, WorldStash>>
+  /** Which left tab is open; kept here so collapsing the panel or reloading cannot lose it. */
+  leftTab: LeftTab
   /** Simulated seconds since the scenario epoch. */
   t: number
   playing: boolean
@@ -63,6 +68,8 @@ export interface AppState {
   loadScenario: (sc: Scenario) => void
   /** Show the other world: the current one is stashed, the other restored (or started empty). */
   switchWorld: (world: World) => void
+  /** Open a left tab, switching worlds when the tab belongs to the other one. */
+  setLeftTab: (tab: LeftTab) => void
   setBody: (bodyId: string) => void
   setEpoch: (iso: string) => void
   addSatellite: (s: Satellite, select?: boolean) => void
@@ -86,7 +93,6 @@ export interface AppState {
   /** Show a route computed elsewhere (the Routing tab): its mission inputs and its plan together. */
   loadRoute: (mission: MissionInput, plan: MissionPlan) => void
   requestPlan: () => Promise<void>
-  clearPlan: () => void
   setCameraMode: (mode: CameraMode) => void
   toggleRemaining: () => void
   toggleBurnLabels: () => void
@@ -109,6 +115,18 @@ export function defaultScenario(): Scenario {
 
 let cameraSeq = 0
 let planSeq = 0
+let planAbort: AbortController | null = null
+
+/**
+ * Store fields that reset whenever the scenario's physics changes under a plan. Any request in
+ * flight is for the old inputs, so it is cancelled and its answer will be ignored.
+ */
+function invalidPlan() {
+  planSeq++
+  planAbort?.abort()
+  planAbort = null
+  return { plan: null, planStatus: 'idle' as PlanStatus, planError: null, selectedLeg: null }
+}
 
 /** The asteroid world before anything is generated: the Sun alone, at the papers' epoch. */
 function emptyAsteroidScenario(shared: { solver?: string; transfer?: Scenario['transfer'] }): Scenario {
@@ -119,6 +137,7 @@ export const useStore = create<AppState>((set) => ({
   scenario: defaultScenario(),
   world: 'satellites',
   stashed: {},
+  leftTab: 'satellites',
   t: 0,
   playing: true,
   selectedId: null,
@@ -137,18 +156,28 @@ export const useStore = create<AppState>((set) => ({
   switchWorld: (world) =>
     set((s) => {
       if (s.world === world) return {}
-      planSeq++ // a planner request still in flight belongs to the world being left
-      const stash: WorldStash = { scenario: s.scenario, t: s.t, playing: s.playing, selectedId: s.selectedId, plan: s.plan, planStatus: s.planStatus,
-                                  planError: s.planError, selectedLeg: s.selectedLeg, cameraMode: s.cameraMode }
+      // a planner request still in flight belongs to the world being left: it is cancelled, and the
+      // world is stashed as if it had never been asked, so its Plan button works on return
+      const loading = s.planStatus === 'loading'
+      invalidPlan()
+      const stash: WorldStash = { scenario: s.scenario, t: s.t, playing: s.playing, selectedId: s.selectedId, plan: s.plan,
+                                  planStatus: loading ? 'idle' : s.planStatus, planError: s.planError, selectedLeg: s.selectedLeg, cameraMode: s.cameraMode }
       const kept = s.stashed[world]
-      // the transfer and solver choices are the user's, not a world's: they travel across
+      // the transfer and solver choices are the user's, not a world's: they travel across, and a
+      // plan made with other choices is out of date
       const shared = { solver: s.scenario.solver, transfer: s.scenario.transfer }
+      const stale = kept !== undefined && (kept.scenario.solver !== shared.solver || kept.scenario.transfer !== shared.transfer)
       const next: WorldStash = kept
-        ? { ...kept, scenario: { ...kept.scenario, ...shared } }
+        ? { ...kept, scenario: { ...kept.scenario, ...shared }, ...(stale ? { plan: null, planStatus: 'idle', planError: null, selectedLeg: null } : {}) }
         : { scenario: world === 'asteroids' ? emptyAsteroidScenario(shared) : { ...defaultScenario(), ...shared }, t: 0, playing: false, selectedId: null,
             plan: null, planStatus: 'idle', planError: null, selectedLeg: null, cameraMode: 'free' }
+      if (!next.plan && (next.cameraMode === 'chase' || next.cameraMode === 'birdseye')) next.cameraMode = 'free'
       return { ...next, world, stashed: { ...s.stashed, [s.world]: stash }, cameraRequest: { kind: world === 'asteroids' ? 'all' : 'reset', seq: ++cameraSeq } }
     }),
+  setLeftTab: (tab) => {
+    useStore.getState().switchWorld(tab === 'asteroids' ? 'asteroids' : 'satellites')
+    set({ leftTab: tab })
+  },
   setBody: (bodyId) =>
     set((s) => {
       const oldBody = getBody(s.scenario.bodyId)
@@ -159,11 +188,11 @@ export const useStore = create<AppState>((set) => ({
           ? { ...sat, elements: rescaleToBody(sat.elements, oldBody.radius, newBody.radius, factor) }
           : sat,
       )
-      return { scenario: { ...s.scenario, bodyId, satellites }, ...invalidPlan }
+      return { scenario: { ...s.scenario, bodyId, satellites }, ...invalidPlan() }
     }),
   setEpoch: (iso) => {
     parseEpoch(iso)
-    set((s) => ({ scenario: { ...s.scenario, epoch: iso }, t: 0, ...invalidPlan }))
+    set((s) => ({ scenario: { ...s.scenario, epoch: iso }, t: 0, ...invalidPlan() }))
   },
   addSatellite: (sat, select = true) =>
     set((s) => ({
@@ -173,7 +202,7 @@ export const useStore = create<AppState>((set) => ({
   updateSatellite: (sat) =>
     set((s) => ({
       scenario: { ...s.scenario, satellites: s.scenario.satellites.map((x) => (x.id === sat.id ? sat : x)) },
-      ...invalidPlan,
+      ...invalidPlan(),
     })),
   removeSatellite: (id) =>
     set((s) => {
@@ -189,7 +218,7 @@ export const useStore = create<AppState>((set) => ({
       return {
         scenario: { ...s.scenario, satellites, mission },
         selectedId: s.selectedId === id ? null : s.selectedId,
-        ...invalidPlan,
+        ...invalidPlan(),
       }
     }),
   select: (id) => set({ selectedId: id }),
@@ -203,11 +232,11 @@ export const useStore = create<AppState>((set) => ({
   toggleAxes: () => set((s) => ({ showAxes: !s.showAxes })),
   toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
 
-  setMission: (mission) => set((s) => ({ scenario: { ...s.scenario, mission: mission ?? undefined }, ...invalidPlan })),
-  setSolver: (solver) => set((s) => ({ scenario: { ...s.scenario, solver }, ...invalidPlan })),
-  setTransfer: (transfer) => set((s) => ({ scenario: { ...s.scenario, transfer }, ...invalidPlan })),
+  setMission: (mission) => set((s) => ({ scenario: { ...s.scenario, mission: mission ?? undefined }, ...invalidPlan() })),
+  setSolver: (solver) => set((s) => ({ scenario: { ...s.scenario, solver }, ...invalidPlan() })),
+  setTransfer: (transfer) => set((s) => ({ scenario: { ...s.scenario, transfer }, ...invalidPlan() })),
   loadRoute: (mission, plan) => {
-    planSeq++ // a planner request still in flight must not overwrite this
+    invalidPlan() // a planner request still in flight must not overwrite this
     set((s) => ({ scenario: { ...s.scenario, mission }, plan, planStatus: 'ready', planError: null, selectedLeg: null }))
   },
   requestPlan: async () => {
@@ -217,11 +246,14 @@ export const useStore = create<AppState>((set) => ({
       set({ plan: null, planStatus: 'idle', planError: null })
       return
     }
-    const seq = ++planSeq
+    invalidPlan() // a request already in flight is for older inputs
+    const seq = planSeq
+    const abort = new AbortController()
+    planAbort = abort
     set({ planStatus: 'loading', planError: null })
     try {
-      const plan = await planMission(s.scenario, mission)
-      if (seq !== planSeq) return // a newer request superseded this one
+      const plan = await planMission(s.scenario, mission, abort.signal)
+      if (seq !== planSeq) return // a newer request, or an edit, superseded this one
       // a timeline shorter than the tour would wrap the clock, and the ship, back to the start mid-flight
       const end = planStart(plan, mission.startT) + plan.totalTime
       set((st) => ({ plan, planStatus: 'ready', planError: null, selectedLeg: null,
@@ -231,7 +263,6 @@ export const useStore = create<AppState>((set) => ({
       set({ plan: null, planStatus: 'error', planError: (e as Error).message })
     }
   },
-  clearPlan: () => set({ ...invalidPlan }),
   setCameraMode: (cameraMode) => set({ cameraMode }),
   toggleRemaining: () => set((s) => ({ showRemaining: !s.showRemaining })),
   toggleBurnLabels: () => set((s) => ({ showBurnLabels: !s.showBurnLabels })),
@@ -243,9 +274,6 @@ export function satellitesWorldCounts(s: AppState): { satellites: number; stops:
   const sc = s.world === 'satellites' ? s.scenario : s.stashed.satellites?.scenario
   return { satellites: sc?.satellites.length ?? 0, stops: sc?.mission?.stops.length ?? 0 }
 }
-
-/** Store fields that reset whenever the scenario's physics changes under a plan. */
-const invalidPlan = { plan: null, planStatus: 'idle' as PlanStatus, planError: null, selectedLeg: null }
 
 /** Orbital period of a satellite in seconds, or null if it cannot be propagated. */
 export function satellitePeriod(sat: Satellite, bodyId: string): number | null {

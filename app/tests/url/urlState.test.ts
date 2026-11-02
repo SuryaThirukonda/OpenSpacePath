@@ -28,7 +28,7 @@ describe('url state', () => {
   it('rejects scenarios that would crash the app', () => {
     expect(decodeScenario(encodeScenario({ ...sc, bodyId: 'pluto' }))).toBeNull()
     expect(decodeScenario(encodeScenario({ ...sc, spanSeconds: 0 }))).toBeNull()
-    expect(decodeScenario(raw({ v: 3, ...sc }))).toBeNull()
+    expect(decodeScenario(raw({ v: 4, ...sc }))).toBeNull()
   })
   it('drops malformed satellites but keeps the scenario', () => {
     const bad = { ...sc.satellites[0], id: 'bad', elements: { ...(sc.satellites[0] as { elements: object }).elements, e: 1.5 } }

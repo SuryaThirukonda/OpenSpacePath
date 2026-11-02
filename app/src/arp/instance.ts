@@ -6,6 +6,7 @@
  * seed always gives the same instance, but its costs are not comparable with the papers' tables.
  * A real instance can be imported as JSON in the same shape.
  */
+import { apiError, plannerFetch } from '../mission/http'
 import { validateElements } from '../core/elements'
 import { getBody } from '../data/bodies'
 import type { KeplerSatellite, OrbitalElements, Scenario } from '../types'
@@ -67,12 +68,13 @@ export function generateInstance(n: number, seed: number, epoch = ARP_EPOCH): Ar
 const ASTEROID_COLORS = ['#ff8a5c', '#f9a8d4', '#ffd166', '#b8f28b', '#c4b5fd', '#7cf5ff', '#fca5a5', '#a7f3d0', '#fdba74', '#93c5fd']
 
 /** The instance as a Sun-centred scene: Earth and every asteroid on its orbit. */
-export function instanceToScenario(inst: ArpInstance, solver?: string): Scenario {
+export function instanceToScenario(inst: ArpInstance, solver?: string, transfer?: Scenario['transfer']): Scenario {
   const earth: KeplerSatellite = { id: inst.earth.id, kind: 'kepler', name: inst.earth.name || 'Earth', color: '#6fb8ff', elements: inst.earth.elements, shape: 'planet' }
   const asteroids: KeplerSatellite[] = inst.asteroids.map((a, k) => ({
     id: a.id, kind: 'kepler', name: a.name || `Asteroid ${k + 1}`, color: ASTEROID_COLORS[k % ASTEROID_COLORS.length], elements: a.elements, shape: 'asteroid',
   }))
-  return { bodyId: 'sun', epoch: inst.epoch, satellites: [earth, ...asteroids], spanSeconds: 8 * 365.25 * 86400, rate: 2592000, ...(solver ? { solver } : {}) }
+  return { bodyId: 'sun', epoch: inst.epoch, satellites: [earth, ...asteroids], spanSeconds: 8 * 365.25 * 86400, rate: 2592000,
+           ...(solver ? { solver } : {}), ...(transfer ? { transfer } : {}) }
 }
 
 function cleanBody(x: unknown, fallbackId: string, sunRadius: number): ArpBody | string {
@@ -127,11 +129,8 @@ export function parseInstance(text: string): ArpInstance | string {
  * generator. The catalogue lives with the planner, which answers with the instance.
  */
 export async function fetchPaperInstance(n: number, seed: number): Promise<ArpInstance> {
-  const res = await fetch(`/api/arp/instance?n=${encodeURIComponent(n)}&seed=${encodeURIComponent(seed)}`)
-  if (!res.ok) {
-    const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
-    throw new Error(typeof detail === 'string' ? detail : `the planner answered HTTP ${res.status}`)
-  }
+  const res = await plannerFetch(`/api/arp/instance?n=${encodeURIComponent(n)}&seed=${encodeURIComponent(seed)}`)
+  if (!res.ok) throw new Error(await apiError(res))
   const inst = parseInstance(await res.text())
   if (typeof inst === 'string') throw new Error(inst)
   return inst

@@ -48,6 +48,7 @@ export class AlgorithmRunner {
     const w = new Worker(new URL('arp-worker.js', document.baseURI))
     w.onmessage = (e: MessageEvent<WorkerMessage>) => this.receive(e.data)
     w.onerror = (e) => this.fail(e.message || 'the algorithm runner could not start')
+    w.onmessageerror = () => this.fail('the algorithm runner sent a message that could not be read')
     this.worker = w
     this.warm = false
     return w
@@ -108,8 +109,9 @@ export class AlgorithmRunner {
     cb?.onFailed(message)
   }
 
-  /** Load Python ahead of the first run. */
+  /** Load Python ahead of the first run. A failure here is not reported: the run that follows retries and says why. */
   prepare(): void {
+    if (typeof Worker === 'undefined' || this.warm) return
     this.ensureWorker().postMessage({ type: 'boot' })
   }
 

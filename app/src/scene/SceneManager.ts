@@ -151,6 +151,19 @@ export class SceneManager {
     this.camera.updateProjectionMatrix()
   }
 
+  private readonly failed = new Set<string>()
+
+  /** Run one part of the frame; an exception is logged once per part instead of ending the animation loop. */
+  private guard(part: string, fn: () => void): void {
+    try {
+      fn()
+      this.failed.delete(part)
+    } catch (e) {
+      if (!this.failed.has(part)) console.error(`${part} sync failed`, e)
+      this.failed.add(part)
+    }
+  }
+
   private readonly tick = (now: number): void => {
     if (this.disposed) return
     const dt = Math.min(now - this.lastNow, 100)
@@ -161,13 +174,10 @@ export class SceneManager {
       s.setT(advanceTime({ epochMs: 0, t: s.t, playing: true, rate: s.scenario.rate, spanSeconds: s.scenario.spanSeconds }, dt).t)
     }
     const state = useStore.getState()
-    this.syncBody(state)
-    this.syncSatellites(state)
-    try {
-      this.syncMission(state, now, dt)
-    } catch (e) {
-      console.error('mission sync failed', e)
-    }
+    // one bad satellite or plan must not stop the loop: the rest of the scene keeps drawing
+    this.guard('body', () => this.syncBody(state))
+    this.guard('satellites', () => this.syncSatellites(state))
+    this.guard('mission', () => this.syncMission(state, now, dt))
     this.handleCameraRequest(state)
 
     this.axes.group.visible = state.showAxes

@@ -10,10 +10,23 @@ import { BODY_BY_ID } from '../data/bodies'
 import { validateTleLines } from '../propagation/sgp4Propagator'
 import { TRANSFER_MODES, type LaunchSpec, type MissionInput, type Stage, type Stop, type TransferMode } from '../mission/types'
 import type { KeplerSatellite, OrbitalElements, Satellite, Scenario, TleSatellite } from '../types'
+import type { ArpInstance } from '../arp/types'
 
 export const PARAM = 's'
-/** Bump when the encoded shape changes. Absent means 1. */
-export const SCHEMA_VERSION = 2
+/** Bump when the encoded shape changes. Absent means 1. Version 3 added the world and the asteroid instance's settings. */
+export const SCHEMA_VERSION = 3
+
+export type LinkWorld = 'satellites' | 'asteroids'
+
+/** What an asteroid-world link carries besides the bodies, which travel as the scenario's satellites. */
+export type InstanceMeta = Pick<ArpInstance, 'name' | 'mu' | 'tauMax' | 'tMax' | 'timeWeight'> & Partial<Pick<ArpInstance, 'innerStart' | 'innerTol' | 'note'>>
+
+/** A decoded link: the scenario, which world it was made in, and for the asteroid world the instance's settings. */
+export interface SharedLink {
+  scenario: Scenario
+  world: LinkWorld
+  instance?: InstanceMeta
+}
 
 function toBase64Url(s: string): string {
   const bytes = new TextEncoder().encode(s)
@@ -29,8 +42,21 @@ function fromBase64Url(s: string): string {
   return new TextDecoder().decode(bytes)
 }
 
-export function encodeScenario(sc: Scenario): string {
-  return toBase64Url(JSON.stringify({ v: SCHEMA_VERSION, ...sc }))
+export function encodeScenario(sc: Scenario, world: LinkWorld = 'satellites', instance?: InstanceMeta): string {
+  return toBase64Url(JSON.stringify({ v: SCHEMA_VERSION, ...sc, ...(world === 'asteroids' ? { world, ...(instance ? { inst: instance } : {}) } : {}) }))
+}
+
+function cleanMeta(x: unknown): InstanceMeta | undefined {
+  if (!x || typeof x !== 'object') return undefined
+  const o = x as Record<string, unknown>
+  const pos = (v: unknown) => isNum(v) && v > 0
+  if (typeof o.name !== 'string' || !pos(o.mu) || !pos(o.tauMax) || !pos(o.tMax) || !isNum(o.timeWeight) || o.timeWeight < 0) return undefined
+  const meta: InstanceMeta = { name: o.name.slice(0, 80), mu: o.mu as number, tauMax: o.tauMax as number, tMax: o.tMax as number, timeWeight: o.timeWeight }
+  const st = o.innerStart as unknown[] | undefined
+  if (Array.isArray(st) && st.length === 2 && isNum(st[0]) && isNum(st[1])) meta.innerStart = [st[0], st[1]]
+  if (pos(o.innerTol)) meta.innerTol = o.innerTol as number
+  if (typeof o.note === 'string') meta.note = o.note.slice(0, 300)
+  return meta
 }
 
 function isNum(x: unknown): x is number {
@@ -147,10 +173,15 @@ function cleanMission(x: unknown, satellites: Satellite[], bodyRadius: number): 
 
 /** Returns null for anything that does not look like a scenario. Malformed satellites are dropped, not fatal. */
 export function decodeScenario(encoded: string): Scenario | null {
+  return decodeLink(encoded)?.scenario ?? null
+}
+
+/** The whole link: scenario, world and instance settings, or null for anything that does not look like one. */
+export function decodeLink(encoded: string): SharedLink | null {
   try {
     const o = JSON.parse(fromBase64Url(encoded)) as Record<string, unknown>
     const v = o.v === undefined ? 1 : o.v
-    if (v !== 1 && v !== 2) return null
+    if (v !== 1 && v !== 2 && v !== 3) return null
     if (typeof o.bodyId !== 'string' || !(o.bodyId in BODY_BY_ID)) return null
     if (typeof o.epoch !== 'string' || Number.isNaN(Date.parse(o.epoch))) return null
     if (!Array.isArray(o.satellites)) return null
@@ -162,19 +193,29 @@ export function decodeScenario(encoded: string): Scenario | null {
     if (mission) scenario.mission = mission
     if (typeof o.solver === 'string' && /^[a-z0-9]{3,24}$/.test(o.solver)) scenario.solver = o.solver
     if (TRANSFER_MODES.includes(o.transfer as TransferMode)) scenario.transfer = o.transfer as TransferMode
-    return scenario
+    // an asteroid-world link is the Sun and its bodies; anything else is read as the satellites world
+    if (o.world === 'asteroids' && scenario.bodyId === 'sun') {
+      delete scenario.mission   // the drawn tour is rebuilt from the instance, never taken from a link
+      const instance = cleanMeta(o.inst)
+      return { scenario, world: 'asteroids', ...(instance ? { instance } : {}) }
+    }
+    return { scenario, world: 'satellites' }
   } catch {
     return null
   }
 }
 
 export function scenarioFromLocation(search: string): Scenario | null {
-  const v = new URLSearchParams(search).get(PARAM)
-  return v ? decodeScenario(v) : null
+  return linkFromLocation(search)?.scenario ?? null
 }
 
-export function scenarioToSearch(sc: Scenario): string {
+export function linkFromLocation(search: string): SharedLink | null {
+  const v = new URLSearchParams(search).get(PARAM)
+  return v ? decodeLink(v) : null
+}
+
+export function scenarioToSearch(sc: Scenario, world: LinkWorld = 'satellites', instance?: InstanceMeta): string {
   const q = new URLSearchParams()
-  q.set(PARAM, encodeScenario(sc))
+  q.set(PARAM, encodeScenario(sc, world, instance))
   return '?' + q.toString()
 }

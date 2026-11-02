@@ -2,9 +2,8 @@
 import { getBody } from '../data/bodies'
 import type { Scenario } from '../types'
 import type { SolverInfo } from '../arp/types'
+import { postJson } from './http'
 import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from './types'
-
-export class PlanError extends Error {}
 
 export const DEFAULT_SOLVER = 'izzo2015'
 
@@ -33,24 +32,14 @@ function wireSatellite(s: Scenario['satellites'][number]) {
     : { id: s.id, kind: 'tle', line1: s.line1, line2: s.line2 }
 }
 
-export async function planMission(scenario: Scenario, mission: MissionInput, signal?: AbortSignal): Promise<MissionPlan> {
+export function planMission(scenario: Scenario, mission: MissionInput, signal?: AbortSignal): Promise<MissionPlan> {
   const body = getBody(scenario.bodyId)
-  const res = await fetch('/api/plan', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    signal,
-    body: JSON.stringify({
-      body: { id: body.id, mu: body.mu, radius: body.radius, rotationPeriod: body.rotationPeriod, atmosphere: body.atmosphere !== undefined },
-      epoch: scenario.epoch,
-      satellites: scenario.satellites.map(wireSatellite),
-      mission: { ...mission, solver: scenario.solver ?? DEFAULT_SOLVER, transfer: scenario.transfer ?? DEFAULT_TRANSFER },
-    }),
-  })
-  if (!res.ok) {
-    const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
-    throw new PlanError(typeof detail === 'string' ? detail : `planner returned HTTP ${res.status}`)
-  }
-  return (await res.json()) as MissionPlan
+  return postJson<MissionPlan>('/api/plan', {
+    body: { id: body.id, mu: body.mu, radius: body.radius, rotationPeriod: body.rotationPeriod, atmosphere: body.atmosphere !== undefined },
+    epoch: scenario.epoch,
+    satellites: scenario.satellites.map(wireSatellite),
+    mission: { ...mission, solver: scenario.solver ?? DEFAULT_SOLVER, transfer: scenario.transfer ?? DEFAULT_TRANSFER },
+  }, signal)
 }
 
 /** Wakes the function so the first real plan request does not pay the cold start. */

@@ -6,12 +6,14 @@
  */
 import { create } from 'zustand'
 import { DEFAULT_SOLVER } from '../mission/api'
+import { postJson } from '../mission/http'
 import { DEFAULT_TRANSFER, type MissionInput, type MissionPlan } from '../mission/types'
 import { useStore } from '../store/store'
 import { parseAlgorithm, PRESETS } from './format'
 import { fetchPaperInstance, generateInstance, instanceToScenario, parseInstance } from './instance'
 import { customAsteroid, defaultSchedule, emptyPath, nextEntry, parsePath, pathFromEvaluation, pathInstance, pathProblems, pathRequest, pathText, syncInstance, withOrbit, type PathEntry, type PathPlan } from './path'
-import type { OrbitalElements } from '../types'
+import type { OrbitalElements, Scenario } from '../types'
+import type { InstanceMeta } from '../url/urlState'
 import { AlgorithmRunner } from './runner'
 import type { ArpEvaluation, ArpInstance, EvaluationRow, RunEvent, RunRecord, WorkerResult } from './types'
 
@@ -45,6 +47,27 @@ function load(): Partial<Saved> {
   } catch {
     return {}
   }
+}
+
+/** A saved instance only if it still reads as one; storage is editable and older builds wrote other shapes. */
+function savedInstance(x: unknown): ArpInstance | null {
+  if (!x || typeof x !== 'object') return null
+  const inst = parseInstance(JSON.stringify(x))
+  return typeof inst === 'string' ? null : inst
+}
+
+/** A saved path, keeping only the entries that are whole: an asteroid with six numeric elements, an arrival and a stay. */
+function savedPath(x: unknown): PathPlan {
+  if (!x || typeof x !== 'object') return emptyPath()
+  const o = x as { departure?: unknown; entries?: unknown }
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+  const entries = (Array.isArray(o.entries) ? o.entries : []).filter((e: unknown): e is PathEntry => {
+    const p = e as Partial<PathEntry> | null
+    const el = p?.asteroid?.elements as Record<string, unknown> | undefined
+    return !!p && typeof p.asteroid?.id === 'string' && typeof p.asteroid?.name === 'string' && !!el
+      && ['a', 'e', 'i', 'raan', 'argp', 'M0'].every((k) => num(el[k])) && num(p.arrival) && num(p.delay)
+  })
+  return { departure: num(o.departure) && o.departure >= 0 ? o.departure : 0, entries }
 }
 
 function save(s: ArpState): void {
@@ -104,6 +127,8 @@ export interface ArpState {
   showInstance: () => void
   /** The Asteroids tab was opened: put its instance in the scene unless it is there already. */
   enterWorld: () => void
+  /** A shared link opened the asteroid world: take its bodies as the instance unless they are the current one's. */
+  adoptShared: (scenario: Scenario, meta?: InstanceMeta) => void
   setSource: (source: string) => void
   choosePreset: (id: string) => void
   setBudget: (budget: number) => void
@@ -134,9 +159,11 @@ export interface ArpState {
 }
 
 const runner = new AlgorithmRunner()
-let showSeq = 0
+/** Counts requests that draw into the scene (routes of a run, a flown path): only the newest may draw. */
+let sceneSeq = 0
 /** Counts runs, so a result that arrives after the next run began is dropped. */
 let runSeq = 0
+/** Counts instance changes, so a catalogue answer that arrives after an import or another Generate is dropped. */
 let generateSeq = 0
 
 /** Take an instance as the current one: every asteroid into the path with the default schedule, results cleared, scene rebuilt. */
@@ -145,12 +172,12 @@ function adopt(inst: ArpInstance, n?: number): void {
   s.stop()
   runSeq += 1
   const path = defaultSchedule(inst.asteroids)   // every asteroid, with its orbit, in the path to tweak
+  sceneSeq++                                      // routes still being drawn belong to the old instance
   useArp.setState({ instance: inst, ...(n ? { n } : {}), status: 'idle', message: '', error: null, log: [], evaluations: [], transfers: 0, result: null, resultNote: '', shown: null,
                     path, pathStatus: 'idle', pathError: null, pathResult: null, pathInstance: null, pathText: pathText(inst, path) })
   save(useArp.getState())
   ensureScene(inst, true)
 }
-let pathSeq = 0
 let textTimer: number | undefined
 let startedAt = 0
 
@@ -165,13 +192,18 @@ export function routeMission(inst: ArpInstance, ev: ArpEvaluation): MissionInput
   }
 }
 
-/** Put the instance's Sun-centred scene up unless it is already there. */
+/**
+ * Put the instance's Sun-centred scene up unless it is already there. Only while the asteroids
+ * world is shown: an answer that arrives after the user went back to the satellites must not
+ * replace their scene; the Asteroids tab rebuilds it when it is opened again.
+ */
 function ensureScene(inst: ArpInstance, force = false): void {
   const main = useStore.getState()
+  if (main.world !== 'asteroids') return
   const ids = new Set(main.scenario.satellites.map((s) => s.id))
   const present = main.scenario.bodyId === 'sun' && ids.has(inst.earth.id) && inst.asteroids.every((a) => ids.has(a.id))
   if (present && !force) return
-  main.loadScenario(instanceToScenario(inst, main.scenario.solver))
+  main.loadScenario(instanceToScenario(inst, main.scenario.solver, main.scenario.transfer))
   main.select(null)
   main.setPlaying(false)
   main.setCameraMode('free')
@@ -185,7 +217,7 @@ const firstPreset = PRESETS[0]
 const initial = { presetId: saved.presetId ?? firstPreset.id, source: saved.source ?? firstPreset.source }
 
 export const useArp = create<ArpState>((set, get) => ({
-  instance: saved.instance ?? null,
+  instance: savedInstance(saved.instance),
   n: saved.n ?? 8,
   instanceSeed: saved.instanceSeed ?? 42,
   instanceSource: saved.instanceSource === 'synthetic' ? 'synthetic' : 'catalogue',
@@ -204,7 +236,7 @@ export const useArp = create<ArpState>((set, get) => ({
   resultNote: '',
   shown: null,
   elapsedMs: 0,
-  path: saved.path && Array.isArray(saved.path.entries) ? saved.path : emptyPath(),
+  path: savedPath(saved.path),
   pathStatus: 'idle',
   pathError: null,
   pathResult: null,
@@ -218,6 +250,8 @@ export const useArp = create<ArpState>((set, get) => ({
   generate: () => {
     const { n, instanceSeed, instanceSource } = get()
     if (instanceSource === 'synthetic') {
+      generateSeq++
+      set({ generating: false })
       adopt(generateInstance(n, instanceSeed))
       return
     }
@@ -231,6 +265,8 @@ export const useArp = create<ArpState>((set, get) => ({
   importInstance: (text) => {
     const inst = parseInstance(text)
     if (typeof inst === 'string') return inst
+    generateSeq++   // a catalogue fetch still in flight must not replace what was just opened
+    set({ generating: false })
     adopt(inst, inst.asteroids.length)
     return null
   },
@@ -241,6 +277,28 @@ export const useArp = create<ArpState>((set, get) => ({
   enterWorld: () => {
     const inst = get().instance
     if (inst) ensureScene(inst)
+    runner.prepare()   // load Python while the tab is being read, so Run starts at once
+  },
+  adoptShared: (scenario, meta) => {
+    const sats = scenario.satellites.filter((s) => s.kind === 'kepler')
+    const earthSat = sats.find((s) => s.shape === 'planet')
+    const rocks = sats.filter((s) => s !== earthSat)
+    if (!earthSat || earthSat.kind !== 'kepler' || rocks.length === 0) return
+    const current = get().instance
+    const same = current && current.earth.id === earthSat.id && current.asteroids.length === rocks.length
+      && rocks.every((r, k) => r.kind === 'kepler' && current.asteroids[k].id === r.id && JSON.stringify(current.asteroids[k].elements) === JSON.stringify(r.elements))
+    if (same) return   // the link shows what this browser already holds; keep its path and results
+    const text = JSON.stringify({
+      ...(meta ?? {}), epoch: scenario.epoch,
+      earth: { id: earthSat.id, name: earthSat.name, elements: earthSat.elements },
+      asteroids: rocks.map((r) => ({ id: r.id, name: r.name, elements: r.kind === 'kepler' ? r.elements : null })),
+      note: meta?.note ?? 'Opened from a shared link.',
+    })
+    const inst = parseInstance(text)
+    if (typeof inst === 'string') return
+    generateSeq++
+    set({ generating: false })
+    adopt(inst, inst.asteroids.length)
   },
   setSource: (source) => { set({ source, presetId: PRESETS.find((p) => p.source === source)?.id ?? 'custom' }); save(get()) },
   choosePreset: (id) => {
@@ -297,7 +355,7 @@ export const useArp = create<ArpState>((set, get) => ({
       void get().showRoute(result.order, result.times, `${header.name}: final route`, true).then((ev) => {
         if (id !== runSeq) return
         if (ev) set({ result: ev, message: 'Finished.' })
-        else if (get().status === 'done') set({ status: 'error', error: 'the final route could not be drawn', message: 'The run finished but its route could not be evaluated.' })
+        else if (get().status === 'done') set({ status: 'error', error: get().error ?? 'the final route could not be drawn', message: 'The run finished but its route could not be evaluated.' })
       })
     }
 
@@ -320,20 +378,12 @@ export const useArp = create<ArpState>((set, get) => ({
   showRoute: async (order, times, label, play = false) => {
     const inst = get().instance
     if (!inst || order.length === 0) return null
-    const seq = ++showSeq
+    const seq = ++sceneSeq
     const main = useStore.getState()
     try {
-      const res = await fetch('/api/arp/plan', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ instance: inst, order, solver: main.scenario.solver ?? DEFAULT_SOLVER, transfer: main.scenario.transfer ?? DEFAULT_TRANSFER, ...(times ? { times } : {}) }),
-      })
-      if (!res.ok) {
-        const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
-        throw new Error(typeof detail === 'string' ? detail : `the planner answered HTTP ${res.status}`)
-      }
-      const { evaluation, plan } = (await res.json()) as { evaluation: ArpEvaluation; plan: MissionPlan }
-      if (seq !== showSeq) return evaluation // a newer route is on its way
+      const { evaluation, plan } = await postJson<{ evaluation: ArpEvaluation; plan: MissionPlan }>('/api/arp/plan',
+        { instance: inst, order, solver: main.scenario.solver ?? DEFAULT_SOLVER, transfer: main.scenario.transfer ?? DEFAULT_TRANSFER, ...(times ? { times } : {}) })
+      if (seq !== sceneSeq) return evaluation // a newer route, or a flown path, is on its way
       if (useStore.getState().world !== 'asteroids') return evaluation // the user has moved to the satellites; nothing to draw into
       ensureScene(inst)
       const now = useStore.getState()
@@ -342,10 +392,10 @@ export const useArp = create<ArpState>((set, get) => ({
       now.setT(play ? 0 : evaluation.time * DAY)
       now.setPlaying(play)
       if (play) now.setRate(2592000)
-      set({ shown: { order, label, cost: evaluation.cost } })
+      set({ shown: { order, label, cost: evaluation.cost }, error: null })
       return evaluation
     } catch (e) {
-      if (seq === showSeq) set({ error: (e as Error).message })
+      if (seq === sceneSeq) set({ error: (e as Error).message })
       return null
     }
   },
@@ -363,6 +413,8 @@ export const useArp = create<ArpState>((set, get) => ({
   },
 
   setPath: (path) => {
+    // a running algorithm draws its routes against the instance it was given; edits wait until it ends
+    if (get().status === 'running' || get().status === 'loading') return
     const base = get().instance
     // the instance's asteroids follow the path's entries, and so does the scene, as the edit is made
     const synced = base ? syncInstance(base, path) : null
@@ -463,20 +515,15 @@ export const useArp = create<ArpState>((set, get) => ({
       return
     }
     const main = useStore.getState()
-    const seq = ++pathSeq
+    const seq = ++sceneSeq
     set({ pathStatus: 'loading', pathError: null })
     try {
-      const res = await fetch('/api/arp/path', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(pathRequest(instance, path, main.scenario.solver ?? DEFAULT_SOLVER, main.scenario.transfer ?? DEFAULT_TRANSFER)),
-      })
-      if (!res.ok) {
-        const detail = await res.json().then((j: { detail?: unknown }) => j.detail).catch(() => null)
-        throw new Error(typeof detail === 'string' ? detail : `the planner answered HTTP ${res.status}`)
+      const { evaluation, plan } = await postJson<{ evaluation: ArpEvaluation; plan: MissionPlan }>('/api/arp/path',
+        pathRequest(instance, path, main.scenario.solver ?? DEFAULT_SOLVER, main.scenario.transfer ?? DEFAULT_TRANSFER))
+      if (seq !== sceneSeq) {
+        set({ pathStatus: 'idle' })
+        return
       }
-      const { evaluation, plan } = (await res.json()) as { evaluation: ArpEvaluation; plan: MissionPlan }
-      if (seq !== pathSeq) return
       const pinst = pathInstance(instance, path)
       if (useStore.getState().world !== 'asteroids') {
         set({ pathStatus: 'done', pathResult: evaluation, pathInstance: pinst })
@@ -491,7 +538,8 @@ export const useArp = create<ArpState>((set, get) => ({
       now.setRate(2592000)
       set({ pathStatus: 'done', pathResult: evaluation, pathInstance: pinst, shown: { order: evaluation.order, label: 'your path', cost: evaluation.cost } })
     } catch (e) {
-      if (seq === pathSeq) set({ pathStatus: 'error', pathError: (e as Error).message })
+      if (seq === sceneSeq) set({ pathStatus: 'error', pathError: (e as Error).message })
+      else set({ pathStatus: 'idle' })
     }
   },
 }))
@@ -503,7 +551,10 @@ useStore.subscribe((now, before) => {
   }
 })
 
-/** Load Python while the visitor is still reading the tab. */
-export function prepareRunner(): void {
-  runner.prepare()
+/** The instance's settings a share link carries; its bodies travel as the scene's satellites. */
+export function instanceMeta(): InstanceMeta | undefined {
+  const inst = useArp.getState().instance
+  if (!inst) return undefined
+  const { name, mu, tauMax, tMax, timeWeight, innerStart, innerTol, note } = inst
+  return { name, mu, tauMax, tMax, timeWeight, ...(innerStart ? { innerStart } : {}), ...(innerTol ? { innerTol } : {}), ...(note ? { note } : {}) }
 }

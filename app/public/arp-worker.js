@@ -31,17 +31,49 @@ function boot() {
   return ready
 }
 
-// A blocking request: the algorithm waits for the answer like any function call.
-self.arp_request = (path, body) => {
-  const x = new XMLHttpRequest()
-  try {
-    x.open('POST', path, false)
-    x.setRequestHeader('content-type', 'application/json')
-    x.send(body)
-  } catch (e) {
-    return JSON.stringify({ status: 0, body: String(e) })
+// FastAPI's validation errors come as a list of {loc, msg}; the algorithm is shown one sentence.
+function readable(status, text) {
+  if (status === 502 || status === 503 || status === 504) {
+    return JSON.stringify({ detail: 'the planner is starting up or busy; run again in a few seconds' })
   }
-  return JSON.stringify({ status: x.status, body: x.responseText })
+  try {
+    const j = JSON.parse(text)
+    if (Array.isArray(j.detail)) {
+      const parts = j.detail.map((d) => {
+        const where = Array.isArray(d && d.loc) ? d.loc.filter((x) => x !== 'body').join('.') : ''
+        return (where ? where + ': ' : '') + ((d && d.msg) || 'is not valid')
+      })
+      return JSON.stringify({ detail: parts.slice(0, 3).join('; ') })
+    }
+  } catch {
+    // not JSON
+  }
+  return text
+}
+
+function send(path, body) {
+  const x = new XMLHttpRequest()
+  x.open('POST', path, false)
+  x.setRequestHeader('content-type', 'application/json')
+  x.send(body)
+  return x
+}
+
+// A blocking request: the algorithm waits for the answer like any function call. A cold start
+// (502, 503, 504) or a dropped connection is tried once more before the algorithm hears of it.
+self.arp_request = (path, body) => {
+  let x = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      x = send(path, body)
+      if (x.status !== 502 && x.status !== 503 && x.status !== 504) break
+    } catch (e) {
+      x = null
+      if (attempt === 1) return JSON.stringify({ status: 0, body: String(e) })
+    }
+  }
+  if (!x) return JSON.stringify({ status: 0, body: 'no answer' })
+  return JSON.stringify({ status: x.status, body: x.status === 200 ? x.responseText : readable(x.status, x.responseText) })
 }
 self.arp_emit = (json) => postMessage({ type: 'event', event: JSON.parse(json) })
 

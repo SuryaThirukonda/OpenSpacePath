@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultScenario, satellitesWorldCounts, useStore } from '../../src/store/store'
 
 const sunScene = () => ({ bodyId: 'sun', epoch: '2121-01-01T00:00:00Z', satellites: [{ id: 'e', kind: 'kepler' as const, name: 'Earth', color: '#fff', elements: { a: 149597870.7, e: 0.0167, i: 0, raan: 0, argp: 1.8, M0: 6.2 } }], spanSeconds: 1e8, rate: 2592000 })
@@ -51,5 +51,50 @@ describe('two worlds in one scene', () => {
     const before = useStore.getState()
     useStore.getState().switchWorld('asteroids')
     expect(useStore.getState().scenario).toBe(before.scenario)
+  })
+})
+
+describe('plan requests and world switches', () => {
+  const mission = { ship: { name: 'x', dryMass: 1000, propellantMass: 500, isp: 300, maxThrust: 1000, minBurnSpacing: 0 }, startT: 0,
+                    start: { kind: 'satellite' as const, id: defaultScenario().satellites[0].id },
+                    stops: [{ satelliteId: defaultScenario().satellites[1].id, dwellSeconds: 0 }], departureWindow: 0 }
+  const plan = { legs: [], totalDv: 1, totalTime: 10, propellantLeft: 1, feasible: true }
+  let answer: (v: Response) => void = () => {}
+
+  beforeEach(() => {
+    useStore.setState({ scenario: { ...defaultScenario(), mission }, world: 'satellites', leftTab: 'satellites', stashed: {}, t: 0, plan: null, planStatus: 'idle', selectedLeg: null, cameraMode: 'follow' })
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { answer = resolve })))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('leaves a world whose plan was loading ready to plan again on return', async () => {
+    const pending = useStore.getState().requestPlan()
+    expect(useStore.getState().planStatus).toBe('loading')
+    useStore.getState().setLeftTab('asteroids')
+    expect(useStore.getState().world).toBe('asteroids')
+    answer(new Response(JSON.stringify(plan), { status: 200 }))
+    await pending
+    expect(useStore.getState().plan).toBeNull()                 // the answer did not land in the asteroid world
+    useStore.getState().setLeftTab('mission')
+    expect(useStore.getState().world).toBe('satellites')
+    expect(useStore.getState().planStatus).toBe('idle')         // not stuck on loading
+  })
+
+  it('drops a plan that comes back after its inputs changed', async () => {
+    const pending = useStore.getState().requestPlan()
+    useStore.getState().setTransfer('lambert2')
+    answer(new Response(JSON.stringify(plan), { status: 200 }))
+    await pending
+    expect(useStore.getState().plan).toBeNull()
+    expect(useStore.getState().planStatus).toBe('idle')
+  })
+
+  it("puts a world's plan out of date when the transfer changed while it was away", () => {
+    useStore.getState().loadRoute(mission, plan)
+    useStore.getState().setLeftTab('asteroids')
+    useStore.getState().setTransfer('lambert2')
+    useStore.getState().setLeftTab('satellites')
+    expect(useStore.getState().plan).toBeNull()
+    expect(useStore.getState().scenario.transfer).toBe('lambert2')
   })
 })

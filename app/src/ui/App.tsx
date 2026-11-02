@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { satellitesWorldCounts, useStore } from '../store/store'
+import { openTab } from './tabs'
 import { scenarioToSearch } from '../url/urlState'
 import { BodySelector } from './BodySelector'
 import { CameraButtons } from './CameraButtons'
@@ -12,7 +13,7 @@ import { IconAsteroid, IconLogo, IconRoute, IconSatellite } from './icons'
 import { isNarrowScreen } from './layout'
 import { restoreSideWidth } from './sideWidth'
 import { Panel } from './Panel'
-import { useArp } from '../arp/store'
+import { instanceMeta } from '../arp/store'
 import { RoutingPanel } from './RoutingPanel'
 import { Viewport } from './Viewport'
 
@@ -26,7 +27,10 @@ function useUrlSync() {
       last = s.scenario
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
-        history.replaceState(null, '', scenarioToSearch(s.scenario))
+        // the asteroid world's tour is rebuilt from the instance, so a link carries the bodies and the instance's settings only
+        const now = useStore.getState()
+        const sc = now.world === 'asteroids' ? { ...now.scenario, mission: undefined } : now.scenario
+        history.replaceState(null, '', scenarioToSearch(sc, now.world, now.world === 'asteroids' ? instanceMeta() : undefined))
       }, 300)
     })
     return () => {
@@ -52,15 +56,10 @@ function useKeys() {
 }
 
 function LeftTabs() {
-  const [tab, select] = useState<'satellites' | 'mission' | 'routing'>('satellites')
+  const tab = useStore((s) => s.leftTab)
   const sats = useStore((s) => satellitesWorldCounts(s).satellites)
   const stops = useStore((s) => satellitesWorldCounts(s).stops)
-  // the Satellites and Mission tabs look at the satellites world, the Asteroids tab at the asteroids
-  const setTab = (next: 'satellites' | 'mission' | 'routing') => {
-    select(next)
-    useStore.getState().switchWorld(next === 'routing' ? 'asteroids' : 'satellites')
-    if (next === 'routing') useArp.getState().enterWorld()
-  }
+  const setTab = openTab
   return (
     <>
       <div className="tabs main-tabs" role="tablist">
@@ -70,11 +69,11 @@ function LeftTabs() {
         <button role="tab" aria-selected={tab === 'mission'} className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>
           <IconRoute /> Mission {stops > 0 && <span className="pill">{stops}</span>}
         </button>
-        <button role="tab" aria-selected={tab === 'routing'} className={tab === 'routing' ? 'tab active' : 'tab'} onClick={() => setTab('routing')}>
+        <button role="tab" aria-selected={tab === 'asteroids'} className={tab === 'asteroids' ? 'tab active' : 'tab'} onClick={() => setTab('asteroids')}>
           <IconAsteroid /> Asteroids
         </button>
       </div>
-      {tab === 'routing' ? (
+      {tab === 'asteroids' ? (
         <RoutingPanel />
       ) : tab === 'satellites' ? (
         <>

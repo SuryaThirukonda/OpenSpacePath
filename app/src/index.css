@@ -43,6 +43,9 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); overflow: hi
 .app { position: relative; width: 100%; height: 100%; }
 .viewport { position: absolute; inset: 0; }
 .viewport canvas { display: block; width: 100% !important; height: 100% !important; }
+.viewport-fallback { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); max-width: 420px; padding: 16px 18px; border-radius: 12px; background: rgba(12, 18, 30, 0.85); border: 1px solid rgba(124, 245, 255, 0.18); color: var(--text, #dfe7f2); font-size: 13px; line-height: 1.5; text-align: left; }
+.viewport-fallback p { margin: 0 0 8px; }
+.viewport-fallback p:last-child { margin-bottom: 0; }
 /* A soft darkening toward the corners, so the panels sit on the scene rather than float over it. */
 .vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 46%, transparent 52%, rgba(2, 4, 9, 0.6) 100%); }
 
