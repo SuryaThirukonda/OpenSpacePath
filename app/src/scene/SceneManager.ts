@@ -9,6 +9,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TWO_PI } from '../core/constants'
+import { sunDirectionEci } from '../core/sun'
 import { advanceTime } from '../core/time'
 import { getBody } from '../data/bodies'
 import { keplerPathSamples, keplerStateAt } from '../propagation/keplerPropagator'
@@ -137,7 +138,8 @@ export class SceneManager {
     el.addEventListener('dblclick', this.onDoubleClick)
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.35))
-    // around a planet the light comes from far away in a fixed direction; around the Sun it comes from the Sun
+    // around Earth the light comes from where the Sun really is on the scenario's date, so day and
+    // night fall where they do; around another planet from a fixed direction; around the Sun from the Sun
     this.sunLight = new THREE.DirectionalLight(0xffffff, 1.6)
     this.sunLight.position.set(1, 0.4, 0.6)
     this.scene.add(this.sunLight)
@@ -403,8 +405,16 @@ export class SceneManager {
     this.axes.group.visible = state.showAxes
     this.applyViewOffset(now, dt)
     if (!this.managedCamera) {
+      // the wheel's closest approach is measured from what the camera turns around: the body's centre
+      // most of the time, the ship itself while following it, so the ship can be looked at up close
+      const body = getBody(state.scenario.bodyId)
+      const R = kmScalarToScene(body.radius)
+      this.controls.minDistance = state.cameraMode === 'follow' && state.plan ? R * 0.004 : R * 1.08
       this.stepFlight(now)
       this.controls.update()
+      // and never below the surface, whatever the camera turns around
+      const floor = R * (1 - (body.flattening ?? 0)) * 1.004
+      if (this.camera.position.lengthSq() < floor * floor) this.camera.position.setLength(floor)
     } else this.flight = null
     this.camera.updateMatrixWorld()   // projections below use this frame's camera, not last frame's
     // the stars are infinitely far: they travel with the camera, so orbiting never shows parallax or the shell's edge
@@ -466,9 +476,10 @@ export class SceneManager {
       this.bodyMesh.setBody(body)
       this.axes.setLength(kmScalarToScene(body.radius * 1.8))
       const R = kmScalarToScene(body.radius)
-      this.controls.minDistance = R * 1.08
       this.controls.maxDistance = kmScalarToScene(body.frameDistance) * 60
-      this.camera.near = R * 0.01
+      // the logarithmic depth buffer keeps precision over this range, so the near plane can sit close
+      // enough for the follow camera to look at the ship from a few tens of kilometres
+      this.camera.near = R * 0.0005
       this.camera.updateProjectionMatrix()
       const heliocentric = body.id === 'sun'
       this.sunPoint.visible = heliocentric
@@ -478,6 +489,12 @@ export class SceneManager {
     const date = new Date(epochMs(s) + s.t * 1000)
     const spin = body.id === 'earth' ? gmst(date) : (TWO_PI * s.t) / body.rotationPeriod
     this.bodyMesh.setSpin(spin)
+    if (body.id === 'earth') {
+      const sun = sunDirectionEci(date)
+      this.sunLight.position.set(sun.x, sun.y, sun.z).applyQuaternion(this.inertial.quaternion).multiplyScalar(1000)
+    } else if (body.id !== 'sun') {
+      this.sunLight.position.set(1, 0.4, 0.6)
+    }
     const start = s.scenario.mission?.start
     this.bodyMesh.setSurfaceMarker(start?.kind === 'launch' ? start.launch.site : null)
   }
