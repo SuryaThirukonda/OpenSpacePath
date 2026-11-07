@@ -65,20 +65,17 @@ describe("bird's-eye camera", () => {
     expect(zoomed).toBeCloseTo(2 * wide, 9)
   })
 
-  it('fits and centres the route in the band above panels that cover the bottom of the screen', () => {
+  it('backs off to fit the part of the screen the panels leave free, still looking along the normal', () => {
     const n = new THREE.Vector3(0.2, 0.9, 0.1).normalize()
     const open = birdsEyePose(center, n, 40, fov, 16 / 9, POLE)
-    const covered = birdsEyePose(center, n, 40, fov, 16 / 9, POLE, 1, 0.3)
-    // still looking exactly along the normal
+    const covered = birdsEyePose(center, n, 40, fov, 16 / 9, POLE, 1, { w: 0.65, h: 0.7 })
+    expect(covered.target.equals(center)).toBe(true)
     expect(covered.target.clone().sub(covered.position).normalize().dot(n)).toBeCloseTo(-1, 9)
-    // further away, because the visible band is shorter
     const dOpen = open.position.distanceTo(open.target)
     const dCovered = covered.position.distanceTo(covered.target)
     expect(dCovered).toBeGreaterThan(dOpen)
-    // the route's centre appears above the optical axis by 30% of the half-height
-    const offset = center.clone().sub(covered.target)
-    expect(offset.dot(covered.up) / (dCovered * Math.tan(fov / 2))).toBeCloseTo(0.3, 9)
-    expect(offset.dot(n)).toBeCloseTo(0, 9)
+    // the route fits the free height: 70% of the half-angle's tangent
+    expect((40 * 1.12) / dCovered).toBeCloseTo(Math.sin(Math.atan(Math.tan(fov / 2) * 0.7)), 9)
   })
 
   it('has a usable up vector when the route lies in the equator', () => {
@@ -112,7 +109,7 @@ describe("bird's-eye side", () => {
     const below = new THREE.Vector3(1, -0.1, 0).normalize()   // a near-polar plane whose normal dips under the equator
     const turned = birdsEyePose(center, below, 10, fov, 1, POLE)
     expect(turned.position.y).toBeGreaterThan(0)
-    const kept = birdsEyePose(center, below, 10, fov, 1, POLE, 1, 0, true)
+    const kept = birdsEyePose(center, below, 10, fov, 1, POLE, 1, { w: 1, h: 1 }, true)
     expect(kept.position.y).toBeLessThan(0)
     expect(kept.position.clone().normalize().dot(below)).toBeCloseTo(1, 6)
   })

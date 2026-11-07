@@ -46,27 +46,27 @@ export function chasePose(ship: THREE.Vector3, forward: THREE.Vector3, up: THREE
 
 /**
  * Looking straight down the normal of a route's plane from the pole's side, far enough for a
- * sphere of the given radius to fit the part of the screen that is not covered. North is up on
- * screen. `bottomInset` is the fraction of the viewport height hidden by panels along the bottom:
- * the route is fitted to, and centred in, the band above them, by sliding the camera sideways
- * (the view direction stays exactly along the normal).
+ * sphere of the given radius to fit the part of the screen the panels leave free. North is up on
+ * screen. `free` is the fraction of the viewport's width and height that is not covered; the
+ * scene's view offset puts the point looked at in the middle of that area, so the camera only has
+ * to back off, never slide sideways.
  */
 export function birdsEyePose(center: THREE.Vector3, normal: THREE.Vector3, radius: number, fovV: number, aspect: number,
-                             pole: THREE.Vector3, zoom = 1, bottomInset = 0, keepSide = false): Pose {
+                             pole: THREE.Vector3, zoom = 1, free: { w: number; h: number } = { w: 1, h: 1 }, keepSide = false): Pose {
   const n = normal.clone()
   if (n.lengthSq() < 1e-12) n.copy(pole)
   n.normalize()
   if (!keepSide && n.dot(pole) < 0) n.negate()   // keepSide: the caller has chosen which side to look from
-  const inset = Math.min(Math.max(bottomInset, 0), 0.6)
+  const fw = Math.min(Math.max(free.w, 0.3), 1)
+  const fh = Math.min(Math.max(free.h, 0.3), 1)
   const tanV = Math.tan(fovV / 2)
-  const halfV = Math.atan(tanV * (1 - inset))
-  const halfH = Math.atan(tanV * aspect)
+  const halfV = Math.atan(tanV * fh)
+  const halfH = Math.atan(tanV * aspect * fw)
   const dist = ((Math.max(radius, 1e-6) * 1.12) / Math.sin(Math.min(halfV, halfH))) * zoom
   const up = perpendicular(n, pole, new THREE.Vector3(1, 0, 0))
-  const slide = -dist * tanV * inset // the optical axis sits this far below the route's centre
   return {
-    position: center.clone().addScaledVector(n, dist).addScaledVector(up, slide),
-    target: center.clone().addScaledVector(up, slide),
+    position: center.clone().addScaledVector(n, dist),
+    target: center.clone(),
     up,
   }
 }

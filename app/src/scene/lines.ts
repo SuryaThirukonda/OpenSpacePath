@@ -30,6 +30,26 @@ export function makeLineMaterial(o: LineOptions): LineMaterial {
   return m
 }
 
+let stencilRef = 0
+
+/**
+ * Let one line draw each pixel only once. Line2 draws every segment as a quad with round ends, so
+ * the ends of neighbouring segments overlap at each sample; a translucent line then blends twice
+ * there and shows a bright bead at every sample, which reads as a dotted line. With a stencil
+ * value of its own, the line skips pixels it has already drawn this frame (the renderer clears the
+ * stencil every frame and needs `stencil: true`). Values cycle through 1..255; two lines sharing
+ * one would only lose the pixels where they cross.
+ */
+export function drawOnce(m: THREE.Material): void {
+  stencilRef = (stencilRef % 255) + 1
+  m.stencilWrite = true
+  m.stencilRef = stencilRef
+  m.stencilFunc = THREE.NotEqualStencilFunc
+  m.stencilZPass = THREE.ReplaceStencilOp
+  m.stencilFail = THREE.KeepStencilOp
+  m.stencilZFail = THREE.KeepStencilOp
+}
+
 /** Segments to draw for the flown and remaining halves of a polyline of n samples, k of them flown. */
 export function segmentCounts(n: number, k: number): { flown: number; remaining: number } {
   if (n < 2) return { flown: 0, remaining: 0 }

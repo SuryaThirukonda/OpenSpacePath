@@ -2,7 +2,8 @@
  * The whole tour as one thick line, split each frame into the part already flown (solid) and
  * the part still to come (dashed, dimmer), plus burn markers with labels and dwell badges.
  * The remaining line stores its samples in reverse so that limiting the instance count draws
- * the tail of the tour back to the ship.
+ * the tail of the tour back to the ship. The labels are placed by the scene's label layout
+ * (labels.ts); this class says which ones matter most.
  */
 import * as THREE from 'three'
 import { Line2 } from 'three/examples/jsm/lines/Line2.js'
@@ -14,7 +15,8 @@ import { flownCount } from '../mission/state'
 import type { MissionPlan } from '../mission/types'
 import { pathNormal } from './cameraViews'
 import { kmToScene } from './frame'
-import { makeLineMaterial, segmentCounts } from './lines'
+import { drawOnTop, type LabelItem } from './labels'
+import { drawOnce, makeLineMaterial, segmentCounts } from './lines'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export { ASCENT_COLOR, LEG_COLORS }
@@ -31,9 +33,15 @@ interface Marker {
   point: THREE.Points
   pointMat: THREE.PointsMaterial
   label: THREE.Sprite
-  labelAspect: number
+  item: LabelItem
   position: THREE.Vector3
+  /** a wait while the ship keeps station, not a burn or a launch event */
+  wait: boolean
 }
+
+/** Dash and gap of the remaining line, in pixels on screen at the distance the camera is looking at. */
+const DASH_PX = 9
+const GAP_PX = 6
 
 /** A coast drawn on its own: the samples [start, end) of the flat plan, split into flown and remaining. */
 interface Stretch {
@@ -62,6 +70,9 @@ export class MissionPath {
   /** from the last flown sample to the ship, so the solid line reaches the ship between samples */
   private tail: Line2 | null = null
   private tailGeo: LineGeometry | null = null
+  /** a typical radius of the tour and its longest coast, for sizing dashes (scene units) */
+  private rTypical = 1
+  private longest = 0
 
   setPlan(flat: FlatPlan, plan: MissionPlan): void {
     this.clear()
@@ -84,8 +95,13 @@ export class MissionPath {
     let rsum = 0
     for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 200))) rsum += Math.hypot(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2])
     const rTypical = Math.max(1e-3, rsum / Math.ceil(n / Math.max(1, Math.floor(n / 200))))
+    this.rTypical = rTypical
+    this.longest = 0
     this.flownMat = makeLineMaterial({ vertexColors: true, width: 3, opacity: 1 })
-    this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.45, dashed: { dashSize: 0.05 * rTypical, gapSize: 0.032 * rTypical } })
+    this.remainingMat = makeLineMaterial({ vertexColors: true, width: 2.2, opacity: 0.5, dashed: { dashSize: 0.05 * rTypical, gapSize: 0.032 * rTypical } })
+    // each line draws a pixel once, so a translucent line shows no brighter beads where its segments' round ends overlap
+    drawOnce(this.flownMat)
+    drawOnce(this.remainingMat)
     this.pos = pos
     this.col = col
     this.tailGeo = new LineGeometry()
@@ -119,6 +135,8 @@ export class MissionPath {
         const flown = new Line2(flownGeo, this.flownMat)
         const remaining = new Line2(remainingGeo, this.remainingMat)
         remaining.computeLineDistances()
+        const dist = remainingGeo.getAttribute('instanceDistanceEnd') as THREE.InterleavedBufferAttribute | undefined
+        if (dist && dist.count > 0) this.longest = Math.max(this.longest, dist.getX(dist.count - 1))
         flown.frustumCulled = remaining.frustumCulled = false
         this.group.add(flown, remaining)
         this.stretches.push({ start, end, leg: flat.leg[start], flown, remaining, flownGeo, remainingGeo })
@@ -158,7 +176,7 @@ export class MissionPath {
         for (let i = 1; i < s.t.length; i++) if (Math.abs(s.t[i] - ev.t) < Math.abs(s.t[best] - ev.t)) best = i
         const r = s.r[best]
         const text = ev.label
-        this.addMarker(ev.t, 0, kmToScene({ x: r[0], y: r[1], z: r[2] }), text, ASCENT_COLOR, ev.label !== 'liftoff')
+        this.addMarker(ev.t, 0, kmToScene({ x: r[0], y: r[1], z: r[2] }), text, ASCENT_COLOR, ev.label !== 'liftoff', false)
       }
     }
     plan.legs.forEach((leg, k) => {
@@ -174,12 +192,12 @@ export class MissionPath {
         const mid = s.r[Math.floor(s.r.length / 2)]
         const wait = leg.ride.t1 - leg.ride.t0
         const txt = wait >= 2 * 86400 ? `wait ${(wait / 86400).toFixed(wait >= 10 * 86400 ? 0 : 1)} d` : wait >= 3600 ? `wait ${(wait / 3600).toFixed(1)} h` : `wait ${(wait / 60).toFixed(0)} min`
-        this.addMarker((leg.ride.t0 + leg.ride.t1) / 2, k, kmToScene({ x: mid[0], y: mid[1], z: mid[2] }), txt, color, false)
+        this.addMarker((leg.ride.t0 + leg.ride.t1) / 2, k, kmToScene({ x: mid[0], y: mid[1], z: mid[2] }), txt, color, false, true)
       }
     })
   }
 
-  private addMarker(t: number, leg: number, position: THREE.Vector3, text: string, color: string, glow = true): void {
+  private addMarker(t: number, leg: number, position: THREE.Vector3, text: string, color: string, glow = true, wait = false): void {
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3))
     const pointMat = new THREE.PointsMaterial({
@@ -191,17 +209,21 @@ export class MissionPath {
     point.position.copy(position)
     const { sprite, aspect } = makeLabelSprite(text, color)
     sprite.position.copy(position)
+    drawOnTop(sprite)
     this.group.add(point, sprite)
-    this.markers.push({ t, leg, point, pointMat, label: sprite, labelAspect: aspect, position })
+    const item: LabelItem = { sprite, priority: 40, wanted: false, height: 16, aspect, base: new THREE.Vector2(-0.08, 0.5), movable: true }
+    this.markers.push({ t, leg, point, pointMat, label: sprite, item, position, wait })
   }
 
   /**
-   * Per-frame: split flown/remaining at t, size labels, and keep the clutter down: markers belong
-   * to the selected leg, or else to the leg in play (`currentLeg`); the others are dim and unlabelled.
+   * Per-frame: split flown/remaining at t, size the labels and the dashes, and keep the clutter
+   * down: labels belong to the selected leg, or else to the leg in play (`currentLeg`); the others
+   * are dim and unlabelled. `focusDistance` is how far the camera is from what it looks at, so the
+   * dashes keep about the same length on screen at any zoom.
    */
   update(t: number, opts: { showRemaining: boolean; showLabels: boolean; selectedLeg: number | null; currentLeg: number | null; remainingOnlyLeg?: number | null },
-         camera: THREE.PerspectiveCamera, viewportWidth: number, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3,
-         ship: THREE.Vector3 | null = null): void {
+         camera: THREE.PerspectiveCamera, viewportHeight: number, fovRad: number, toWorld: (v: THREE.Vector3) => THREE.Vector3,
+         ship: THREE.Vector3 | null, focusDistance: number): void {
     if (!this.flat) return
     const cameraPos = camera.position
     const k = flownCount(this.flat, t)
@@ -213,42 +235,34 @@ export class MissionPath {
       st.remainingGeo.instanceCount = counts.remaining
       st.remaining.visible = opts.showRemaining && counts.remaining > 0 && (opts.remainingOnlyLeg == null || st.leg === opts.remainingOnlyLeg)
     }
+    if (this.remainingMat) {
+      // a fixed size in kilometres read as long bars up close and as noise from afar; the floor keeps
+      // the pattern above float precision along the longest coast, the cap is the old whole-tour size
+      const wpp = worldPerPixel(focusDistance, viewportHeight, fovRad)
+      const floor = this.longest * 4e-6
+      const dash = Math.min(Math.max(DASH_PX * wpp, floor), 0.05 * this.rTypical)
+      this.remainingMat.dashSize = dash
+      this.remainingMat.gapSize = dash * (GAP_PX / DASH_PX)
+    }
     const focus = opts.selectedLeg ?? opts.currentLeg
-    const shown: Array<{ m: Marker; x: number; y: number; w: number }> = []
+    let upcoming = 0
     for (const m of this.markers) {
       const passed = m.t <= t
       const dim = focus !== null && focus !== m.leg
       m.pointMat.opacity = (passed ? 0.35 : 1) * (dim ? 0.4 : 1)
-      m.label.visible = opts.showLabels && !dim
+      m.item.wanted = opts.showLabels && !dim
+      // the next burns of the leg in play matter most, in time order; a wait or a burn already done least
+      m.item.priority = passed ? 30 : m.wait ? 45 : 70 - 0.01 * upcoming++
       const world = toWorld(m.position.clone())
-      const h = 16 * worldPerPixel(cameraPos.distanceTo(world), viewportHeight, fovRad)
-      m.label.scale.set(h * m.labelAspect, h, 1)
-      ;(m.label.material as THREE.SpriteMaterial).opacity = passed ? 0.55 : 0.95
-      m.label.center.set(-0.08, 0.5)
-      if (m.label.visible) {
-        const p = world.project(camera)
-        if (p.z < 1) shown.push({ m, x: ((p.x + 1) / 2) * viewportWidth, y: ((1 - p.y) / 2) * viewportHeight, w: 16 * m.labelAspect })
-      }
+      const h = m.item.height * worldPerPixel(cameraPos.distanceTo(world), viewportHeight, fovRad)
+      m.label.scale.set(h * m.item.aspect, h, 1)
+      ;(m.label.material as THREE.SpriteMaterial).opacity = passed ? 0.6 : 0.95
     }
-    // labels that would land on top of each other stack upwards, in time order, so each stays readable;
-    // the ship's own label is placed first, so a burn label beside the ship moves out of its way
-    shown.sort((a, b) => a.m.t - b.m.t)
-    const placed: Array<{ x: number; y: number; w: number }> = []
-    if (ship) {
-      const p = toWorld(ship.clone()).project(camera)
-      if (p.z < 1) placed.push({ x: ((p.x + 1) / 2) * viewportWidth + 50, y: ((1 - p.y) / 2) * viewportHeight, w: 100 })
-    }
-    for (const s of shown) {
-      let row = 0
-      for (let tries = 0; tries < 6; tries++) {
-        const y = s.y - row * 18
-        const hit = placed.some((p) => Math.abs(p.x - s.x) < (p.w + s.w) / 2 && Math.abs(p.y - y) < 17)
-        if (!hit) break
-        row++
-      }
-      s.m.label.center.set(-0.08, 0.5 - row * 1.12)
-      placed.push({ x: s.x, y: s.y - row * 18, w: s.w })
-    }
+  }
+
+  /** The burn, launch-event and wait labels, for the scene's label layout. */
+  labelItems(out: LabelItem[]): void {
+    for (const m of this.markers) out.push(m.item)
   }
 
   /** The segment from the last flown sample to the ship, while the ship is between two samples of one coast. */

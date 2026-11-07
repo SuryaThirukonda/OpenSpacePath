@@ -5,7 +5,7 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js'
 import type { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import type { Vec3 } from '../types'
 import { kmToScene } from './frame'
-import { makeLineMaterial } from './lines'
+import { drawOnce, makeLineMaterial } from './lines'
 
 const WIDTH = 2.4
 const WIDTH_SELECTED = 3.4
@@ -18,6 +18,7 @@ export class OrbitPath {
 
   constructor(color: string) {
     this.material = makeLineMaterial({ color, width: WIDTH, opacity: 0.85 })
+    drawOnce(this.material)   // no brighter beads where segments meet on a translucent orbit
     this.line = new Line2(new LineGeometry(), this.material)
     this.line.frustumCulled = false
   }
@@ -45,10 +46,13 @@ export class OrbitPath {
     this.material.color.set(color)
   }
 
-  /** `quiet` draws the orbit thin and faint: a route is shown and this is not the body in play. */
-  setEmphasis(selected: boolean, anySelected: boolean, quiet = false): void {
-    this.material.opacity = selected ? 1.0 : anySelected ? 0.3 : quiet ? 0.28 : 0.8
-    this.material.linewidth = selected ? WIDTH_SELECTED : quiet ? WIDTH_QUIET : WIDTH
+  /**
+   * `quiet` draws the orbit thin and faint: a route is shown and this is not the body in play.
+   * `hovered` brightens it while the pointer is over its body, without dimming the others.
+   */
+  setEmphasis(selected: boolean, anySelected: boolean, quiet = false, hovered = false): void {
+    this.material.opacity = selected ? 1.0 : hovered ? 0.95 : anySelected ? 0.3 : quiet ? 0.28 : 0.8
+    this.material.linewidth = selected || hovered ? WIDTH_SELECTED : quiet ? WIDTH_QUIET : WIDTH
   }
 
   boundingSphere(): THREE.Sphere | null {

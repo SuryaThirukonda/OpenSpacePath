@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { satellitesWorldCounts, useStore, type LeftTab } from '../store/store'
 import { arrowTabs, openTab } from './tabs'
 import { scenarioToSearch } from '../url/urlState'
@@ -9,7 +9,9 @@ import { SatelliteForm } from './SatelliteForm'
 import { MissionPanel } from './MissionPanel'
 import { SatelliteList } from './SatelliteList'
 import { TimelinePanel } from './TimelinePanel'
-import { IconAsteroid, IconLogo, IconRoute, IconSatellite } from './icons'
+import { HelpDialog } from './HelpDialog'
+import { IconAsteroid, IconLogo, IconPanels, IconRoute, IconSatellite, IconX } from './icons'
+import { useKeys } from './keys'
 import { isNarrowScreen } from './layout'
 import { restoreSideWidth } from './sideWidth'
 import { Panel } from './Panel'
@@ -17,7 +19,7 @@ import { instanceMeta } from '../arp/store'
 import { RoutingPanel } from './RoutingPanel'
 import { Viewport } from './Viewport'
 
-/** Keep the URL in sync with the scenario (debounced), and bind the space bar to play/pause. */
+/** Keep the URL in sync with the scenario (debounced). */
 function useUrlSync() {
   useEffect(() => {
     let timer: number | undefined
@@ -40,22 +42,41 @@ function useUrlSync() {
   }, [])
 }
 
-function useKeys() {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || e.defaultPrevented || e.repeat) return
-      // Space belongs to whatever has focus (a button, a field, the chart); it plays and pauses only
-      // when focus is on the page itself or the scene
-      const el = e.target as HTMLElement | null
-      const free = !el || el === document.body || el.tagName === 'CANVAS' || el.classList.contains('viewport')
-      if (free) {
-        e.preventDefault()
-        useStore.getState().togglePlaying()
-      }
+const HINT_KEY = 'orbit-lab.hint-seen'
+
+/**
+ * A one-line pointer to the controls on a first visit. It goes away at the first touch of the scene
+ * (by then the reader has found out) or with its close button, and stays away on this browser.
+ */
+function FirstHint() {
+  const [show, setShow] = useState(() => {
+    try {
+      return localStorage.getItem(HINT_KEY) !== '1'
+    } catch {
+      return false
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  })
+  useEffect(() => {
+    if (!show) return
+    const vp = document.querySelector('.viewport')
+    const dismiss = () => {
+      setShow(false)
+      try { localStorage.setItem(HINT_KEY, '1') } catch { /* private mode: it shows again next visit */ }
+    }
+    vp?.addEventListener('pointerdown', dismiss, { once: true })
+    return () => vp?.removeEventListener('pointerdown', dismiss)
+  }, [show])
+  if (!show) return null
+  const close = () => {
+    setShow(false)
+    try { localStorage.setItem(HINT_KEY, '1') } catch { /* private mode */ }
+  }
+  return (
+    <div className="first-hint" role="note">
+      <span>Drag to turn the view, wheel to zoom, click a satellite to select it. <kbd>?</kbd> lists every control.</span>
+      <button className="icon" aria-label="dismiss the hint" onClick={close}><IconX /></button>
+    </div>
+  )
 }
 
 function LeftTabs() {
@@ -68,13 +89,13 @@ function LeftTabs() {
     <>
       <div className="tabs main-tabs" role="tablist" aria-label="what the panel shows" onKeyDown={(e) => arrowTabs(e, order, tab, setTab)}>
         <button role="tab" id="tab-satellites" aria-controls="left-tabpanel" tabIndex={tab === 'satellites' ? 0 : -1} aria-selected={tab === 'satellites'} className={tab === 'satellites' ? 'tab active' : 'tab'} onClick={() => setTab('satellites')}>
-          <IconSatellite /> Satellites <span className="pill">{sats}</span>
+          <IconSatellite /><span className="tab-label">Satellites</span><span className="pill">{sats}</span>
         </button>
         <button role="tab" id="tab-mission" aria-controls="left-tabpanel" tabIndex={tab === 'mission' ? 0 : -1} aria-selected={tab === 'mission'} className={tab === 'mission' ? 'tab active' : 'tab'} onClick={() => setTab('mission')}>
-          <IconRoute /> Mission {stops > 0 && <span className="pill">{stops}</span>}
+          <IconRoute /><span className="tab-label">Mission</span>{stops > 0 && <span className="pill">{stops}</span>}
         </button>
         <button role="tab" id="tab-asteroids" aria-controls="left-tabpanel" tabIndex={tab === 'asteroids' ? 0 : -1} aria-selected={tab === 'asteroids'} className={tab === 'asteroids' ? 'tab active' : 'tab'} onClick={() => setTab('asteroids')}>
-          <IconAsteroid /> Asteroids
+          <IconAsteroid /><span className="tab-label">Asteroids</span>
         </button>
       </div>
       <div id="left-tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="tabpanel">
@@ -85,7 +106,7 @@ function LeftTabs() {
           <BodySelector />
           <SatelliteList />
           <SatelliteForm />
-          <p className="hint tip">Drag to orbit the view, wheel to zoom, right-drag to pan. Space plays and pauses.</p>
+          <p className="hint tip">Drag to turn the view, wheel to zoom, right-drag to pan; click a satellite to select it. Press <kbd>?</kbd> for every control.</p>
         </>
       ) : (
         <MissionPanel />
@@ -99,8 +120,10 @@ export function App() {
   useUrlSync()
   useKeys()
   useEffect(() => restoreSideWidth(), [])
+  const panelsHidden = useStore((s) => s.panelsHidden)
+  const togglePanels = useStore((s) => s.togglePanels)
   return (
-    <div className="app">
+    <div className={panelsHidden ? 'app panels-hidden' : 'app'}>
       <Viewport />
       <Panel position="left" title="Orbit Lab" icon={<IconLogo />} defaultOpen={!isNarrowScreen()}>
         <LeftTabs />
@@ -108,6 +131,11 @@ export function App() {
       <ElementsPanel />
       <CameraButtons />
       <TimelinePanel />
+      <FirstHint />
+      {panelsHidden && (
+        <button className="show-panels" onClick={togglePanels} title="Bring the panels back (P)"><IconPanels /> Show panels</button>
+      )}
+      <HelpDialog />
     </div>
   )
 }

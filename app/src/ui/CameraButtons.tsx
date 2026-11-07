@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, type CameraMode } from '../store/store'
-import { IconAxes, IconBird, IconCamera, IconChase, IconFrame, IconGlobe, IconLink, IconMoon, IconOrbit, IconSun, IconTag } from './icons'
+import { IconBird, IconCamera, IconChase, IconExpand, IconFrame, IconGlobe, IconHelp, IconLink, IconMoon, IconOrbit, IconShrink, IconSun } from './icons'
 import { setTheme, useTheme } from './theme'
 
 /** The camera modes, as the View menu offers them. Follow, Chase and Bird's-eye need a tour or a route. */
@@ -13,16 +13,13 @@ const CAMERAS: Array<[CameraMode, string, string]> = [
 ]
 
 /**
- * The view toolbar, the same in both worlds: framing, what is drawn, the camera, and the link.
- * The camera mode and the tour's drawing options sit in one View menu so they are reachable from
- * every tab, not only the Mission tab.
+ * The view toolbar, the same in both worlds, in three groups: where the camera looks (the framing
+ * buttons), how the scene is drawn (the View menu: camera mode, labels, axes, the tour's drawing,
+ * the panels), and the page itself (share link, theme, help, full screen).
  */
 export function CameraButtons() {
   const requestCamera = useStore((s) => s.requestCamera)
-  const showAxes = useStore((s) => s.showAxes)
-  const showLabels = useStore((s) => s.showLabels)
-  const toggleAxes = useStore((s) => s.toggleAxes)
-  const toggleLabels = useStore((s) => s.toggleLabels)
+  const setHelpOpen = useStore((s) => s.setHelpOpen)
   const hasSelection = useStore((s) => s.selectedId !== null)
   const [copied, setCopied] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -49,13 +46,9 @@ export function CameraButtons() {
   return (
     <div ref={ref} className="panel topright toolbar" role="toolbar" aria-label="view">
       <div className="tool-group">
-        <button className="tool" onClick={() => requestCamera('body')} title="Frame the central body"><IconGlobe /><span>Frame body</span></button>
-        <button className="tool" onClick={() => requestCamera('orbit')} disabled={!hasSelection} title="Frame the selected orbit"><IconOrbit /><span>Frame orbit</span></button>
-        <button className="tool" onClick={() => requestCamera('all')} title="Frame every orbit and the tour"><IconFrame /><span>Frame all</span></button>
-      </div>
-      <div className="tool-group">
-        <button className={showAxes ? 'tool toggle on' : 'tool toggle'} onClick={toggleAxes} aria-pressed={showAxes} title="Inertial axes"><IconAxes /><span>Axes</span></button>
-        <button className={showLabels ? 'tool toggle on' : 'tool toggle'} onClick={toggleLabels} aria-pressed={showLabels} title="Satellite and ship labels"><IconTag /><span>Labels</span></button>
+        <button className="tool" onClick={() => requestCamera('body')} title="Home: frame the central body (H)"><IconGlobe /><span>Frame body</span></button>
+        <button className="tool" onClick={() => requestCamera('orbit')} disabled={!hasSelection} title="Frame the selected orbit (F)"><IconOrbit /><span>Frame orbit</span></button>
+        <button className="tool" onClick={() => requestCamera('all')} title="Frame every orbit and the tour (A)"><IconFrame /><span>Frame all</span></button>
       </div>
       <div className="tool-group">
         <ViewMenu />
@@ -70,6 +63,8 @@ export function CameraButtons() {
         </button>
         <span className="visually-hidden" role="status">{copied ? 'Link copied' : ''}</span>
         <ThemeButton />
+        <button className="tool" onClick={() => setHelpOpen(true)} title="Mouse, touch and keyboard controls (?)"><IconHelp /><span>Help</span></button>
+        <FullscreenButton />
       </div>
     </div>
   )
@@ -85,15 +80,38 @@ function ThemeButton() {
   )
 }
 
+/** Full screen for the whole page, where the browser allows it. */
+function FullscreenButton() {
+  const [full, setFull] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement)
+  useEffect(() => {
+    const onChange = () => setFull(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  if (typeof document === 'undefined' || !document.fullscreenEnabled) return null
+  const toggle = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+    else void document.documentElement.requestFullscreen().catch(() => undefined)
+  }
+  return (
+    <button className="tool" onClick={toggle} aria-pressed={full} title={full ? 'Leave full screen' : 'Full screen'}>
+      {full ? <IconShrink /> : <IconExpand />}<span>{full ? 'Exit full screen' : 'Full screen'}</span>
+    </button>
+  )
+}
+
 const MODE_ICON: Record<CameraMode, typeof IconChase> = { free: IconCamera, follow: IconCamera, chase: IconChase, birdseye: IconBird }
 
-/** Camera mode and the tour's drawing options, in a small menu under one toolbar button. */
+/** The camera mode and what the scene draws, in a small menu under one toolbar button. */
 function ViewMenu() {
   const cameraMode = useStore((s) => s.cameraMode)
   const hasPlan = useStore((s) => s.plan !== null)
   const showRemaining = useStore((s) => s.showRemaining)
   const showBurnLabels = useStore((s) => s.showBurnLabels)
-  const { setCameraMode, toggleRemaining, toggleBurnLabels, requestCamera } = useStore.getState()
+  const showAxes = useStore((s) => s.showAxes)
+  const showLabels = useStore((s) => s.showLabels)
+  const panelsHidden = useStore((s) => s.panelsHidden)
+  const { setCameraMode, toggleRemaining, toggleBurnLabels, requestCamera, toggleAxes, toggleLabels, togglePanels } = useStore.getState()
   const [open, setOpen] = useState(false)
   const [placement, setPlace] = useState<CSSProperties>({})
   const box = useRef<HTMLDivElement>(null)
@@ -135,30 +153,37 @@ function ViewMenu() {
     }
   }, [open])
 
-  const Icon = MODE_ICON[cameraMode]
-  const label = CAMERAS.find(([m]) => m === cameraMode)?.[1] ?? 'Free'
-  const hint = CAMERAS.find(([m]) => m === cameraMode)?.[2]
+  // Follow, Chase and Bird's-eye need a ship to follow: without a tour the camera is free, whatever was chosen
+  const effective: CameraMode = hasPlan ? cameraMode : 'free'
+  const Icon = MODE_ICON[effective]
+  const label = CAMERAS.find(([m]) => m === effective)?.[1] ?? 'Free'
+  const hint = CAMERAS.find(([m]) => m === effective)?.[2]
   return (
     <div className="menu-wrap" ref={box}>
       <button ref={button} className={open ? 'tool toggle on' : 'tool'} aria-haspopup="true" aria-expanded={open} onClick={toggle}
-        title="Camera and tour drawing">
+        title="Camera, labels and what the scene draws">
         <Icon /><span>View: {label}</span>
       </button>
       {open && createPortal(
-        <div ref={menu} className="menu" role="group" aria-label="camera and tour drawing" style={placement}>
+        <div ref={menu} className="menu" role="group" aria-label="camera, labels and what the scene draws" style={placement}>
           <div className="menu-title">Camera</div>
           <div className="seg menu-seg" role="radiogroup" aria-label="camera">
-            {CAMERAS.map(([mode, name]) => (
-              <button key={mode} role="radio" aria-checked={cameraMode === mode} className={cameraMode === mode ? 'on' : ''}
-                disabled={mode !== 'free' && !hasPlan} onClick={() => setCameraMode(mode)}>{name}</button>
+            {CAMERAS.map(([mode, name], i) => (
+              <button key={mode} role="radio" aria-checked={effective === mode} className={effective === mode ? 'on' : ''}
+                disabled={mode !== 'free' && !hasPlan} onClick={() => setCameraMode(mode)} title={`${name} (${i + 1})`}>{name}</button>
             ))}
           </div>
           <p className="hint">{hasPlan ? hint : 'Plan a tour on the Mission tab, or fly a path or run an algorithm on the Asteroids tab, to follow the ship.'}</p>
-          <div className="menu-title">Tour</div>
+          <div className="menu-title">Show</div>
           <div className="row">
-            <button className={showRemaining ? 'toggle on' : 'toggle'} aria-pressed={showRemaining} onClick={toggleRemaining} disabled={!hasPlan}>Remaining path</button>
-            <button className={showBurnLabels ? 'toggle on' : 'toggle'} aria-pressed={showBurnLabels} onClick={toggleBurnLabels} disabled={!hasPlan}>Burn labels</button>
-            <button onClick={() => requestCamera('ship')} disabled={!hasPlan}>Frame tour</button>
+            <button className={showLabels ? 'toggle on' : 'toggle'} aria-pressed={showLabels} onClick={toggleLabels} title="Names of the bodies and the ship (L)">Labels</button>
+            <button className={showAxes ? 'toggle on' : 'toggle'} aria-pressed={showAxes} onClick={toggleAxes} title="The inertial axes">Axes</button>
+            <button className={showRemaining ? 'toggle on' : 'toggle'} aria-pressed={showRemaining} onClick={toggleRemaining} disabled={!hasPlan} title="The dashed path still to fly">Remaining path</button>
+            <button className={showBurnLabels ? 'toggle on' : 'toggle'} aria-pressed={showBurnLabels} onClick={toggleBurnLabels} disabled={!hasPlan} title="What each burn does and costs">Burn labels</button>
+          </div>
+          <div className="row">
+            <button onClick={() => requestCamera('ship')} disabled={!hasPlan} title="Frame the whole tour">Frame tour</button>
+            <button className={panelsHidden ? 'toggle on' : 'toggle'} aria-pressed={panelsHidden} onClick={togglePanels} title="Tuck the panels away and leave the scene (P)">Hide panels</button>
           </div>
         </div>,
         document.body,

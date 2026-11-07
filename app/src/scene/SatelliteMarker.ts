@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three'
 import { buildAsteroid, buildComsat, buildPlanet, buildStation, SATELLITE_COMPANION_UNITS, SATELLITE_UNITS, satelliteKind, type Model, type SatelliteKind } from './models'
+import { drawOnTop, type LabelItem } from './labels'
 import { getGlowTexture, makeLabelTexture } from './textures'
 
 export class SatelliteMarker {
@@ -15,7 +16,8 @@ export class SatelliteMarker {
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
-  private labelAspect = 1
+  /** the label as the scene's label layout sees it; the scene sets its priority and what a click on it selects */
+  readonly labelItem: LabelItem
   private readonly basis = new THREE.Matrix4()
   private readonly x = new THREE.Vector3()
   private readonly y = new THREE.Vector3()
@@ -37,10 +39,11 @@ export class SatelliteMarker {
     this.group.add(this.points)
 
     const { tex, aspect } = makeLabelTexture(name, color)
-    this.labelAspect = aspect
     this.label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))
     this.label.center.set(-0.2, 0.5)
+    drawOnTop(this.label)
     this.group.add(this.label)
+    this.labelItem = { sprite: this.label, priority: 50, wanted: true, height: 18, aspect, base: new THREE.Vector2(-0.2, 0.5), movable: true }
   }
 
   /**
@@ -71,12 +74,13 @@ export class SatelliteMarker {
     const pixelsPerUnit = shipPixelsPerUnit > 0 ? (SATELLITE_COMPANION_UNITS[this.kind] * shipPixelsPerUnit) / SATELLITE_UNITS[this.kind] : 14
     this.model.group.scale.setScalar(worldPerPixel * pixelsPerUnit)
     this.points.visible = shipPixelsPerUnit === 0
-    const h = 18 * worldPerPixel
-    this.label.scale.set(h * this.labelAspect, h, 1)
+    const h = this.labelItem.height * worldPerPixel
+    this.label.scale.set(h * this.labelItem.aspect, h, 1)
   }
 
+  /** Whether the label is wanted; the scene's label layout decides whether it fits. */
   setLabelVisible(v: boolean): void {
-    this.label.visible = v
+    this.labelItem.wanted = v
   }
 
   setEmphasis(selected: boolean, anySelected: boolean): void {

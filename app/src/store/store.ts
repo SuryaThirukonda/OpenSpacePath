@@ -54,6 +54,10 @@ export interface AppState {
   selectedId: string | null
   showAxes: boolean
   showLabels: boolean
+  /** the side panels and the timeline are tucked away, leaving the scene (and the toolbar to bring them back) */
+  panelsHidden: boolean
+  /** the help dialog with the mouse and keyboard controls is open */
+  helpOpen: boolean
   /** keepMode: the request comes with a world switch and must not cancel the camera mode the world comes back with */
   cameraRequest: { kind: CameraRequestKind; seq: number; keepMode?: boolean } | null
 
@@ -87,6 +91,8 @@ export interface AppState {
   requestCamera: (kind: CameraRequestKind) => void
   toggleAxes: () => void
   toggleLabels: () => void
+  togglePanels: () => void
+  setHelpOpen: (open: boolean) => void
 
   setMission: (mission: MissionInput | null) => void
   /** The Lambert solver for every transfer; changing it drops the current plan. */
@@ -147,6 +153,8 @@ export const useStore = create<AppState>((set) => ({
   selectedId: null,
   showAxes: true,
   showLabels: true,
+  panelsHidden: false,
+  helpOpen: false,
   cameraRequest: null,
   plan: null,
   planStatus: 'idle',
@@ -236,6 +244,8 @@ export const useStore = create<AppState>((set) => ({
   requestCamera: (kind) => set({ cameraRequest: { kind, seq: ++cameraSeq } }),
   toggleAxes: () => set((s) => ({ showAxes: !s.showAxes })),
   toggleLabels: () => set((s) => ({ showLabels: !s.showLabels })),
+  togglePanels: () => set((s) => ({ panelsHidden: !s.panelsHidden })),
+  setHelpOpen: (helpOpen) => set({ helpOpen }),
 
   setMission: (mission) => set((s) => ({ scenario: { ...s.scenario, mission: mission ?? undefined }, ...invalidPlan() })),
   setSolver: (solver) => set((s) => ({ scenario: { ...s.scenario, solver }, ...invalidPlan() })),

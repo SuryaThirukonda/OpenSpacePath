@@ -114,11 +114,12 @@ function makeCanvas(width: number): { canvas: HTMLCanvasElement; ctx: CanvasRend
 
 /**
  * Roughness for the standard material (it reads the green channel): open water is smooth enough
- * to glint in sunlight, land and ice are matt.
+ * to glint a little in sunlight, land and ice are matt. Smoother water (0.49) washed a wide white
+ * haze over the day side and a bright strip along the limb in the close views.
  */
 export function makeEarthRoughness(map: EarthMap, width = 2048, flattening = 0): THREE.CanvasTexture {
   const { canvas, ctx, height } = makeCanvas(width)
-  ctx.fillStyle = 'rgb(125, 125, 125)' // ocean: roughness about 0.49
+  ctx.fillStyle = 'rgb(153, 153, 153)' // ocean: roughness 0.6
   ctx.fillRect(0, 0, width, height)
   fillCountries(ctx, map, width, height, flattening, () => 'rgb(245, 245, 245)')
   ctx.fillStyle = 'rgb(245, 245, 245)'

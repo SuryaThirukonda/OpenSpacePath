@@ -2,7 +2,8 @@ import { useState, type CSSProperties } from 'react'
 import { absoluteDate, formatDuration, formatUtc, PLAYBACK_RATES } from '../core/time'
 import { planStart } from '../mission/types'
 import { epochMs, satellitePeriod, selectedSatellite, useStore } from '../store/store'
-import { IconPause, IconPlay, IconReset } from './icons'
+import { IconPause, IconPlay, IconReset, IconSkipBack, IconSkipForward } from './icons'
+import { adjacentEvent, eventTimes } from './keys'
 import { Panel } from './Panel'
 
 /** Short labels for the rate buttons. */
@@ -38,13 +39,27 @@ export function TimelinePanel() {
     : []
 
   const fill = span > 0 ? Math.min(100, Math.max(0, (100 * t) / span)) : 0
+  // stepping between a tour's burns: the times to jump to, if any lie before or after now
+  const events = plan ? eventTimes(plan) : []
+  const prevEvent = adjacentEvent(events, t, -1)
+  const nextEvent = adjacentEvent(events, t, 1)
 
   return (
     <Panel position="bottom" title="Timeline">
       <div className="tl-main">
-        <button className="play-btn" onClick={togglePlaying} aria-label={playing ? 'pause' : 'play'} title={playing ? 'Pause (space)' : 'Play (space)'}>
-          {playing ? <IconPause width={18} height={18} /> : <IconPlay width={18} height={18} />}
-        </button>
+        <div className="transport">
+          {plan && (
+            <button className="icon step-btn" onClick={() => prevEvent !== null && setT(prevEvent)} disabled={prevEvent === null}
+              aria-label="previous burn" title="Previous burn ([)"><IconSkipBack /></button>
+          )}
+          <button className="play-btn" onClick={togglePlaying} aria-label={playing ? 'pause' : 'play'} title={playing ? 'Pause (space)' : 'Play (space)'}>
+            {playing ? <IconPause width={18} height={18} /> : <IconPlay width={18} height={18} />}
+          </button>
+          {plan && (
+            <button className="icon step-btn" onClick={() => nextEvent !== null && setT(nextEvent)} disabled={nextEvent === null}
+              aria-label="next burn" title="Next burn (])"><IconSkipForward /></button>
+          )}
+        </div>
         <div className="scrub-wrap">
           <div className="ticks" aria-hidden="true">
             {ticks.filter((k) => k.t >= 0 && k.t <= span).map((k, i) => (
@@ -72,7 +87,7 @@ export function TimelinePanel() {
       <div className="tl-controls">
         <div className="ctl">
           <span>Rate</span>
-          <div className="seg" role="group" aria-label="playback rate">
+          <div className="seg" role="group" aria-label="playback rate" title="Slower or faster with , and .">
             {PLAYBACK_RATES.map(([r, l]) => (
               <button key={r} className={rate === r ? 'on' : ''} aria-pressed={rate === r} title={l} onClick={() => setRate(r)}>{RATE_LABELS[r] ?? `${r}×`}</button>
             ))}

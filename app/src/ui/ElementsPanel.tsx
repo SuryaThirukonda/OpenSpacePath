@@ -6,6 +6,7 @@ import { getBody } from '../data/bodies'
 import { satrecFor, satrecToElements, sgp4Epoch, sgp4Period, sgp4StateAt } from '../propagation/sgp4Propagator'
 import { epochMs, selectedSatellite, useStore } from '../store/store'
 import { AU_KM } from '../arp/instance'
+import { IconOrbit, IconX } from './icons'
 import { isNarrowScreen } from './layout'
 import { Panel } from './Panel'
 
@@ -60,7 +61,7 @@ export function ElementsPanel() {
     const au = (km: number) => `${(km / AU_KM).toFixed(4)} AU`
     const days = T / 86400
     tiles.push({ k: 'from Sun', v: (r / AU_KM).toFixed(3), unit: 'AU' }, { k: 'speed', v: norm(st.v).toFixed(2), unit: 'km/s' },
-               days >= 730 ? { k: 'period', v: (days / 365.25).toFixed(2), unit: 'y' } : { k: 'period', v: days.toFixed(0), unit: 'd' })
+               days >= 730 ? { k: 'period', v: (days / 365.25).toFixed(2), unit: 'y' } : days >= 2 ? { k: 'period', v: days.toFixed(0), unit: 'd' } : durationTile(T))
     rows.push(
       { k: 'Model', v: 'two-body Keplerian, heliocentric' },
       { k: 'a', v: au(el.a) },
@@ -70,7 +71,7 @@ export function ElementsPanel() {
       { k: 'arg. perihelion', v: deg(el.argp) },
       { k: 'true anomaly now', v: deg(trueAnomalyAt(el, body.mu, t)) },
       { k: 'mean anomaly now', v: deg(el.M0 + (TWO_PI / T) * t) },
-      { k: 'period', v: `${days.toFixed(1)} d (${(days / 365.25).toFixed(3)} y)` },
+      { k: 'period', v: days >= 2 ? `${days.toFixed(1)} d (${(days / 365.25).toFixed(3)} y)` : formatDuration(T) },
       { k: 'perihelion', v: au(el.a * (1 - el.e)) },
       { k: 'aphelion', v: au(el.a * (1 + el.e)) },
       { k: 'distance now', v: au(r) },
@@ -139,6 +140,10 @@ export function ElementsPanel() {
       <div className="sat-heading">
         <span className="swatch" style={{ background: sat.color, color: sat.color }} />
         <span className="satname">{sat.name}</span>
+        <span className="heading-actions">
+          <button className="icon" onClick={() => useStore.getState().requestCamera('orbit')} aria-label={`frame the orbit of ${sat.name}`} title="Frame this orbit (F)"><IconOrbit /></button>
+          <button className="icon" onClick={() => useStore.getState().select(null)} aria-label="clear the selection" title="Clear the selection (Esc)"><IconX /></button>
+        </span>
       </div>
       {tiles.length > 0 && (
         <div className="tiles">

@@ -5,6 +5,7 @@
 import * as THREE from 'three'
 import type { LaunchVehicle } from '../mission/types'
 import { Attitude, orientationFrom } from './attitude'
+import { drawOnTop, type LabelItem } from './labels'
 import { buildSpacecraft, buildStack, SPACECRAFT_TAIL, type Model, type StackModel } from './models'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
@@ -17,12 +18,11 @@ export class ShipMarker {
   private stackKey = ''
   private dropped = 0
   private ascent = false
-  private riding = false
-  private labelBelow = false
   private readonly points: THREE.Points
   private readonly pointMat: THREE.PointsMaterial
   private readonly label: THREE.Sprite
-  private readonly labelAspect: number
+  /** the ship's label as the scene's label layout sees it: placed before every other label */
+  readonly labelItem: LabelItem
   private readonly attitude = new Attitude()
   private readonly target = new THREE.Quaternion()
   private readonly lastTarget = new THREE.Quaternion()
@@ -53,8 +53,9 @@ export class ShipMarker {
     const { sprite, aspect } = makeLabelSprite(name, color)
     this.label = sprite
     this.label.center.set(-0.25, 0.5)
-    this.labelAspect = aspect
+    drawOnTop(this.label)
     this.group.add(this.label)
+    this.labelItem = { sprite, priority: 100, wanted: true, height: 18, aspect, base: new THREE.Vector2(-0.25, 0.5), movable: true }
   }
 
   /** The launch vehicle to show during an ascent, or null when the tour does not start on the ground. */
@@ -88,20 +89,6 @@ export class ShipMarker {
    */
   setRiding(riding: boolean, clearance = 2.4): void {
     this.offsetTarget = riding ? clearance + 0.8 + 0.6 : 0   // the body's reach, half the ship, a gap
-    if (riding === this.riding) return
-    this.riding = riding
-    this.placeLabel()
-  }
-
-  /** The label drops below the ship when another label (a body's) would sit on top of it. */
-  setLabelBelow(below: boolean): void {
-    if (below === this.labelBelow) return
-    this.labelBelow = below
-    this.placeLabel()
-  }
-
-  private placeLabel(): void {
-    this.label.center.set(-0.25, this.riding || this.labelBelow ? 1.7 : 0.5)
   }
 
   private applyPhase(): void {
@@ -170,7 +157,7 @@ export class ShipMarker {
     this.label.position.copy(this.model.position)
     this.points.visible = factor < 2
     const h = 18 * wpp
-    this.label.scale.set(h * this.labelAspect, h, 1)
+    this.label.scale.set(h * this.labelItem.aspect, h, 1)
   }
 
   /** Where the working engine's exhaust leaves the vehicle, in the parent's frame. */
@@ -183,8 +170,9 @@ export class ShipMarker {
     return out.copy(this.group.position).add(this.model.position).addScaledVector(this.heading, -tail * this.model.scale.x)
   }
 
+  /** Whether the label is wanted; the scene's label layout decides whether it fits. */
   setLabelVisible(v: boolean): void {
-    this.label.visible = v
+    this.labelItem.wanted = v
   }
 
   dispose(): void {

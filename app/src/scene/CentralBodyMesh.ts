@@ -1,8 +1,8 @@
 /**
  * Central body: a sphere with the real map for Earth (see earthMap.ts) or a procedural surface
  * for the other bodies (surfaces.ts), a lat/lon wireframe with the equator and prime meridian
- * emphasised, coordinate labels, a faint equatorial ring, and a rim glow for bodies with an
- * atmosphere or a corona. Local z is the pole; everything on the surface spins with setSpin.
+ * emphasised, coordinate labels, and a rim glow for bodies with an atmosphere or a corona. Local z
+ * is the pole; everything on the surface spins with setSpin.
  */
 import * as THREE from 'three'
 import { DEG, TWO_PI } from '../core/constants'
@@ -10,6 +10,7 @@ import type { CentralBody } from '../types'
 import { kmScalarToScene } from './frame'
 import { makeGlow, makeSurfaceMaterial } from './surfaces'
 import { getEarthAssets, GRATICULE_LABELS, lonLatToVector3, reducedLatitude } from './earthMap'
+import { drawOnTop, type LabelItem } from './labels'
 import { disposeSprite, getGlowTexture, makeLabelSprite, worldPerPixel } from './textures'
 
 export class CentralBodyMesh {
@@ -17,15 +18,14 @@ export class CentralBodyMesh {
   private body: CentralBody | null = null
   private sphere?: THREE.Mesh
   private grid?: THREE.LineSegments
-  private ring?: THREE.Mesh
   private glows: THREE.Mesh[] = []
   private principal?: THREE.LineSegments
   private marker?: THREE.Group
   private markerKey = ''
   /** A star seen from across its system is far below a pixel: a glow and its name mark it at any distance. */
   private beacon?: { group: THREE.Group; points: THREE.Points; sprite: THREE.Sprite }
-  /** Sprites kept at a constant size on screen: the pad label and the coordinate labels. */
-  private labels: Array<{ sprite: THREE.Sprite; aspect: number }> = []
+  /** Labels kept at a constant size on screen: the coordinate labels, the pad and a star's name. */
+  private labels: LabelItem[] = []
   private mapObjects: THREE.Object3D[] = []
   private mapMaterial?: THREE.MeshStandardMaterial
   private loadToken = 0
@@ -60,13 +60,6 @@ export class CentralBodyMesh {
     this.group.add(this.principal)
     if (body.surface === 'earth') void this.loadEarth(R, f)
 
-    const ringGeo = new THREE.RingGeometry(R * 1.0, R * 1.6, 128)
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(body.gridColor), transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false,
-    })
-    this.ring = new THREE.Mesh(ringGeo, ringMat)
-    this.group.add(this.ring)
-
     if (body.surface === 'star') {
       const g = new THREE.Group()
       const pg = new THREE.BufferGeometry()
@@ -78,9 +71,10 @@ export class CentralBodyMesh {
       points.frustumCulled = false
       const { sprite, aspect } = makeLabelSprite(body.name, '#ffe3a3')
       sprite.center.set(-0.35, 0.5)
+      drawOnTop(sprite)
       g.add(points, sprite)
       this.group.add(g)
-      this.labels.push({ sprite, aspect })
+      this.labels.push({ sprite, aspect, priority: 60, wanted: true, height: 13, base: new THREE.Vector2(-0.35, 0.5), movable: true })
       this.beacon = { group: g, points, sprite }
     }
 
@@ -116,9 +110,10 @@ export class CentralBodyMesh {
     for (const [text, lon, lat] of GRATICULE_LABELS) {
       const { sprite, aspect } = makeLabelSprite(text, '#9fd0ff')
       lonLatToVector3(lon, reducedLatitude(lat, flattening), R * 1.012, sprite.position)
+      drawOnTop(sprite)
       this.sphere.add(sprite)
       this.mapObjects.push(sprite)
-      this.labels.push({ sprite, aspect })
+      this.labels.push({ sprite, aspect, priority: 10, wanted: true, height: 13, base: sprite.center.clone(), movable: false })
     }
     this.sphere.add(coast, borders)
     this.mapObjects.push(coast, borders)
@@ -149,16 +144,23 @@ export class CentralBodyMesh {
     this.sphere.add(g)
     this.marker = g
     sprite.center.set(0.5, -0.4)
-    this.labels.push({ sprite, aspect })
+    drawOnTop(sprite)
+    this.labels.push({ sprite, aspect, priority: 65, wanted: true, height: 13, base: new THREE.Vector2(0.5, -0.4), movable: true })
   }
 
   /** Keep the surface labels a constant size on screen, like the satellite and burn labels. */
-  updateLabels(cameraPos: THREE.Vector3, viewportHeight: number, fovRad: number): void {
-    for (const { sprite, aspect } of this.labels) {
-      sprite.getWorldPosition(this.tmp)
-      const h = 13 * worldPerPixel(cameraPos.distanceTo(this.tmp), viewportHeight, fovRad)
-      sprite.scale.set(h * aspect, h, 1)
+  updateLabels(cameraPos: THREE.Vector3, viewportHeight: number, fovRad: number, show: boolean): void {
+    for (const item of this.labels) {
+      item.sprite.getWorldPosition(this.tmp)
+      const h = item.height * worldPerPixel(cameraPos.distanceTo(this.tmp), viewportHeight, fovRad)
+      item.sprite.scale.set(h * item.aspect, h, 1)
+      item.wanted = show
     }
+  }
+
+  /** The body's labels, for the scene's label layout. */
+  labelItems(out: LabelItem[]): void {
+    for (const item of this.labels) out.push(item)
   }
 
   private clearMarker(): void {
@@ -183,7 +185,7 @@ export class CentralBodyMesh {
     this.mapMaterial = undefined
   }
 
-  /** Spin the sphere and grid about the pole by a given angle (rad); the equatorial ring stays fixed. */
+  /** Spin the sphere and grid about the pole by a given angle (rad). */
   setSpin(angle: number): void {
     if (this.sphere) this.sphere.rotation.z = angle
     if (this.grid) this.grid.rotation.z = angle
@@ -195,7 +197,7 @@ export class CentralBodyMesh {
     this.clearMarker()
     this.clearMap()
     this.markerKey = ''
-    for (const o of [this.sphere, this.grid, this.principal, this.ring, ...this.glows]) {
+    for (const o of [this.sphere, this.grid, this.principal, ...this.glows]) {
       if (!o) continue
       this.group.remove(o)
       o.geometry.dispose()
@@ -210,7 +212,6 @@ export class CentralBodyMesh {
       this.beacon = undefined
     }
     this.sphere = this.grid = this.principal = undefined
-    this.ring = undefined
     this.glows = []
     this.body = null
   }

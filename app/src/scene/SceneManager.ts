@@ -1,6 +1,10 @@
 /**
  * Owns the renderer, camera, controls and animation loop. Reads the zustand store directly every
  * frame; React never re-renders the canvas. Everything orbital lives under `inertial` (see frame.ts).
+ *
+ * The view is centred on the part of the window the panels leave free (a camera view offset), the
+ * framing buttons fly the camera there instead of jumping, objects can be picked with the mouse,
+ * and every label goes through one screen-space layout pass (labels.ts) once the camera is final.
  */
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
@@ -13,6 +17,7 @@ import { flattenPlan, shipStateAt, type FlatPlan, type ShipState } from '../miss
 import type { MissionPlan } from '../mission/types'
 import { epochMs, isRenderable, useStore, type AppState, type CameraMode } from '../store/store'
 import type { CentralBody, Satellite, StateVector } from '../types'
+import { ascentFrame, ascentHeading, type AscentFrame } from './ascent'
 import { InertialAxes } from './AxesHelper'
 import { BurnEffect } from './BurnEffect'
 import { birdsEyePose, chaseDistanceKm, chasePose, chaseUp, perpendicular } from './cameraViews'
@@ -20,6 +25,7 @@ import { MissionPath } from './MissionPath'
 import { ShipMarker } from './ShipMarker'
 import { CentralBodyMesh } from './CentralBodyMesh'
 import { kmScalarToScene, kmToScene, makeInertialGroup } from './frame'
+import { LabelLayout, occludedBySphere, type LabelItem } from './labels'
 import { OrbitPath } from './OrbitPath'
 import { companionReach } from './models'
 import { SatelliteMarker } from './SatelliteMarker'
@@ -74,8 +80,21 @@ export class SceneManager {
   private chaseReady = false
   private readonly birdTarget = new THREE.Vector3()
   private birdReady = false
-  private insetValue = 0
+  /** pixels of the viewport covered by panels on each side, measured from the DOM a few times a second */
+  private insets = { left: 0, right: 0, top: 0, bottom: 0 }
   private insetAt = -Infinity
+  /** the view offset in use (px), eased toward the centre of the free area */
+  private readonly shift = new THREE.Vector2()
+  private shiftReady = false
+  /** a framing move in progress: the camera flies there instead of jumping */
+  private flight: { from: THREE.Vector3; fromTarget: THREE.Vector3; fromUp: THREE.Vector3; to: THREE.Vector3; toTarget: THREE.Vector3; t0: number; dur: number } | null = null
+  private readonly labelLayout = new LabelLayout()
+  private readonly labelItems: LabelItem[] = []
+  private ascentRef: AscentFrame | null = null
+  private pointerDown: { x: number; y: number; t: number; button: number } | null = null
+  private hover: { x: number; y: number } | null = null
+  /** the satellite or asteroid under the pointer: its orbit brightens and its name shows */
+  private hoverId: string | null = null
   /** In a close view, the satellite the ship is heading for and the ship's size on screen. */
   private companionId: string | null = null
   /** the body the ship is with or heading for; the other orbits are drawn quietly while a route is shown */
@@ -89,8 +108,6 @@ export class SceneManager {
   private readonly starfield: THREE.Points
   private readonly sunLight: THREE.DirectionalLight
   private readonly sunPoint: THREE.PointLight
-  /** the ship's label was moved below a body's last frame; it moves back only once clear by a margin */
-  private labelLow = false
   private lastNormal: THREE.Vector3 | null = null
   private shipName = ''
 
@@ -98,7 +115,8 @@ export class SceneManager {
     this.container = container
     // a logarithmic depth buffer: the scene spans metres-scale models to astronomical units, and with a
     // linear one the coastlines, the grid and the ship's thin shells fight each other at distance
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', logarithmicDepthBuffer: true })
+    // and a stencil buffer, so a translucent line draws each pixel once (lines.ts drawOnce)
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance', logarithmicDepthBuffer: true, stencil: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setClearColor(0x06080d, 1)
     container.appendChild(this.renderer.domElement)
@@ -109,6 +127,14 @@ export class SceneManager {
     this.controls.dampingFactor = 0.08
     this.controls.zoomSpeed = 0.8
     this.renderer.domElement.addEventListener('wheel', this.onWheel, { passive: true })
+    // the user takes the camera back from a framing move by touching the controls
+    this.controls.addEventListener('start', this.onControlsStart)
+    const el = this.renderer.domElement
+    el.addEventListener('pointerdown', this.onPointerDown)
+    el.addEventListener('pointerup', this.onPointerUp)
+    el.addEventListener('pointermove', this.onPointerMove)
+    el.addEventListener('pointerleave', this.onPointerLeave)
+    el.addEventListener('dblclick', this.onDoubleClick)
 
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.35))
     // around a planet the light comes from far away in a fixed direction; around the Sun it comes from the Sun
@@ -132,7 +158,7 @@ export class SceneManager {
     this.resize()
 
     this.syncBody(useStore.getState())
-    this.frameBody(getBody(useStore.getState().scenario.bodyId))
+    this.frameBody(getBody(useStore.getState().scenario.bodyId), false)
     this.lastNow = performance.now()
     this.raf = requestAnimationFrame(this.tick)
   }
@@ -143,24 +169,196 @@ export class SceneManager {
     this.viewZoom = Math.min(6, Math.max(0.4, this.viewZoom * Math.exp(e.deltaY * 0.0012)))
   }
 
+  private readonly onControlsStart = (): void => {
+    this.flight = null
+  }
+
+  private readonly onPointerDown = (e: PointerEvent): void => {
+    this.pointerDown = { x: e.clientX, y: e.clientY, t: performance.now(), button: e.button }
+  }
+
   /**
-   * Fraction of the viewport height hidden by panels that span the bottom of the screen (the
-   * timeline, and on narrow screens the button row above it). Measured from the DOM a few times
-   * a second, since the panels collapse, wrap and resize on their own.
+   * A click (a press and release without a drag) on a satellite, an asteroid or its label selects
+   * it; a click on empty space clears the selection.
    */
-  private bottomInset(nowMs: number): number {
-    if (nowMs - this.insetAt < 300) return this.insetValue
-    this.insetAt = nowMs
+  private readonly onPointerUp = (e: PointerEvent): void => {
+    const d = this.pointerDown
+    this.pointerDown = null
+    if (!d || d.button !== 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5 || performance.now() - d.t > 600) return
+    const id = this.pickAt(e.clientX, e.clientY)
+    const s = useStore.getState()
+    if (id) s.select(id)
+    else if (s.selectedId !== null) s.select(null)
+  }
+
+  /** A double click on one selects it and flies to its orbit. */
+  private readonly onDoubleClick = (e: MouseEvent): void => {
+    const id = this.pickAt(e.clientX, e.clientY)
+    if (!id) return
+    const s = useStore.getState()
+    s.select(id)
+    s.requestCamera('orbit')
+  }
+
+  private readonly onPointerMove = (e: PointerEvent): void => {
+    this.hover = this.pointerDown ? null : { x: e.clientX, y: e.clientY }
+  }
+
+  private readonly onPointerLeave = (): void => {
+    this.hover = null
+    this.hoverId = null
+    this.renderer.domElement.style.cursor = ''
+  }
+
+  /** The satellite or asteroid under a point of the window: its label, or its marker within a few pixels. */
+  private pickAt(clientX: number, clientY: number): string | null {
     const box = this.container.getBoundingClientRect()
-    let covered = 0
-    if (box.height > 0) {
-      for (const el of document.querySelectorAll('.panel.bottom, .panel.topright')) {
-        const r = el.getBoundingClientRect()
-        if (r.width > box.width * 0.6 && r.top > box.top + box.height * 0.45) covered = Math.max(covered, box.bottom - r.top)
+    const x = clientX - box.left
+    const y = clientY - box.top
+    for (const p of this.labelLayout.placed) {
+      if (p.item.pick && x >= p.rect.left && x <= p.rect.right && y >= p.rect.top && y <= p.rect.bottom) return p.item.pick
+    }
+    const w = box.width || 1
+    const h = box.height || 1
+    const body = getBody(useStore.getState().scenario.bodyId)
+    const R = kmScalarToScene(body.radius) * (1 - (body.flattening ?? 0)) * 0.995
+    const eye = this.camera.position
+    let best: string | null = null
+    let bestD = 18
+    for (const [id, v] of this.visuals) {
+      if (!v.marker.group.visible) continue
+      const world = v.marker.group.getWorldPosition(this.scratch)
+      if (occludedBySphere(eye, world, ORIGIN, R)) continue
+      const p = world.project(this.camera)
+      if (p.z > 1) continue
+      const d = Math.hypot(((p.x + 1) / 2) * w - x, ((1 - p.y) / 2) * h - y)
+      if (d < bestD) {
+        bestD = d
+        best = id
       }
     }
-    this.insetValue = box.height > 0 ? Math.min(0.6, Math.max(0, covered / box.height)) : 0
-    return this.insetValue
+    return best
+  }
+
+  /**
+   * Pixels of the viewport covered by the panels on each side. A panel spanning most of the width
+   * covers the top or the bottom (the timeline, and the sheets on a phone); one spanning much of the
+   * height covers the left or the right (the side panels); small ones (the toolbar, a collapsed tab)
+   * cover nothing that matters. Measured from the DOM a few times a second, since the panels
+   * collapse, wrap and resize on their own.
+   */
+  private measureInsets(nowMs: number): { left: number; right: number; top: number; bottom: number } {
+    if (nowMs - this.insetAt < 250) return this.insets
+    this.insetAt = nowMs
+    const box = this.container.getBoundingClientRect()
+    const ins = { left: 0, right: 0, top: 0, bottom: 0 }
+    if (box.width > 0 && box.height > 0) {
+      for (const el of document.querySelectorAll('.panel')) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        const cx = (r.left + r.right) / 2 - box.left
+        const cy = (r.top + r.bottom) / 2 - box.top
+        if (r.width > box.width * 0.6) {
+          if (cy > box.height / 2) ins.bottom = Math.max(ins.bottom, box.bottom - r.top)
+          else ins.top = Math.max(ins.top, r.bottom - box.top)
+        } else if (r.height > box.height * 0.4) {
+          if (cx < box.width / 2) ins.left = Math.max(ins.left, r.right - box.left)
+          else ins.right = Math.max(ins.right, box.right - r.left)
+        }
+      }
+      // at least 45% of each side stays free
+      const sx = Math.min(1, (box.width * 0.55) / Math.max(1, ins.left + ins.right))
+      const sy = Math.min(1, (box.height * 0.55) / Math.max(1, ins.top + ins.bottom))
+      ins.left *= sx; ins.right *= sx; ins.top *= sy; ins.bottom *= sy
+    }
+    this.insets = ins
+    return ins
+  }
+
+  /**
+   * Centre the view on the free part of the window: a view offset moves the picture so the point the
+   * camera looks at sits in the middle of the area between the panels. Eased, so collapsing a panel
+   * slides the scene over instead of jumping.
+   */
+  private applyViewOffset(nowMs: number, dtMs: number): void {
+    const w = this.container.clientWidth || 1
+    const h = this.container.clientHeight || 1
+    const ins = this.measureInsets(nowMs)
+    const ox = (ins.left - ins.right) / 2
+    const oy = (ins.top - ins.bottom) / 2
+    const a = this.shiftReady ? 1 - Math.exp(-dtMs / 160) : 1
+    this.shiftReady = true
+    const nx = this.shift.x + (ox - this.shift.x) * a
+    const ny = this.shift.y + (oy - this.shift.y) * a
+    const view = this.camera.view
+    if (view && view.enabled && view.fullWidth === w && view.fullHeight === h && Math.abs(nx - this.shift.x) < 0.01 && Math.abs(ny - this.shift.y) < 0.01) return
+    this.shift.set(nx, ny)
+    this.camera.setViewOffset(w, h, -nx, -ny, w, h)
+  }
+
+  /** The fraction of the width and of the height the panels leave free. */
+  private freeFraction(): { w: number; h: number } {
+    const w = this.container.clientWidth || 1
+    const h = this.container.clientHeight || 1
+    const ins = this.measureInsets(performance.now())
+    return { w: Math.max(0.3, (w - ins.left - ins.right) / w), h: Math.max(0.3, (h - ins.top - ins.bottom) / h) }
+  }
+
+  /** Distance at which a sphere of `radius` fits the free part of the window, with a margin. */
+  private fitDistance(radius: number, margin = 1.12): number {
+    const free = this.freeFraction()
+    const tanV = Math.tan((this.camera.fov * Math.PI) / 360)
+    const halfV = Math.atan(tanV * free.h)
+    const halfH = Math.atan(tanV * this.camera.aspect * free.w)
+    return (Math.max(radius, 1e-6) * margin) / Math.sin(Math.min(halfV, halfH))
+  }
+
+  /** Move the camera to look at `target` from `position`: a short flight (eased, through log distance), or a cut. */
+  private flyTo(position: THREE.Vector3, target: THREE.Vector3, animate: boolean): void {
+    const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (!animate || reduced || this.camera.position.distanceToSquared(this.controls.target) === 0) {
+      this.flight = null
+      this.controls.target.copy(target)
+      this.camera.position.copy(position)
+      this.camera.up.copy(WORLD_POLE)
+      this.camera.lookAt(target)
+      this.controls.update()
+      return
+    }
+    const ratio = Math.abs(Math.log(Math.max(position.distanceTo(target), 1e-9) / Math.max(this.camera.position.distanceTo(this.controls.target), 1e-9)))
+    this.flight = {
+      from: this.camera.position.clone(), fromTarget: this.controls.target.clone(), fromUp: this.camera.up.clone(),
+      to: position.clone(), toTarget: target.clone(),
+      t0: performance.now(), dur: Math.min(1400, 700 + 160 * ratio),
+    }
+  }
+
+  /** One step of a framing flight. */
+  private stepFlight(nowMs: number): void {
+    const f = this.flight
+    if (!f) return
+    const p = Math.min(1, Math.max(0, (nowMs - f.t0) / f.dur))
+    const e = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2
+    const target = this.scratch2.copy(f.fromTarget).lerp(f.toTarget, e)
+    const d0 = f.from.clone().sub(f.fromTarget)
+    const d1 = f.to.clone().sub(f.toTarget)
+    const r0 = Math.max(d0.length(), 1e-9)
+    const r1 = Math.max(d1.length(), 1e-9)
+    const u0 = d0.divideScalar(r0)
+    const u1 = d1.divideScalar(r1)
+    const turn = new THREE.Quaternion().setFromUnitVectors(u0, u1)
+    const dir = u0.applyQuaternion(new THREE.Quaternion().slerp(turn, e))
+    const r = Math.exp(Math.log(r0) + (Math.log(r1) - Math.log(r0)) * e)
+    this.controls.target.copy(target)
+    this.camera.position.copy(target).addScaledVector(dir, r)
+    // a flight out of the chase view also turns the camera's roll back to the pole's up
+    this.camera.up.copy(f.fromUp).lerp(WORLD_POLE, e)
+    if (this.camera.up.lengthSq() < 1e-6) this.camera.up.copy(WORLD_POLE)
+    this.camera.up.normalize()
+    if (p >= 1) {
+      this.camera.up.copy(WORLD_POLE)
+      this.flight = null
+    }
   }
 
   private resize(): void {
@@ -169,6 +367,7 @@ export class SceneManager {
     this.renderer.setSize(w, h, false)
     this.insetAt = -Infinity
     this.camera.aspect = w / h
+    if (this.camera.view?.enabled) this.camera.setViewOffset(w, h, -this.shift.x, -this.shift.y, w, h)
     this.camera.updateProjectionMatrix()
   }
 
@@ -202,35 +401,62 @@ export class SceneManager {
     this.handleCameraRequest(state)
 
     this.axes.group.visible = state.showAxes
-    if (!this.managedCamera) this.controls.update()
+    this.applyViewOffset(now, dt)
+    if (!this.managedCamera) {
+      this.stepFlight(now)
+      this.controls.update()
+    } else this.flight = null
     this.camera.updateMatrixWorld()   // projections below use this frame's camera, not last frame's
     // the stars are infinitely far: they travel with the camera, so orbiting never shows parallax or the shell's edge
     this.starfield.position.copy(this.camera.position)
     // everything held at a constant size on screen is sized last, once the camera for this frame is final
     const viewH = this.container.clientHeight || 1
     const fovRad = (this.camera.fov * Math.PI) / 180
-    this.bodyMesh.updateLabels(this.camera.position, viewH, fovRad)
-    const shipOnScreen = this.ship && state.plan && state.showLabels ? this.ship.group.getWorldPosition(this.scratch2).project(this.camera) : null
-    let labelCrowded = false
-    // a body's label within a label's height of the ship's would cover it; once moved, the ship's
-    // label comes back only when clear by a margin, so it does not flicker at the threshold
-    const reachY = this.labelLow ? 24 : 16
+    this.bodyMesh.updateLabels(this.camera.position, viewH, fovRad, state.showLabels)
     for (const [id, v] of this.visuals) {
       if (!v.marker.group.visible) continue
       v.marker.group.getWorldPosition(this.scratch)
       const companion = state.plan !== null && id === this.companionId
       v.marker.updateScale(this.camera.position.distanceTo(this.scratch), viewH, fovRad, companion ? this.shipPixelsPerUnit : 0)
-      if (shipOnScreen && shipOnScreen.z < 1 && !companion) {
-        const p = this.scratch.project(this.camera)
-        const dx = Math.abs(p.x - shipOnScreen.x) * (this.container.clientWidth || 1) / 2
-        const dy = (p.y - shipOnScreen.y) * viewH / 2   // positive: the body is above the ship on screen
-        if (p.z < 1 && dx < 96 && Math.abs(dy) < reachY && dy > -6) labelCrowded = true
-      }
     }
-    this.labelLow = labelCrowded
-    this.ship?.setLabelBelow(labelCrowded)
+    this.layoutLabels(state)
+    this.updateHover()
     this.renderer.render(this.scene, this.camera)
     this.raf = requestAnimationFrame(this.tick)
+  }
+
+  /** Gather every label in the scene and let the layout decide which show and where. */
+  private layoutLabels(s: AppState): void {
+    const items = this.labelItems
+    items.length = 0
+    this.bodyMesh.labelItems(items)
+    for (const [id, v] of this.visuals) {
+      const item = v.marker.labelItem
+      item.pick = id
+      // the hovered one names itself even with the labels off, like a tooltip
+      const hovered = id === this.hoverId
+      item.wanted = (s.showLabels || hovered) && v.marker.group.visible
+      item.priority = hovered ? 95 : id === s.selectedId ? 90 : id === this.focusId ? 80 : 50
+      items.push(item)
+    }
+    this.missionPath.labelItems(items)
+    if (this.ship && s.plan) items.push(this.ship.labelItem)
+    const body = getBody(s.scenario.bodyId)
+    this.labelLayout.run(items, {
+      camera: this.camera,
+      width: this.container.clientWidth || 1,
+      height: this.container.clientHeight || 1,
+      // the polar radius, a little inside the surface, so a label at the limb is not hidden by rounding
+      occluder: { center: ORIGIN, radius: kmScalarToScene(body.radius) * (1 - (body.flattening ?? 0)) * 0.995 },
+    })
+  }
+
+  /** A pointer over something that can be picked shows the hand, and that object is highlighted. */
+  private updateHover(): void {
+    if (!this.hover) return
+    this.hoverId = this.pickAt(this.hover.x, this.hover.y)
+    this.hover = null
+    this.renderer.domElement.style.cursor = this.hoverId ? 'pointer' : ''
   }
 
   private syncBody(s: AppState): void {
@@ -305,9 +531,10 @@ export class SceneManager {
         }
       }
       const selected = sat.id === s.selectedId
+      const hovered = sat.id === this.hoverId
       const quiet = s.plan !== null && this.focusId !== null && sat.id !== this.focusId
-      v.path.setEmphasis(selected, anySelected, quiet)
-      v.marker.setEmphasis(selected, anySelected)
+      v.path.setEmphasis(selected, anySelected, quiet, hovered)
+      v.marker.setEmphasis(selected || hovered, anySelected)
       v.marker.setLabelVisible(s.showLabels)
     }
     for (const id of [...this.visuals.keys()]) if (!live.has(id)) this.removeVisual(id)
@@ -346,8 +573,10 @@ export class SceneManager {
     if (!req || req.seq === this.lastCameraSeq) return
     this.lastCameraSeq = req.seq
     const body = getBody(s.scenario.bodyId)
+    // a world switch or a reset cuts; the framing buttons fly
+    const animate = !req.keepMode && req.kind !== 'reset'
     if (req.kind === 'body' || req.kind === 'reset') {
-      this.frameBody(body)
+      this.frameBody(body, animate)
     } else if (req.kind === 'all') {
       // every orbit and the tour, for a scene whose orbits dwarf the body (a heliocentric one)
       let all: THREE.Sphere | null = null
@@ -356,39 +585,36 @@ export class SceneManager {
         if (all) all.union(sp)
         else all = sp.clone()
       }
-      if (all) this.frameSphere(all)
-      else this.frameBody(body)
+      if (all) this.frameSphere(all, undefined, animate)
+      else this.frameBody(body, animate)
     } else if (req.kind === 'ship') {
       const sphere = s.selectedLeg !== null ? this.missionPath.legSphere(s.selectedLeg) : this.missionPath.wholeSphere()
-      if (sphere) this.frameSphere(sphere)
-      else this.frameBody(body)
+      if (sphere) this.frameSphere(sphere, undefined, animate)
+      else this.frameBody(body, animate)
     } else if (req.kind === 'orbit') {
       const v = s.selectedId ? this.visuals.get(s.selectedId) : undefined
       const sphere = v?.path.boundingSphere()
       if (!v || !sphere) {
-        this.frameBody(body)
+        this.frameBody(body, animate)
         return
       }
       const sat = s.scenario.satellites.find((x) => x.id === s.selectedId)
-      this.frameSphere(sphere, sat)
+      this.frameSphere(sphere, sat, animate)
     }
   }
 
-  private frameBody(body: CentralBody): void {
+  private frameBody(body: CentralBody, animate = true): void {
     const d = kmScalarToScene(body.frameDistance)
-    this.controls.target.set(0, 0, 0)
-    this.camera.position.set(d * 0.55, d * 0.45, d * 0.7)
-    this.camera.lookAt(0, 0, 0)
-    this.controls.update()
+    this.flyTo(new THREE.Vector3(d * 0.55, d * 0.45, d * 0.7), ORIGIN, animate)
   }
 
-  /** Frame a bounding sphere (in inertial-local coordinates), viewing from above the orbit plane. */
-  private frameSphere(sphere: THREE.Sphere, sat?: Satellite): void {
+  /**
+   * Frame a bounding sphere (in inertial-local coordinates), viewing from above the orbit plane. It
+   * is fitted to the part of the window the panels leave free, in the narrower of its two half-angles.
+   */
+  private frameSphere(sphere: THREE.Sphere, sat?: Satellite, animate = true): void {
     const center = this.inertial.localToWorld(sphere.center.clone())
-    // fit the sphere in the narrower of the two half-angles, so a portrait screen does not cut it at the sides
-    const halfV = (this.camera.fov * Math.PI) / 360
-    const halfH = Math.atan(Math.tan(halfV) * this.camera.aspect)
-    const dist = (sphere.radius * 1.25) / Math.sin(Math.min(halfV, halfH))
+    const dist = this.fitDistance(sphere.radius)
     let dir = new THREE.Vector3(0.5, 0.6, 0.65)
     if (sat?.kind === 'kepler') {
       // Angular momentum direction in the inertial frame, then into world coordinates.
@@ -398,10 +624,7 @@ export class SceneManager {
     }
     // orbits can be far larger than the body the zoom limit was set for (asteroids around the Sun)
     this.controls.maxDistance = Math.max(this.controls.maxDistance, dist * 6)
-    this.controls.target.copy(center)
-    this.camera.position.copy(center).add(dir.multiplyScalar(dist))
-    this.camera.lookAt(center)
-    this.controls.update()
+    this.flyTo(center.clone().add(dir.multiplyScalar(dist)), center, animate)
   }
 
   /** Ship, path, burn flares and the follow camera, all driven by the plan in the store and the current time. */
@@ -413,6 +636,7 @@ export class SceneManager {
       if (s.plan) {
         this.flat = flattenPlan(s.plan)
         this.missionPath.setPlan(this.flat, s.plan)
+        this.ascentRef = s.plan.launch ? ascentFrame(s.plan.launch.samples) : null
         const name = s.scenario.mission?.ship.name ?? 'Ship'
         if (this.ship && name !== this.shipName) {
           this.inertial.remove(this.ship.group)
@@ -453,12 +677,16 @@ export class SceneManager {
       this.viewZoom = 1
       this.chaseReady = this.birdReady = false
       if (wasManaged && !managed) {
-        this.camera.up.set(0, 1, 0)
         this.followLeg = -1
-        if (!pending) {
+        // the way out starts from what the managed camera was looking at, so a flight from here does not jump
+        const look = this.camera.getWorldDirection(this.scratch)
+        this.controls.target.copy(this.camera.position).addScaledVector(look, Math.max(1e-3, this.camera.position.length() * 0.05))
+        if (mode === 'follow') {
+          this.camera.up.copy(WORLD_POLE)   // the follow camera frames the leg itself
+        } else if (!pending) {
           const sphere = s.plan ? this.missionPath.wholeSphere() : null
-          if (sphere) this.frameSphere(sphere)
-          else this.frameBody(getBody(s.scenario.bodyId))
+          if (sphere) this.frameSphere(sphere, undefined, true)
+          else this.frameBody(getBody(s.scenario.bodyId), true)
         }
       }
     }
@@ -483,13 +711,12 @@ export class SceneManager {
     // ease the managed cameras only while time flows; a scrub or a jump snaps them
     const maxStep = 2 * (dtMs / 1000) * s.scenario.rate + 1
     const continuous = Number.isFinite(this.prevT) && Math.abs(s.t - this.prevT) <= maxStep
-    // the nose points the way the ship is moving; a rocket, the way it moves over the ground, which on
-    // the pad is straight up rather than the body's spin
+    // the nose points the way the ship is moving; a rocket, the way it moves through the planner's
+    // turning air (ascent.ts), which on the pad is straight up rather than the body's spin
     const forward = this.aim.copy(vel)
-    if (st.kind === 'ascent') {
-      const w = TWO_PI / getBody(s.scenario.bodyId).rotationPeriod
-      forward.set(st.v.x + w * st.r.y, st.v.y - w * st.r.x, st.v.z)
-      if (forward.length() < 0.05) forward.set(st.r.x, st.r.y, st.r.z)
+    if (st.kind === 'ascent' && this.ascentRef) {
+      const h = ascentHeading(this.ascentRef, st.r, st.v)
+      forward.set(h.x, h.y, h.z)
     }
     // the direction of flight jumps at a burn and at a change of segment; the ship swings onto it there
     const kicked = continuous && (st.kind !== this.prevKind || this.burnBetween(s.plan, this.prevT, s.t))
@@ -505,7 +732,7 @@ export class SceneManager {
     const h = this.container.clientHeight || 1
     if (!continuous) this.chaseReady = this.birdReady = false
     if (this.managedCamera && mode === 'chase') this.chaseCamera(st, worldPos, vel, dtMs)
-    else if (this.managedCamera) this.birdsEyeCamera(st, nowMs, dtMs, fov)
+    else if (this.managedCamera) this.birdsEyeCamera(st, dtMs, fov)
     else if (mode === 'follow') this.followCamera(s, st, worldPos, fov)
     else this.followLeg = -1
     const dist = this.camera.position.distanceTo(worldPos)
@@ -521,11 +748,14 @@ export class SceneManager {
     this.ship.setRiding(st.kind === 'ride', companionKind ? companionReach(companionKind) : undefined)
     this.focusId = ridingWith ?? s.scenario.mission?.stops[st.leg]?.satelliteId ?? null
     this.shipPixelsPerUnit = 15 * shipScale
-    // the chase view sits among the lines: it shows what is still to come on this leg only
+    // the close views sit among the lines: chase and follow show what is still to come on this leg only,
+    // or the later legs' dashed paths, running alongside, read as a shower of bars
     this.camera.updateMatrixWorld()
+    const close = (mode === 'chase' && this.managedCamera) || mode === 'follow'
+    const focusDistance = this.managedCamera ? dist : this.camera.position.distanceTo(this.controls.target)
     this.missionPath.update(s.t, { showRemaining: s.showRemaining, showLabels: s.showBurnLabels, selectedLeg: s.selectedLeg, currentLeg: st.outside ? null : st.leg,
-      remainingOnlyLeg: this.managedCamera && mode === 'chase' && !st.outside ? st.leg : null },
-      this.camera, this.container.clientWidth || 1, h, fov, (v) => this.inertial.localToWorld(v), st.kind === 'ride' ? null : pos)
+      remainingOnlyLeg: close && !st.outside ? st.leg : null },
+      this.camera, h, fov, (v) => this.inertial.localToWorld(v), st.kind === 'ride' ? null : pos, focusDistance)
 
     // burns: fire when the clock crosses one while playing, not when scrubbing across it
     if (Number.isFinite(this.prevT) && s.playing && s.t > this.prevT && s.t - this.prevT <= maxStep) {
@@ -613,7 +843,7 @@ export class SceneManager {
    * then each leg), far enough to fit all of it. It only moves, with a short ease, when the ship
    * starts a new stretch or the wheel changes the zoom; otherwise the ship crosses a still frame.
    */
-  private birdsEyeCamera(st: ShipState, nowMs: number, dtMs: number, fov: number): void {
+  private birdsEyeCamera(st: ShipState, dtMs: number, fov: number): void {
     const view = (st.kind === 'ascent' ? this.missionPath.ascentView() : null) ?? this.missionPath.legView(st.leg)
     if (!view) return
     const center = this.inertial.localToWorld(view.sphere.center.clone())
@@ -623,7 +853,7 @@ export class SceneManager {
     const pole = this.lastNormal && Math.abs(normal.dot(WORLD_POLE)) < 0.3 ? this.lastNormal : WORLD_POLE
     if (normal.dot(pole) < 0) normal.negate()
     this.lastNormal = normal.clone()
-    const pose = birdsEyePose(center, normal, view.sphere.radius, fov, this.camera.aspect, WORLD_POLE, this.viewZoom, this.bottomInset(nowMs), true)
+    const pose = birdsEyePose(center, normal, view.sphere.radius, fov, this.camera.aspect, WORLD_POLE, this.viewZoom, this.freeFraction(), true)
     const a = this.birdReady ? 1 - Math.exp(-dtMs / 260) : 1
     this.camera.position.lerp(pose.position, a)
     this.birdTarget.lerp(pose.target, a)
@@ -638,7 +868,14 @@ export class SceneManager {
     this.disposed = true
     cancelAnimationFrame(this.raf)
     this.resizeObserver.disconnect()
-    this.renderer.domElement.removeEventListener('wheel', this.onWheel)
+    const el = this.renderer.domElement
+    el.removeEventListener('wheel', this.onWheel)
+    el.removeEventListener('pointerdown', this.onPointerDown)
+    el.removeEventListener('pointerup', this.onPointerUp)
+    el.removeEventListener('pointermove', this.onPointerMove)
+    el.removeEventListener('pointerleave', this.onPointerLeave)
+    el.removeEventListener('dblclick', this.onDoubleClick)
+    this.controls.removeEventListener('start', this.onControlsStart)
     for (const id of [...this.visuals.keys()]) this.removeVisual(id)
     this.bodyMesh.dispose()
     this.missionPath.dispose()
@@ -657,6 +894,7 @@ export class SceneManager {
 /** The body's pole and a reference axis in three.js world space (the inertial group turns z up to y). */
 const WORLD_POLE = new THREE.Vector3(0, 1, 0)
 const WORLD_X = new THREE.Vector3(1, 0, 0)
+const ORIGIN = new THREE.Vector3(0, 0, 0)
 
 function visualKey(sat: Satellite, bodyId: string): string {
   return sat.kind === 'kepler'
