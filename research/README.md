@@ -15,6 +15,7 @@ Date: 2026-09-01. These files answer the three asks from the August 31 meeting: 
 | `05_mission_path_plan.md` | Implementation plan for the satellite-tour visualization: Lambert rendezvous with moving targets, 2- to 4-burn strategies, ship model, path and burn animation, camera follow; §13 adds the launch-from-the-ground model. Implemented; this is the design record. |
 | `06_routing_algorithm_format.md` | The standard format for asteroid routing algorithms (ARP-ALGORITHM 1) used by the Routing tab: the problem as implemented, the `solve(problem, tools)` interface, run rules, where the code runs, the transfer modes and the Path section, the Lambert solver comparison, and the differences from the two papers. |
 | `07_three_burn_transfer.md` | How the three-burn rendezvous derivation sheet (in-plane shaping, plane change at the node, velocity match) was implemented as the app's default transfer: the mapping from the sheet's sections to the code, the four places the code departs from the sheet and why, where it is used, what to expect of the numbers, and the tests. |
+| `08_interface_conventions.md` | How space viewers (NASA Eyes, Cesium, OpenSpace, Celestia, KeepTrack, Stuff in Space) and 3D-tool research handle layout, camera moves, selection, labels, time and help, with sources; what Orbit Lab took from them in the 2026-11-07 interface sweep, and what it left out and why. |
 
 ## Track study documents (Part II, Tracks 1 to 6)
 

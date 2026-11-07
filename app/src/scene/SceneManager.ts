@@ -838,7 +838,12 @@ export class SceneManager {
    * the ship cannot leave the frame at any playback rate.
    */
   private chaseCamera(st: ShipState, worldPos: THREE.Vector3, vel: THREE.Vector3, dtMs: number): void {
-    const f = vel.clone().applyQuaternion(this.inertial.quaternion)
+    // a rocket climbing almost straight up would put the camera under it, looking into empty sky: on
+    // the ascent the camera looks downrange along the launch plane instead, horizon and ground in view
+    const along = st.kind === 'ascent' && this.ascentRef
+      ? new THREE.Vector3(this.ascentRef.n.x, this.ascentRef.n.y, this.ascentRef.n.z).cross(new THREE.Vector3(st.r.x, st.r.y, st.r.z)).multiplyScalar(this.ascentRef.rate >= 0 ? 1 : -1)
+      : vel
+    const f = along.clone().applyQuaternion(this.inertial.quaternion)
     if (f.lengthSq() < 1e-12) f.copy(this.chaseReady ? this.chaseF : WORLD_X)
     f.normalize()
     const u = chaseUp(worldPos, f, WORLD_POLE)

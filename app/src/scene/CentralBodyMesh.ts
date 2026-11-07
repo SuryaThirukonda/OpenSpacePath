@@ -102,7 +102,9 @@ export class CentralBodyMesh {
     }
     if (token !== this.loadToken || !this.sphere) return
     const old = this.sphere.material as THREE.Material
-    this.mapMaterial = new THREE.MeshStandardMaterial({ map: assets.texture, roughnessMap: assets.roughness, roughness: 1, metalness: 0 })
+    // a physical material for its specular strength: at full strength the sun's reflection off the water
+    // turned the sea near the horizon into a white wash whenever the camera looked toward the Sun
+    this.mapMaterial = new THREE.MeshPhysicalMaterial({ map: assets.texture, roughnessMap: assets.roughness, roughness: 1, metalness: 0, specularIntensity: 0.25 })
     this.sphere.material = this.mapMaterial
     old.dispose()
     const coast = new THREE.LineSegments(assets.coast, new THREE.LineBasicMaterial({ color: 0xe6f2ff, transparent: true, opacity: 0.55, depthWrite: false }))

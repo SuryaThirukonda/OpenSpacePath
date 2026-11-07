@@ -181,7 +181,7 @@ Tests: `npm --prefix app test` for the app, `PYTHONPATH=. api/.venv/bin/pytest a
 | [`app/`](app/README.md) | Vite, React 19, three.js and zustand. Keplerian and SGP4 propagation, the scene, the panels, the share-link codec. |
 | [`api/`](api/README.md) | A FastAPI planner, deployed as one Vercel Python function: Lambert and three-burn rendezvous, launch ascents, and the asteroid-routing transfer model. |
 | `app/public/arp-worker.js` | Runs routing algorithms in a Web Worker with Pyodide. |
-| [`research/`](research/README.md) | The research behind it: orbital mechanics, frames and SGP4, existing tools, transfers, the routing papers, and the three-burn derivation. |
+| [`research/`](research/README.md) | The research behind it: orbital mechanics, frames and SGP4, existing tools, transfers, the routing papers, the three-burn derivation, and [interface conventions](research/08_interface_conventions.md). |
 
 The physics is stated plainly rather than hidden. Satellites and the ship coast on two-body orbits; burns are impulsive; the launch is a planar ascent with drag and a simple guidance law; each leg arrives exactly where the target's own propagator puts it. The [app's README](app/README.md#fidelity-stated-honestly) lists every simplification.
 
