@@ -52,13 +52,30 @@ Satellites around Earth and five other bodies, multi-burn rendezvous between the
 </tr>
 <tr>
 <td width="50%"><img src="docs/media/demo-launch.webp" alt="A launch from Cape Canaveral seen from above: liftoff, the climb and the gravity turn."></td>
-<td width="50%"><img src="docs/media/demo-asteroids.webp" alt="A spacecraft flying a route between GTOC11 asteroids around the Sun, thirty days a second."></td>
+<td width="50%"><img src="docs/media/demo-route.webp" alt="A spacecraft flying from Earth through five GTOC11 asteroids around the Sun, each transfer drawn as it is flown."></td>
 </tr>
 <tr>
 <td><b>Launch from the ground.</b> Cape Canaveral, from liftoff through the gravity turn.</td>
-<td><b>Asteroid routes.</b> A hand-written path through a GTOC11 instance.</td>
+<td><b>Asteroid routes.</b> Earth to five GTOC11 asteroids, three burns per transfer.</td>
 </tr>
 </table>
+
+## Two burns or three
+
+Every transfer can be flown as a two-burn Lambert rendezvous or, by default, as a three-burn rendezvous: burn 1 shapes the orbit, burn 2 changes plane at the node line, and burn 3 matches the target. The Transfer section of the Mission and Asteroids tabs switches between them.
+
+<img src="docs/media/demo-burns.webp" alt="The same tour flown side by side: on the left with two burns per leg, which runs out of fuel; on the right with three burns per leg, which arrives with fuel to spare.">
+
+The same tour with the same ship: from a 28.5° parking orbit to geostationary orbit, then to a low polar orbit.
+
+| | Two burns (Lambert) | Three burns |
+|---|---|---|
+| Parking orbit to GEO | 7.57 km/s | 4.34 km/s |
+| GEO to low polar orbit | 13.06 km/s | 13.28 km/s |
+| Whole tour | 20.63 km/s, runs out of fuel | 17.61 km/s, 4.3 t of fuel left |
+| Time | 18.7 h | 41.8 h |
+
+Three burns win when the plane changes or the arrival time is free, as on the first leg. When the arrival times are fixed, the two-burn arc is unrestricted and is often cheaper. The asteroid route above, flown on its written schedule, costs 128.9 km/s with two burns and 179.1 km/s with three. [docs/three-burn-transfer.md](docs/three-burn-transfer.md) explains the method and when each choice wins.
 
 ## How to use
 
