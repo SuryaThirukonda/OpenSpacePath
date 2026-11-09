@@ -1,3 +1,0 @@
-low-precision Sun vs astronomy-engine, weekly 2026-2030: worst direction 0.58 arcmin, worst distance 16968 km
-JPL approximate elements vs astronomy-engine, EMB, 2026-2030: worst direction 0.32 arcmin, worst position 14 thousand km
-JPL approximate elements vs astronomy-engine, Mars, 2026-2030: worst direction 1.15 arcmin, worst position 70 thousand km

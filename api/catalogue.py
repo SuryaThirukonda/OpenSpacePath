@@ -3,7 +3,7 @@
 `api/data/gtoc11.npz` holds the 83,453 GTOC11 asteroids as the first paper's reproducibility
 package ships them (Lopez-Ibanez, Chicano, Gil-Merino 2022, Zenodo 10.5281/zenodo.6034335, CC BY
 4.0), with their elements moved to the papers' mission start, 2121-01-01 00:00 UT1 (MJD 95739);
-research/scripts/gtoc11_catalogue.py built it. Instances follow the package's space_util.py to
+scripts/gtoc11_catalogue.py built it. Instances follow the package's space_util.py to
 the letter: numpy's default_rng(seed).integers(1, 83454, size=n) picks the ids (with replacement,
 as they do), Earth is their Table 1 orbit, and the constants are their Table 2 values.
 """

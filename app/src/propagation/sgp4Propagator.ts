@@ -1,7 +1,7 @@
 /**
  * SGP4 propagation through satellite.js for TLE satellites (Earth only).
  *
- * Frame note (research/track2): SGP4 returns TEME (true equator, mean equinox of date). The scene
+ * Frame note: SGP4 returns TEME (true equator, mean equinox of date). The scene
  * treats TEME as its Earth-centred inertial frame; the difference from J2000 is about 0.37 deg in
  * 2026 and is accepted for v1. Earth's rotation is applied to the mesh with GMST so ground tracks
  * are right; positions are never converted to J2000 here.

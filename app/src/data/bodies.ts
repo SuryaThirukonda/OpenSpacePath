@@ -2,7 +2,7 @@
  * Central-body registry.
  * mu (km^3/s^2) and equatorial radii (km) from the NASA Planetary Fact Sheets
  * (nssdc.gsfc.nasa.gov/planetary/factsheet) and JPL SSD (ssd.jpl.nasa.gov/astro_par.html);
- * Earth mu is the WGS-84 value 398600.4418 used throughout the research notes.
+ * Earth mu is the WGS-84 value 398600.4418.
  * Rotation periods are sidereal, seconds; Venus is retrograde (negative).
  * Flattening: WGS-84 for Earth; fact-sheet values for Mars, the Moon and Jupiter (1 bar level).
  */

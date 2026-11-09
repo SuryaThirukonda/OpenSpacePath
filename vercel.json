@@ -7,7 +7,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 300,
-      "excludeFiles": "{api/tests/**,api/.venv/**,research/**,app/**}"
+      "excludeFiles": "{api/tests/**,api/.venv/**,docs/**,scripts/**,app/**}"
     }
   },
   "rewrites": [

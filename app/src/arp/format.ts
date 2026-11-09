@@ -2,7 +2,7 @@
  * The standard format for a routing algorithm, version 1: one Python file with a header
  * docstring and a solve(problem, tools) function. The page checks the shape before a run and
  * the runner (public/arp-worker.js) checks it again and enforces the contract of the return
- * value. research/06_routing_algorithm_format.md is the same specification with its rationale.
+ * value. docs/routing-algorithm-format.md is the same specification with its rationale.
  */
 
 export const FORMAT_NAME = 'ARP-ALGORITHM'

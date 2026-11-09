@@ -1,8 +1,7 @@
 /**
  * Two-body Keplerian propagation from classical orbital elements.
  *
- * This is the master document's section 6.1 pipeline (the notebook pages as code) with the
- * two corrections from research/01_master_doc_errata.md:
+ * The pipeline of docs/mathematics.md sections 4 and 5:
  *   - the perifocal -> inertial rotation is Q = Rz(raan) Rx(i) Rz(argp) (active convention),
  *     verified against Curtis Example 4.7 and the standard perifocal-to-geocentric matrix;
  *   - Kepler's equation is seeded with Vallado's E0 = M - e (M in (-pi, 0)) or M + e (otherwise),
@@ -58,7 +57,7 @@ export function meanToTrue(M: number, e: number): number {
 
 /**
  * Rotate a perifocal-frame vector into the body-centred inertial frame.
- * Q = Rz(raan) Rx(i) Rz(argp); column form written out as in Curtis eq. 4.49 / master doc 6.1.
+ * Q = Rz(raan) Rx(i) Rz(argp); column form written out as in Curtis eq. 4.49.
  */
 export function perifocalToInertial(p: Vec3, i: number, raan: number, argp: number): Vec3 {
   const cO = Math.cos(raan), sO = Math.sin(raan)

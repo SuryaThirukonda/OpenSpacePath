@@ -12,7 +12,7 @@ Satellites around Earth and five other bodies, multi-burn rendezvous between the
 <a href="#how-to-use">How to use</a> ·
 <a href="#run-it-locally">Run it locally</a> ·
 <a href="#how-it-works">How it works</a> ·
-<a href="research/README.md">Research notes</a>
+<a href="docs/README.md">Docs</a>
 </p>
 
 <p>
@@ -132,7 +132,7 @@ A launch adds the ascent to the tour: liftoff waits for the window when the pad 
 </tr>
 </table>
 
-The algorithm format is specified in [research/06_routing_algorithm_format.md](research/06_routing_algorithm_format.md).
+The algorithm format is specified in [docs/routing-algorithm-format.md](docs/routing-algorithm-format.md).
 
 ### Mouse and keyboard
 
@@ -181,7 +181,8 @@ Tests: `npm --prefix app test` for the app, `PYTHONPATH=. api/.venv/bin/pytest a
 | [`app/`](app/README.md) | Vite, React 19, three.js and zustand. Keplerian and SGP4 propagation, the scene, the panels, the share-link codec. |
 | [`api/`](api/README.md) | A FastAPI planner, deployed as one Vercel Python function: Lambert and three-burn rendezvous, launch ascents, and the asteroid-routing transfer model. |
 | `app/public/arp-worker.js` | Runs routing algorithms in a Web Worker with Pyodide. |
-| [`research/`](research/README.md) | The research behind it: orbital mechanics, frames and SGP4, existing tools, transfers, the routing papers, the three-burn derivation, and [interface conventions](research/08_interface_conventions.md). |
+| [`docs/`](docs/README.md) | How it is designed and why: the [design decisions](docs/design.md), the [mission planner](docs/mission-planner.md), the [three-burn transfer](docs/three-burn-transfer.md), the [routing format](docs/routing-algorithm-format.md), the [interface](docs/interface.md) and the [mathematics](docs/mathematics.md). |
+| `scripts/` | Builds `api/data/gtoc11.npz`, the asteroid catalogue, from the published GTOC11 package. |
 
 The physics is stated plainly rather than hidden. Satellites and the ship coast on two-body orbits; burns are impulsive; the launch is a planar ascent with drag and a simple guidance law; each leg arrives exactly where the target's own propagator puts it. The [app's README](app/README.md#fidelity-stated-honestly) lists every simplification.
 

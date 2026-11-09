@@ -1,7 +1,7 @@
 """The three-burn impulsive rendezvous of the derivation sheet, for a destination fixed in position and time.
 
 Source: "A Three-Burn Impulsive Rendezvous Strategy Combining In-Plane Shaping, Plane Change, and
-Velocity Matching: Derivations and Notes" (research/07_three_burn_transfer.md walks through it).
+Velocity Matching: Derivations and Notes" (docs/three-burn-transfer.md walks through it).
 
 The chaser leaves the state (r_s, v_s) at t_d and must be at r_P at t_a, moving with v_P:
   burn 1  in the departure plane, on the departure orbit, at the time t_d + s T (0 <= s < 1):

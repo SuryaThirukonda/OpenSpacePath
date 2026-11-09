@@ -1,4 +1,4 @@
-"""Independent Izzo (2015) Lambert solver in plain numpy, copied from research/scripts/T7_design_math_check.py.
+"""Independent Izzo (2015) Lambert solver in plain numpy.
 Used only to cross-check lamberthub; not part of the service."""
 import math
 import numpy as np

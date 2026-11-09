@@ -3,8 +3,8 @@
  * are multiplied by that body's radius over Earth's, so every preset keeps its shape: the same
  * eccentricity and the same altitude relative to the radius, whether the body is the Moon or
  * the Sun.
- * Earth values come from research/track1_orbital_mechanics.md section 3.3 (ISS-class LEO, GPS MEO,
- * GEO, Molniya, sun-synchronous 700 km). "Synchronous" derives its radius from the body's rotation
+ * The Earth values are the standard example of each class (ISS-class LEO, GPS MEO, GEO, Molniya,
+ * sun-synchronous at 700 km). "Synchronous" derives its radius from the body's rotation
  * period, so it is GEO at Earth, areostationary at Mars, and so on. Angles in degrees here.
  */
 import { DEG } from '../core/constants'
@@ -92,7 +92,7 @@ export function satelliteFromPreset(p: Preset, body: CentralBody): KeplerSatelli
   return { id: newId(p.id), kind: 'kepler', name, color: p.color, elements: presetElements(p, body) }
 }
 
-/** ISS element set from CelesTrak, epoch 2026-09-01 11:57:51 UTC (research/data/iss_tle_2026-09-01.txt). */
+/** ISS element set from CelesTrak, epoch 2026-09-01 11:57:51 UTC. */
 export const ISS_TLE = {
   name: 'ISS (ZARYA)',
   line1: '1 25544U 98067A   26244.49851260  .00003910  00000+0  79223-4 0  9992',

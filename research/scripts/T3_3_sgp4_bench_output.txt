@@ -1,4 +1,0 @@
-objects: 15151 by type: {"PAYLOAD":3552,"ROCKET BODY":1738,"DEBRIS":9861}
-near epoch (2015-05-15): 24.9 ms per full-catalog SGP4 pass (1.64 us/object); failed/NaN: 45
-11 yr past epoch (2026-09-01): 1406.6 ms per full-catalog SGP4 pass (92.84 us/object); failed/NaN: 1908
-one 256-point orbit line via SGP4: 0.082 ms
