@@ -1,6 +1,6 @@
 # The three-burn rendezvous
 
-The default transfer in the Mission and Asteroids tabs (`api/threeburn.py`), with the two-burn Lambert rendezvous as the toggle. It implements the derivation sheet "A Three-Burn Impulsive Rendezvous Strategy Combining In-Plane Shaping, Plane Change, and Velocity Matching: Derivations and Notes". This document records how the sheet maps to the code, where the code follows it exactly, and where it had to differ.
+The default transfer in the Mission and Asteroids tabs (`api/threeburn.py`), with the two-burn Lambert rendezvous as the toggle. It implements the derivation sheet "A Three-Burn Impulsive Rendezvous Strategy Combining In-Plane Shaping, Plane Change, and Velocity Matching: Derivations and Notes" by Professor Sivakumar Rathinam, Department of Mechanical Engineering, Texas A&M University. This document records how the sheet maps to the code, where the code follows it exactly, and where it had to differ.
 
 ## 1. What the sheet describes
 

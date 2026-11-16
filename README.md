@@ -16,7 +16,7 @@ Satellites around Earth and five other bodies, multi-burn rendezvous between the
 </p>
 
 <p>
-<a href="https://github.com/SuryaThirukonda/openSpacepath/actions/workflows/ci.yml"><img src="https://github.com/SuryaThirukonda/openSpacepath/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://github.com/SuryaThirukonda/OpenSpacePath/actions/workflows/ci.yml"><img src="https://github.com/SuryaThirukonda/OpenSpacePath/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <a href="https://openspacepath.vercel.app"><img src="https://img.shields.io/badge/live-openspacepath.vercel.app-5ad7e6" alt="Live app"></a>
 <img src="https://img.shields.io/badge/three.js%20%C2%B7%20React%20%C2%B7%20FastAPI-0b0e14" alt="three.js, React and FastAPI">
 <a href="app/LICENSE"><img src="https://img.shields.io/badge/license-MIT-4c9f70" alt="MIT license"></a>
@@ -41,6 +41,10 @@ Satellites around Earth and five other bodies, multi-burn rendezvous between the
 
 ## See it move
 
+**Routing between asteroids**, shown at 2x speed. Add asteroids to the path, pick which one each stop is and how long to stay, fly the path, and watch the spacecraft go from Earth to each asteroid in turn.
+
+<img src="docs/media/demo-config.webp" width="100%" alt="The Asteroids tab: asteroids are added to the path one by one, the last stop's asteroid and stay are changed, the path is flown with three burns per transfer, and the timeline plays the route from Earth through each asteroid.">
+
 <table>
 <tr>
 <td width="50%"><img src="docs/media/demo-tour.webp" alt="A three-stop tour playing at one hour a second while the camera closes in on Earth."></td>
@@ -58,11 +62,31 @@ Satellites around Earth and five other bodies, multi-burn rendezvous between the
 <td><b>Launch from the ground.</b> Cape Canaveral, from liftoff through the gravity turn.</td>
 <td><b>Asteroid routes.</b> Earth to five GTOC11 asteroids, three burns per transfer.</td>
 </tr>
+<tr>
+<td width="50%"><img src="docs/media/demo-chase.webp" alt="The chase camera behind the ship as it fires a burn and leaves on the next leg, with Earth below."></td>
+<td width="50%"><img src="docs/media/demo-follow.webp" alt="The follow camera close to the ship as it leaves its parking orbit, the tour's path around it."></td>
+</tr>
+<tr>
+<td><b>Chase view.</b> Behind the ship along its flight, through a burn.</td>
+<td><b>Follow view.</b> Travels with the ship, up close.</td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/media/demo-run.webp" alt="A random-search run in the Asteroids tab: routes are evaluated, the convergence chart fills, and the best route so far is drawn around the Sun."></td>
+<td width="50%"><img src="docs/media/demo-birdseye.webp" alt="A four-stop tour around Earth seen from the bird's-eye camera, which looks straight down on each leg in turn."></td>
+</tr>
+<tr>
+<td><b>Route search.</b> An algorithm tries routes through eight asteroids; the best so far is drawn.</td>
+<td><b>A four-stop tour.</b> Bird's-eye view, straight down on each leg.</td>
+</tr>
 </table>
 
 ## Two burns or three
 
 Every transfer can be flown as a two-burn Lambert rendezvous or, by default, as a three-burn rendezvous: burn 1 shapes the orbit, burn 2 changes plane at the node line, and burn 3 matches the target. The Transfer section of the Mission and Asteroids tabs switches between them.
+
+<img src="docs/media/demo-switch.webp" width="100%" alt="The Mission tab: the Transfer section is opened, 2 burns is chosen and the tour planned and flown, then 3 burns is chosen and the same tour planned and flown again, with the delta-v, time and fuel changing.">
+
+Side by side, the same tour flown both ways:
 
 <img src="docs/media/demo-burns.webp" alt="The same tour flown side by side: on the left with two burns per leg, which runs out of fuel; on the right with three burns per leg, which arrives with fuel to spare.">
 
@@ -181,7 +205,7 @@ The single-key shortcuts can be switched off in the Help dialog.
 You need Node 22 or later and Python 3.12 (with [uv](https://docs.astral.sh/uv/) the setup is two commands).
 
 ```bash
-git clone https://github.com/SuryaThirukonda/openSpacepath.git && cd openSpacepath
+git clone https://github.com/SuryaThirukonda/OpenSpacePath.git && cd OpenSpacePath
 uv venv --python 3.12 api/.venv && source api/.venv/bin/activate
 uv pip install -r requirements.txt -r api/requirements-dev.txt
 npm --prefix app install
@@ -206,6 +230,7 @@ The physics is stated plainly rather than hidden. Satellites and the ship coast 
 ## Data and credits
 
 - Asteroid orbits: the GTOC11 catalogue as packaged with López-Ibáñez, Chicano and Gil-Merino, *The Asteroid Routing Problem* (2022), [Zenodo 6034335](https://zenodo.org/records/6034335), CC BY 4.0. Exact routing follows Rudich et al., *An Exact Framework for Solving the Space-Time Dependent TSP* (2024).
+- Three-burn rendezvous: the method is Professor Sivakumar Rathinam's (Department of Mechanical Engineering, Texas A&M University), from his derivation "A Three-Burn Impulsive Rendezvous Strategy Combining In-Plane Shaping, Plane Change, and Velocity Matching"; [docs/three-burn-transfer.md](docs/three-burn-transfer.md) shows how it maps to the code.
 - Lambert solvers: [lamberthub](https://github.com/jorgepiloto/lamberthub). SGP4: [satellite.js](https://github.com/shashwatak/satellite-js) and [sgp4](https://pypi.org/project/sgp4/).
 - Earth map: [Natural Earth](https://www.naturalearthdata.com/) through [world-atlas](https://github.com/topojson/world-atlas), public domain.
 - Body radii and gravitational parameters: NASA/JPL fact sheets.
