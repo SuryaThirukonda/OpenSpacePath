@@ -8,7 +8,7 @@
 Satellites around Earth and five other bodies, multi-burn rendezvous between them, and routes through a real asteroid catalogue, drawn in 3D.</p>
 
 <p>
-<a href="https://openspacepath.vercel.app"><b>Open the app</b></a> ·
+<a href="https://orbit.eyesinthesky.tech"><b>Open the app</b></a> ·
 <a href="#how-to-use">How to use</a> ·
 <a href="#run-it-locally">Run it locally</a> ·
 <a href="#how-it-works">How it works</a> ·
@@ -17,14 +17,14 @@ Satellites around Earth and five other bodies, multi-burn rendezvous between the
 
 <p>
 <a href="https://github.com/SuryaThirukonda/OpenSpacePath/actions/workflows/ci.yml"><img src="https://github.com/SuryaThirukonda/OpenSpacePath/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-<a href="https://openspacepath.vercel.app"><img src="https://img.shields.io/badge/live-openspacepath.vercel.app-5ad7e6" alt="Live app"></a>
+<a href="https://orbit.eyesinthesky.tech"><img src="https://img.shields.io/badge/live-orbit.eyesinthesky.tech-5ad7e6" alt="Live app"></a>
 <img src="https://img.shields.io/badge/three.js%20%C2%B7%20React%20%C2%B7%20FastAPI-0b0e14" alt="three.js, React and FastAPI">
 <a href="app/LICENSE"><img src="https://img.shields.io/badge/license-MIT-4c9f70" alt="MIT license"></a>
 </p>
 
 </div>
 
-<a href="https://openspacepath.vercel.app">
+<a href="https://orbit.eyesinthesky.tech">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/media/hero-light.jpg">
     <img src="docs/media/hero-dark.jpg" alt="Orbit Lab showing a three-stop tour around Earth: the Mission panel with the plan's legs, the tour's orbits and transfer arcs, the ship and its burn labels, and the selected satellite's elements.">
@@ -103,7 +103,7 @@ Three burns win when the plane changes or the arrival time is free, as on the fi
 
 ## How to use
 
-Open <https://openspacepath.vercel.app>. Nothing needs an account or a key. The page has a 3D scene in the middle with panels around it:
+Open <https://orbit.eyesinthesky.tech>. Nothing needs an account or a key. The page has a 3D scene in the middle with panels around it:
 
 <img src="docs/media/ui-tour.jpg" alt="The interface with numbered areas: 1 tabs, 2 the tab's controls, 3 framing buttons, 4 the View menu, 5 link, theme, help and full screen, 6 the Elements panel, 7 the timeline, 8 the scene.">
 
